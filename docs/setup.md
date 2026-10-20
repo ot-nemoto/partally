@@ -133,7 +133,7 @@ aws iam list-open-id-connect-providers --query "OpenIDConnectProviderList[].Arn"
 ロールを作成する（OIDC プロバイダの有無と GitHub の数値 ID を自動で取得する版）。
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/ot-nemoto/partally/claude/friendly-shannon-yppq56/infra/github-oidc.yaml
+curl -fsSLO https://raw.githubusercontent.com/ot-nemoto/partally/master/infra/github-oidc.yaml
 
 if aws iam list-open-id-connect-providers --output text | grep -q token.actions.githubusercontent.com; then
   CREATE=false
@@ -171,7 +171,7 @@ https://github.com/ot-nemoto/partally/settings/environments → **New environmen
 |---|---|---|
 | Environment secrets | `PARTALLY_ADMIN_PASSWORD` | 管理者パスワード |
 | Environment variables | `AWS_ROLE_ARN` | A-1 で控えたロール ARN |
-| Environment variables | `PARTALLY_BUDGET_EMAIL` | 任意: 予算アラートの通知先 |
+| Environment secrets | `PARTALLY_BUDGET_EMAIL` | 任意: 予算アラートの通知先（公開リポジトリの Actions ログに出ないよう Secret にする） |
 | Environment variables | `PARTALLY_BUDGET_USD` | 任意: 予算（USD、既定 5） |
 
 - Repository secrets（Settings → Secrets and variables → Actions）に登録しても動くが、Environment に登録すると **デプロイジョブ以外から参照できなくなる** ので、こちらを推奨する。
@@ -179,7 +179,7 @@ https://github.com/ot-nemoto/partally/settings/environments → **New environmen
 
 ### A-3. デプロイの実行
 
-https://github.com/ot-nemoto/partally/actions/workflows/deploy.yml → **Run workflow**。
+https://github.com/ot-nemoto/partally/actions/workflows/deploy.yml → **Run workflow**（ブランチは `master`）。
 
 ワークフローは「インストール → 型チェック・テスト → 画面ビルド → CDK デプロイ」を行う。初回は CloudFront の作成があるため 10 分前後かかる。完了後、`Deploy` ステップのログ末尾に URL が出る。
 

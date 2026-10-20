@@ -19,12 +19,12 @@ jobs:
     env:
       AWS_REGION: ap-northeast-1
       PARTALLY_ADMIN_PASSWORD: ${{ secrets.PARTALLY_ADMIN_PASSWORD }}
-      PARTALLY_BUDGET_EMAIL: ${{ vars.PARTALLY_BUDGET_EMAIL }}
+      PARTALLY_BUDGET_EMAIL: ${{ secrets.PARTALLY_BUDGET_EMAIL }}
       PARTALLY_BUDGET_USD: ${{ vars.PARTALLY_BUDGET_USD }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -53,7 +53,7 @@ jobs:
           print(json.dumps({k: claims.get(k) for k in ["sub", "aud", "repository", "environment", "ref"]}, indent=2))
           EOF
 
-      - uses: aws-actions/configure-aws-credentials@v5
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
