@@ -12,6 +12,7 @@ describe("PartallyStack", () => {
       env: { account: "123456789012", region: "ap-northeast-1" },
       adminPassword: "pw",
       sessionSecretParam: "/partally/session-secret",
+      cloudfrontPrivateKeyParam: "/partally/cloudfront-private-key",
       budgetEmail: "ops@example.com",
     });
     template = Template.fromStack(stack);
@@ -35,9 +36,53 @@ describe("PartallyStack", () => {
         Variables: Match.objectLike({
           ADMIN_PASSWORD: "pw",
           SESSION_SECRET_PARAM: "/partally/session-secret",
+          CLOUDFRONT_PRIVATE_KEY_PARAM: "/partally/cloudfront-private-key",
+          CLOUDFRONT_KEY_PAIR_ID: Match.anyValue(),
           TABLE_NAME: Match.anyValue(),
+          PHOTO_BUCKET: Match.anyValue(),
+          DISTRIBUTION_ID: Match.anyValue(),
         }),
       },
+    });
+  });
+
+  it("写真バケットは非公開で、POST の CORS だけを許可する", () => {
+    template.hasResourceProperties("AWS::S3::Bucket", {
+      CorsConfiguration: { CorsRules: [Match.objectLike({ AllowedMethods: ["POST"] })] },
+      PublicAccessBlockConfiguration: Match.objectLike({ BlockPublicPolicy: true }),
+    });
+  });
+
+  it("検閲待ちの本体画像が置かれたら取り込み Lambda を呼ぶ", () => {
+    template.hasResourceProperties("Custom::S3BucketNotifications", {
+      NotificationConfiguration: {
+        LambdaFunctionConfigurations: [
+          Match.objectLike({
+            Events: ["s3:ObjectCreated:*"],
+            Filter: {
+              Key: {
+                FilterRules: Match.arrayWith([
+                  { Name: "suffix", Value: "/full.jpg" },
+                  { Name: "prefix", Value: "photos/pending/" },
+                ]),
+              },
+            },
+          }),
+        ],
+      },
+    });
+  });
+
+  it("CloudFront の写真パスは鍵グループによる署名が必要", () => {
+    const dists = template.findResources("AWS::CloudFront::Distribution");
+    const config = Object.values(dists)[0]!.Properties.DistributionConfig;
+    for (const pattern of ["/photos/approved/*", "/photos/pending/*"]) {
+      const behavior = config.CacheBehaviors.find((b: any) => b.PathPattern === pattern);
+      expect(behavior.TrustedKeyGroups).toHaveLength(1);
+    }
+    template.resourceCountIs("AWS::CloudFront::KeyGroup", 1);
+    template.hasResourceProperties("AWS::CloudFormation::CustomResource", {
+      ParameterName: "/partally/cloudfront-private-key",
     });
   });
 

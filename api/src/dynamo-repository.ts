@@ -5,15 +5,21 @@ import {
   type BatchWriteCommandOutput,
   type DynamoDBDocumentClient,
   GetCommand,
+  PutCommand,
   QueryCommand,
   type QueryCommandInput,
   TransactWriteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
+import type { PhotoStatus, Settings } from "@partally/shared";
 import {
+  DEFAULT_SETTINGS,
   EpithetTakenError,
   formatLabel,
+  InvalidStateError,
   NotFoundError,
+  type Page,
+  type PhotoRecord,
   type Repository,
   TokenNotAvailableError,
   type TokenRecord,
@@ -26,10 +32,13 @@ export const keys = {
   token: (token: string) => ({ PK: `TOKEN#${token}`, SK: "META" }),
   user: (userId: string) => ({ PK: `USER#${userId}`, SK: "PROFILE" }),
   epithet: (epithet: string) => ({ PK: `EPITHET#${epithet}`, SK: "LOCK" }),
+  photo: (photoId: string) => ({ PK: `PHOTO#${photoId}`, SK: "META" }),
+  settings: { PK: "SETTINGS", SK: "GLOBAL" },
   tokenLabelCounter: { PK: "COUNTER", SK: "TOKEN_LABEL" },
 };
 
 const GSI1 = "GSI1";
+const GSI2 = "GSI2";
 const BATCH_WRITE_MAX = 25;
 
 export class DynamoRepository implements Repository {
@@ -254,6 +263,185 @@ export class DynamoRepository implements Repository {
     return { ...rest, status: "unbound" as const, updatedAt };
   }
 
+  async getPhoto(photoId: string) {
+    const { Item } = await this.client.send(
+      new GetCommand({ TableName: this.tableName, Key: keys.photo(photoId) }),
+    );
+    return Item ? toPhotoRecord(Item) : undefined;
+  }
+
+  async listPhotosByStatus(status: PhotoStatus, limit: number, cursor?: string): Promise<Page<PhotoRecord>> {
+    const page = await this.client.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        IndexName: GSI1,
+        KeyConditionExpression: "GSI1PK = :pk",
+        ExpressionAttributeValues: { ":pk": `PHOTOS#${status}` },
+        ScanIndexForward: false,
+        Limit: limit,
+        ExclusiveStartKey: decodeCursor(cursor),
+      }),
+    );
+    return { items: (page.Items ?? []).map(toPhotoRecord), cursor: encodeCursor(page.LastEvaluatedKey) };
+  }
+
+  async listPhotosByUploader(uploaderId: string) {
+    const items: Record<string, unknown>[] = [];
+    let ExclusiveStartKey: QueryCommandInput["ExclusiveStartKey"];
+    do {
+      const page = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: GSI2,
+          KeyConditionExpression: "GSI2PK = :pk",
+          ExpressionAttributeValues: { ":pk": `USER#${uploaderId}` },
+          ScanIndexForward: false,
+          ExclusiveStartKey,
+        }),
+      );
+      items.push(...(page.Items ?? []));
+      ExclusiveStartKey = page.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+    return items.map(toPhotoRecord);
+  }
+
+  async createPhoto(photo: PhotoRecord) {
+    const approved = photo.status === "approved";
+    try {
+      await this.client.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Put: {
+                TableName: this.tableName,
+                Item: photoItem(photo),
+                ConditionExpression: "attribute_not_exists(PK)",
+              },
+            },
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: keys.user(photo.uploaderId),
+                UpdateExpression: approved ? "ADD uploadCount :one, approvedCount :one" : "ADD uploadCount :one",
+                ConditionExpression: "attribute_exists(PK)",
+                ExpressionAttributeValues: { ":one": 1 },
+              },
+            },
+          ],
+        }),
+      );
+      return true;
+    } catch (e) {
+      const failed = conditionFailures(e);
+      if (failed?.[0]) return false;
+      if (failed?.[1]) throw new NotFoundError();
+      throw e;
+    }
+  }
+
+  async approvePhoto(photoId: string, reviewedAt: string) {
+    return this.review(photoId, "approved", reviewedAt, { attr: "approvedCount", delta: 1 });
+  }
+
+  async rejectPhoto(photoId: string, reviewedAt: string) {
+    return this.review(photoId, "rejected", reviewedAt, { attr: "uploadCount", delta: -1 });
+  }
+
+  async deleteApprovedPhoto(photoId: string) {
+    const photo = await this.getPhoto(photoId);
+    if (!photo) throw new NotFoundError();
+    if (photo.status !== "approved") throw new InvalidStateError();
+    try {
+      await this.client.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Delete: {
+                TableName: this.tableName,
+                Key: keys.photo(photoId),
+                ConditionExpression: "#status = :approved",
+                ExpressionAttributeNames: { "#status": "status" },
+                ExpressionAttributeValues: { ":approved": "approved" },
+              },
+            },
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: keys.user(photo.uploaderId),
+                UpdateExpression: "ADD uploadCount :minus, approvedCount :minus",
+                ExpressionAttributeValues: { ":minus": -1 },
+              },
+            },
+          ],
+        }),
+      );
+    } catch (e) {
+      if (conditionFailures(e)?.[0]) throw new InvalidStateError();
+      throw e;
+    }
+    return photo;
+  }
+
+  async getSettings(): Promise<Settings> {
+    const { Item } = await this.client.send(
+      new GetCommand({ TableName: this.tableName, Key: keys.settings }),
+    );
+    return { ...DEFAULT_SETTINGS, ...(Item ? { moderation: Item.moderation } : {}) };
+  }
+
+  async putSettings(settings: Settings) {
+    await this.client.send(
+      new PutCommand({ TableName: this.tableName, Item: { ...keys.settings, moderation: settings.moderation } }),
+    );
+  }
+
+  /** pending の写真を承認・却下し、アップロード者のカウンタを更新する */
+  private async review(
+    photoId: string,
+    status: "approved" | "rejected",
+    reviewedAt: string,
+    counter: { attr: "approvedCount" | "uploadCount"; delta: 1 | -1 },
+  ): Promise<PhotoRecord> {
+    const photo = await this.getPhoto(photoId);
+    if (!photo) throw new NotFoundError();
+    if (photo.status !== "pending") throw new InvalidStateError();
+    try {
+      await this.client.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: keys.photo(photoId),
+                UpdateExpression: "SET #status = :status, GSI1PK = :gsi1pk, reviewedAt = :reviewedAt",
+                ConditionExpression: "#status = :pending",
+                ExpressionAttributeNames: { "#status": "status" },
+                ExpressionAttributeValues: {
+                  ":status": status,
+                  ":gsi1pk": `PHOTOS#${status}`,
+                  ":reviewedAt": reviewedAt,
+                  ":pending": "pending",
+                },
+              },
+            },
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: keys.user(photo.uploaderId),
+                UpdateExpression: `ADD ${counter.attr} :delta`,
+                ExpressionAttributeValues: { ":delta": counter.delta },
+              },
+            },
+          ],
+        }),
+      );
+    } catch (e) {
+      if (conditionFailures(e)?.[0]) throw new InvalidStateError();
+      throw e;
+    }
+    return { ...photo, status, reviewedAt };
+  }
+
   /** 通し番号カウンタを count だけ進め、採番後の最大値を返す */
   private async allocateLabels(count: number): Promise<number> {
     const { Attributes } = await this.client.send(
@@ -297,6 +485,41 @@ function tokenItem(r: TokenRecord, labelNumber: number) {
     GSI1SK: String(labelNumber).padStart(6, "0"),
     ...r,
   };
+}
+
+function photoItem(photo: PhotoRecord) {
+  const sortKey = `${photo.createdAt}#${photo.photoId}`;
+  return {
+    ...keys.photo(photo.photoId),
+    GSI1PK: `PHOTOS#${photo.status}`,
+    GSI1SK: sortKey,
+    GSI2PK: `USER#${photo.uploaderId}`,
+    GSI2SK: sortKey,
+    ...photo,
+  };
+}
+
+function toPhotoRecord(item: Record<string, unknown>): PhotoRecord {
+  return {
+    photoId: item.photoId as string,
+    uploaderId: item.uploaderId as string,
+    status: item.status as PhotoRecord["status"],
+    createdAt: item.createdAt as string,
+    reviewedAt: item.reviewedAt as string | undefined,
+  };
+}
+
+function encodeCursor(key: Record<string, unknown> | undefined): string | undefined {
+  return key ? Buffer.from(JSON.stringify(key)).toString("base64url") : undefined;
+}
+
+function decodeCursor(cursor: string | undefined): Record<string, unknown> | undefined {
+  if (!cursor) return undefined;
+  try {
+    return JSON.parse(Buffer.from(cursor, "base64url").toString()) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
 }
 
 function userItem(user: UserRecord) {

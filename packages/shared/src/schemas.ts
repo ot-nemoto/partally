@@ -50,3 +50,16 @@ export type RegisterRequest = z.infer<typeof registerRequestSchema>;
 export type AdminLoginRequest = z.infer<typeof adminLoginRequestSchema>;
 export type IssueTokensRequest = z.infer<typeof issueTokensRequestSchema>;
 export type UpdateUserRequest = z.infer<typeof updateUserRequestSchema>;
+
+export const PHOTO_FULL_MAX_BYTES = 5 * 1024 * 1024;
+export const PHOTO_THUMB_MAX_BYTES = 500 * 1024;
+export const PHOTO_FULL_MAX_EDGE = 1600;
+export const PHOTO_THUMB_MAX_EDGE = 400;
+
+export const photoStatusSchema = z.enum(["pending", "approved", "rejected"]);
+
+export const updateSettingsRequestSchema = z.object({
+  moderation: z.enum(["pre", "post"]),
+});
+
+export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
