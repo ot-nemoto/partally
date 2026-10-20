@@ -40,6 +40,7 @@ flowchart LR
 | OIDC プロバイダ | 手順 A-1（既存なら流用） | GitHub Actions が発行するトークンを AWS が信頼するための設定 |
 | デプロイ用ロール（`partally-github-oidc` スタック） | 手順 A-1 | GitHub Actions が引き受けるロール |
 | アプリ本体（`Partally` スタック） | デプロイ時に CDK が作成 | DynamoDB / Lambda / API Gateway / S3 / CloudFront など |
+| CloudFront 署名用の秘密鍵（SSM `/partally/cloudfront-private-key`） | デプロイ時にカスタムリソースが自動作成 | 写真を見る権限（署名付き Cookie / URL）の発行。手動での作成は不要 |
 
 ---
 
@@ -280,6 +281,7 @@ aws cloudformation delete-stack --stack-name partally-github-oidc
 aws ssm delete-parameter --name /partally/session-secret
 ```
 
-- DynamoDB テーブルは誤削除防止のため `Partally` スタックを消しても残る。不要ならコンソールから手動で削除する。
+- DynamoDB テーブルと写真バケットは誤削除防止のため `Partally` スタックを消しても残る。不要ならコンソールから手動で削除する（バケットは中身を空にしてから）。
+- CloudFront 署名用の秘密鍵（`/partally/cloudfront-private-key`）は `Partally` スタックの削除時に自動で消える。
 - `partally-github-oidc` を `CreateOidcProvider=true` で作った場合、スタック削除で OIDC プロバイダも消える。他のシステムが後から使い始めていないか確認してから削除する。
 - `CDKToolkit` スタックは他のシステムも使っている可能性があるため、消さない。

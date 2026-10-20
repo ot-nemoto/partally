@@ -86,8 +86,11 @@ flowchart LR
 | パスパターン | オリジン | 備考 |
 |---|---|---|
 | `/api/*` | API Gateway (HTTP API) | キャッシュ無効。Cookie・クエリ・必要ヘッダを転送 |
-| `/photos/approved/*` | photos バケット (OAC) | **署名付き Cookie** 必須（公開済み写真） |
+| `/photos/approved/*` | photos バケット (OAC) | **署名付き Cookie または URL** 必須（公開済み写真） |
 | `/photos/pending/*` | photos バケット (OAC) | **署名付き URL** 必須（検閲待ち。管理者・本人のみ） |
+
+- 写真の S3 キーは CloudFront のパスと同じ `photos/{pending|approved}/<photoId>/{full|thumb}.jpg` とし、パスの書き換えを不要にする。
+- 署名はカスタムポリシーで、Resource のホスト部をワイルドカード（`https://*/photos/approved/*` など）にする。API がディストリビューションのドメインを知らなくてよく、鍵グループはこのディストリビューション専用なので他所では使えない。
 | `/*`（デフォルト） | web バケット (OAC) | CloudFront Function で拡張子のないパスを `/index.html` に書き換え（SPA ルーティング） |
 
 - S3 バケットはどちらも非公開（Block Public Access 有効）とし、CloudFront の OAC 経由でのみ読み取る。
@@ -99,7 +102,8 @@ flowchart LR
 | 関数 | トリガ | 役割 |
 |---|---|---|
 | `api` | API Gateway | すべての API。Node.js 22 + [Hono](https://hono.dev/) で 1 関数内ルーティング |
-| `photo-ingest` | S3 `ObjectCreated`（`pending/*/full.jpg`） | アップロード完了の検証と写真レコード登録、アップロード数加算 |
+| `photo-ingest` | S3 `ObjectCreated`（`photos/pending/*/full.jpg`） | アップロード完了の検証と写真レコード登録、アップロード数加算 |
+| （カスタムリソース） | デプロイ時 | CloudFront 署名用の鍵ペアを生成し、秘密鍵を SSM に保存、公開鍵を CloudFront に登録 |
 
 ### 2.3 秘密情報
 
@@ -107,7 +111,7 @@ flowchart LR
 |---|---|---|
 | `ADMIN_PASSWORD` | Lambda 環境変数（デプロイ時に指定） | 管理者ログイン |
 | `SESSION_SECRET` | SSM SecureString（`/partally/session-secret`） | セッション Cookie の HMAC 署名。作成手順と扱いは [setup.md](setup.md#セッション署名鍵とは) |
-| CloudFront 署名用秘密鍵 | SSM SecureString | 署名付き Cookie / URL の発行（公開鍵は CloudFront Key Group に登録） |
+| CloudFront 署名用秘密鍵 | SSM SecureString（`/partally/cloudfront-private-key`） | 署名付き Cookie / URL の発行。**デプロイ時にカスタムリソースが自動生成**し、公開鍵だけを CloudFront の Key Group に登録する（テンプレートに秘密鍵は残らない） |
 
 SSM Parameter Store の標準パラメータは無料。Lambda のコールドスタート時に取得してメモリにキャッシュする。
 
@@ -167,7 +171,6 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `photoId` | string | ULID |
 | `uploaderId` | string | アップロードしたユーザ |
 | `status` | `pending` \| `approved` \| `rejected` | 状態 |
-| `width` / `height` | number | 本体画像のサイズ |
 | `createdAt` / `reviewedAt` | string | |
 
 - 却下時は S3 のオブジェクトを削除し、レコードは `rejected` で残す（監査用）。
@@ -197,7 +200,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 - API は毎リクエストでユーザレコードを読み、`status = active` かつ `token` が Cookie の `tok` と一致することを確認する。紐づけ解除・再紐づけされたユーザの古い Cookie は 401 となり、SPA は QR 読み込みを促す。
 - 署名鍵を変更すると、発行済みの Cookie はすべて無効になる（全員が再ログイン）。
 - 更新系 API は `Content-Type: application/json` のみ受け付ける。クロスオリジンからの JSON 送信はプリフライトが必要になるため、`SameSite=Lax` と合わせて CSRF 対策とする。
-- 同時に **CloudFront 署名付き Cookie**（`CloudFront-Policy` / `CloudFront-Signature` / `CloudFront-Key-Pair-Id`、`Path=/photos/approved/`、有効期限 12 時間）を発行する。`GET /api/me` 呼び出し時に期限が近ければ再発行する。
+- 同時に **CloudFront 署名付き Cookie**（`CloudFront-Policy` / `CloudFront-Signature` / `CloudFront-Key-Pair-Id`、`Path=/photos/approved/`、有効期限 12 時間）を発行する。`GET /api/me` を呼ぶたびに再発行する（参加者画面は表示時に必ず呼ぶ）。
 - Cookie を失った場合（ブラウザ変更・アプリ内ブラウザ等）は QR を再度読み込めばログインできる。
 
 > **注意（運用）**: LINE 等のアプリ内 QR リーダーで開くとアプリ内ブラウザに Cookie が保存され、Safari/Chrome では未ログインになる。案内で「標準カメラで読み込む」ことを周知し、アプリ内ブラウザを検知した場合は注意文を表示する。
@@ -266,11 +269,11 @@ sequenceDiagram
   A-->>S: {photoId, full: 署名付きPOST, thumb: 署名付きPOST}
   S->>P: thumb.jpg を POST
   S->>P: full.jpg を POST
-  P-)I: ObjectCreated (pending/<photoId>/full.jpg)
-  I->>P: HeadObject（thumb の存在・メタデータ確認）
+  P-)I: ObjectCreated (photos/pending/<photoId>/full.jpg)
+  I->>P: HeadObject（本体・サムネイルのアップロード者メタデータが一致するか確認）
   I->>D: 写真レコード作成 + uploadCount 加算（条件付き・冪等）
   alt moderation = post（即時公開）
-    I->>P: approved/ へコピー、pending/ を削除
+    I->>P: photos/approved/ へコピー、photos/pending/ を削除
     I->>D: status=approved, approvedCount 加算
   end
   S->>A: GET /api/photos/mine（状態確認）
@@ -282,29 +285,34 @@ sequenceDiagram
   - Canvas で縮小・JPEG 再エンコード（本体 品質 0.8 / サムネ 品質 0.7）。再エンコードにより EXIF（位置情報含む）は除去される。
   - 変換・縮小に失敗した場合は **元画像を送らず** エラーを表示する。
 - **署名付き POST の条件**（有効期限 5 分）
-  - オブジェクトキー固定: `pending/<photoId>/full.jpg` / `pending/<photoId>/thumb.jpg`
+  - オブジェクトキー固定: `photos/pending/<photoId>/full.jpg` / `photos/pending/<photoId>/thumb.jpg`
   - `Content-Type = image/jpeg`
   - `content-length-range`: 本体 ≤ 5MB、サムネ ≤ 500KB
   - メタデータ `x-amz-meta-uploader = <userId>` を固定（ingest で照合）
 - **再送**: 送信待ちの画像を IndexedDB に保持し、失敗時・`online` イベント時に自動で再送する（会場の通信混雑対策）。
-- photos バケットには SPA のオリジンからの POST を許可する CORS を設定する。
+- photos バケットには POST を許可する CORS を設定する。オリジンは `*`（バケットの CORS にディストリビューションのドメインを入れると CDK で循環参照になるため）。POST は API が署名したポリシーが無いと受け付けられないので、オリジンを絞らなくても任意のアップロードはできない。
+- 取り込み時は、アップロード者が有効なユーザであること、本体とサムネイルのアップロード者が一致することを確認する。条件を満たさないアップロードは登録しない（S3 には残る）。
+- 同じ S3 イベントが重複して届いても、写真レコードの条件付き作成によりカウンタは 1 回だけ増える。
 
 ### 5.4 検閲・削除
 
 | 操作 | 処理 |
 |---|---|
-| 承認 | `pending/` → `approved/` へコピーし `pending/` を削除。`status=approved`、`approvedCount` 加算 |
-| 却下 | `pending/` のオブジェクトを削除。`status=rejected`、`uploadCount` 減算 |
-| 削除（公開済み） | `approved/` のオブジェクトとレコードを削除。`uploadCount`・`approvedCount` 減算。CloudFront の `/photos/approved/<photoId>/*` を Invalidation |
+| 承認 | `pending/` → `approved/` へコピー → DB を `status=approved`・`approvedCount` 加算 → `pending/` を削除（DB 更新に失敗しても画像が失われない順序） |
+| 却下 | DB を `status=rejected`・`uploadCount` 減算 → `pending/` のオブジェクトを削除 |
+| 削除（公開済み） | DB からレコードを削除・`uploadCount`・`approvedCount` 減算 → `approved/` のオブジェクトを削除 → CloudFront の `/photos/approved/<photoId>/*` を Invalidation |
+
+検閲待ちの写真は削除ではなく却下する（削除 API は公開済みのみ受け付ける）。
 
 - 検閲待ち写真は管理者・本人にのみ、API が発行する **CloudFront 署名付き URL**（有効期限 10 分）で表示する。
-- 公開済み写真のブラウザキャッシュは `Cache-Control: private, max-age=3600` 程度とし、削除後の残存時間を抑える。
+- 公開済み写真は `Cache-Control: max-age=3600` で保存する（`private` にすると CloudFront でキャッシュされず、S3 への GET が増えるため）。削除後もブラウザには最大 1 時間残り得る。
 
 ### 5.5 ギャラリー
 
 - `GET /api/photos?cursor=` で公開済み写真を新しい順にページング取得（GSI1 `PHOTOS#approved`）。
 - 画像は `/photos/approved/<photoId>/thumb.jpg`（一覧）・`full.jpg`（詳細）を署名付き Cookie で読み込む。
 - 新着反映は 20 秒間隔のポーリング（タブ非表示中は停止）。
+- 管理画面は管理者が参加者 Cookie を持たないため、状態にかかわらずすべて署名付き URL（有効期限 10 分）で表示する。
 
 ---
 
