@@ -1,6 +1,7 @@
 import type { UserDto, UserResponse, UsersResponse } from "@partally/shared";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
+import { Modal } from "../../components/Modal";
 
 export function AdminUsers() {
   const [users, setUsers] = useState<UserDto[]>();
@@ -116,15 +117,8 @@ function EditUserDialog(props: { user: UserDto; onClose: () => void; onSaved: (u
   }
 
   return (
-    <div className="dialog-backdrop">
-      <button
-        type="button"
-        className="dialog-backdrop-button"
-        onClick={props.onClose}
-        aria-label="閉じる"
-        tabIndex={-1}
-      />
-      <form className="card dialog" onSubmit={onSubmit} onKeyDown={(e) => e.key === "Escape" && props.onClose()}>
+    <Modal className="dialog" label="ユーザの編集" onClose={props.onClose} closable={!saving}>
+      <form className="card" onSubmit={onSubmit}>
         <h2>ユーザの編集</h2>
         <label className="field">
           <span>二つ名</span>
@@ -136,7 +130,7 @@ function EditUserDialog(props: { user: UserDto; onClose: () => void; onSaved: (u
         </label>
         {error && <p className="error">{error}</p>}
         <div className="buttons">
-          <button type="button" onClick={props.onClose}>
+          <button type="button" onClick={props.onClose} disabled={saving}>
             キャンセル
           </button>
           <button type="submit" className="primary" disabled={saving}>
@@ -144,6 +138,6 @@ function EditUserDialog(props: { user: UserDto; onClose: () => void; onSaved: (u
           </button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

@@ -1,14 +1,16 @@
 name: CI
 
-# PR と master への push で、型チェック・lint・テスト・ビルドを行う（デプロイはしない）
+# master 宛ての PR と master への push で、lint・型チェック・テスト・ビルドを行う（デプロイはしない）
 on:
   pull_request:
+    branches: [master]
   push:
     branches: [master]
 
+# PR は新しい push で古い実行を取り消す。master は取り消さず、どのコミットで壊れたかを残す
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
