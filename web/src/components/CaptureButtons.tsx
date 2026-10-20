@@ -1,5 +1,5 @@
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
-import { enqueuePhoto, type QueueState, subscribeQueue } from "../photos/queue";
+import { enqueuePhoto, flushQueue, type QueueState, subscribeQueue } from "../photos/queue";
 
 /** 撮影・写真選択のボタンと送信状況 */
 export function CaptureButtons(props: { onQueued?: () => void }) {
@@ -46,7 +46,18 @@ export function CaptureButtons(props: { onQueued?: () => void }) {
           {queue.uploading ? "送信中" : "送信待ち"}：{queue.waiting} 枚
         </p>
       )}
-      {(error ?? queue.error) && <p className="error small">{error ?? queue.error}</p>}
+      {error && <p className="error small">{error}</p>}
+      {queue.error && (
+        <div className="error small">
+          <p>{queue.error}</p>
+          {queue.errorDetail && <p className="muted">詳細：{queue.errorDetail}</p>}
+          {queue.waiting > 0 && !queue.uploading && (
+            <button type="button" onClick={() => void flushQueue()}>
+              今すぐ再送
+            </button>
+          )}
+        </div>
+      )}
     </section>
   );
 }
