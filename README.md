@@ -76,6 +76,38 @@ npm run typecheck
 
 4. 管理画面で QR を発行し、「未使用分を印刷」から印刷する。QR はデプロイ先の URL を指すため、**デプロイ後のドメインで印刷すること**。
 
+## 環境変数
+
+### デプロイ時（`npm run deploy` を実行するシェルで設定）
+
+| 変数 | 必須 | 既定値 | 説明 |
+|---|---|---|---|
+| `PARTALLY_ADMIN_PASSWORD` | ○ | – | 管理画面のログインパスワード。Lambda の環境変数 `ADMIN_PASSWORD` として渡る。未設定だと synth/deploy がエラーで止まる |
+| `PARTALLY_BUDGET_EMAIL` | – | – | 設定すると AWS Budgets の月額予算を作成し、このアドレスにアラートメールを送る。未設定なら予算は作らない |
+| `PARTALLY_BUDGET_USD` | – | `5` | 月額予算の金額（USD）。実績がこの 80% を超えると通知する。`PARTALLY_BUDGET_EMAIL` 未設定時は無視される |
+| `AWS_PROFILE` / `AWS_REGION` など | – | – | 通常の AWS CLI の認証・リージョン設定。CDK はここからデプロイ先アカウント・リージョンを決める（`CDK_DEFAULT_ACCOUNT` / `CDK_DEFAULT_REGION` として CDK CLI が自動で設定する）。リージョンが取れない場合は `ap-northeast-1` |
+
+予算アラートは通知するだけで、リソースを止めたり課金を制限したりはしない。
+
+セッション署名鍵を置く SSM パラメータ名は環境変数ではなく `infra/cdk.json` の `context.sessionSecretParam`（既定 `/partally/session-secret`）で指定する。
+
+### Lambda 実行時（CDK が自動で設定するため、手動での設定は不要）
+
+| 変数 | 説明 |
+|---|---|
+| `TABLE_NAME` | DynamoDB テーブル名 |
+| `ADMIN_PASSWORD` | 管理者パスワード（`PARTALLY_ADMIN_PASSWORD` の値） |
+| `SESSION_SECRET_PARAM` | セッション署名鍵の SSM パラメータ名。コールドスタート時に値を取得する |
+| `NODE_OPTIONS` | `--enable-source-maps`（エラーのスタックトレースを TypeScript の行番号で出す） |
+
+### ローカル開発時（`npm run dev:api`、すべて任意）
+
+| 変数 | 既定値 | 説明 |
+|---|---|---|
+| `PORT` | `8787` | API のポート |
+| `WEB_ORIGIN` | `http://localhost:5173` | 起動ログに出すお試し用 QR URL・管理画面 URL のオリジン。スマホから試すときは `http://<PC の IP>:5173` にする |
+| `ADMIN_PASSWORD` | `admin` | ローカルの管理者パスワード |
+
 ### 注意
 
 - 管理者パスワードは Lambda の環境変数（と CloudFormation テンプレート）に平文で入る。
