@@ -49,79 +49,12 @@ npm run typecheck
 
 ## デプロイ
 
-1. セッション署名鍵を SSM Parameter Store に作成する（初回のみ）
+初期設定とデプロイの手順は [docs/setup.md](docs/setup.md) を参照。
 
-   ```sh
-   aws ssm put-parameter --region ap-northeast-1 \
-     --name /partally/session-secret --type SecureString \
-     --value "$(openssl rand -base64 48)"
-   ```
+- **GitHub Actions から（推奨）**: AWS 側で署名鍵・CDK ブートストラップ・デプロイ用 IAM ロールを用意し、GitHub の `production` Environment に設定を登録して、Actions の Deploy ワークフローを手動実行する。
+- **手元の PC から**: 同じ AWS 側の準備をした上で `npm run deploy`。
 
-2. CDK のブートストラップ（そのアカウント・リージョンで初回のみ）
-
-   ```sh
-   npm run cdk -w infra -- bootstrap
-   ```
-
-3. 画面をビルドしてデプロイする
-
-   ```sh
-   export PARTALLY_ADMIN_PASSWORD='管理者パスワード'
-   export PARTALLY_BUDGET_EMAIL='alert@example.com'   # 任意: 月額予算アラートの通知先
-   export PARTALLY_BUDGET_USD=5                        # 任意: 予算（既定 5 USD）
-   npm run deploy
-   ```
-
-   出力の `Url` が参加者向け、`AdminUrl` が管理画面。
-
-4. 管理画面で QR を発行し、「未使用分を印刷」から印刷する。QR はデプロイ先の URL を指すため、**デプロイ後のドメインで印刷すること**。
-
-## GitHub Actions からのデプロイ
-
-`.github/workflows/deploy.yml` を手動実行すると、テスト → 画面ビルド → CDK デプロイを行う。AWS へは OIDC でロールを引き受けるため、アクセスキーを GitHub に置かない。
-
-### 初回設定
-
-1. **AWS 側（CloudShell で実行）**: AWS コンソールの東京リージョンで CloudShell を開き、以下を実行する
-
-   ```sh
-   # セッション署名鍵
-   aws ssm put-parameter --name /partally/session-secret --type SecureString \
-     --value "$(openssl rand -base64 48)"
-
-   # CDK のブートストラップ
-   npx -y aws-cdk@2 bootstrap aws://$(aws sts get-caller-identity --query Account --output text)/ap-northeast-1
-
-   # GitHub Actions 用の IAM ロール
-   curl -fsSLO https://raw.githubusercontent.com/ot-nemoto/partally/claude/friendly-shannon-yppq56/infra/github-oidc.yaml
-   aws cloudformation deploy --stack-name partally-github-oidc \
-     --template-file github-oidc.yaml --capabilities CAPABILITY_NAMED_IAM
-   aws cloudformation describe-stacks --stack-name partally-github-oidc \
-     --query "Stacks[0].Outputs[?OutputKey=='DeployRoleArn'].OutputValue" --output text
-   ```
-
-   - アカウントに GitHub の OIDC プロバイダ（`token.actions.githubusercontent.com`）が既にある場合は、`deploy` に `--parameter-overrides CreateOidcProvider=false` を付ける。
-   - 最後のコマンドで表示されたロール ARN を次の手順で使う。
-
-2. **GitHub 側**: リポジトリの Settings → Environments → New environment で `production` を作り、以下を登録する
-
-   | 種類 | 名前 | 値 |
-   |---|---|---|
-   | Secret | `PARTALLY_ADMIN_PASSWORD` | 管理者パスワード |
-   | Variable | `AWS_ROLE_ARN` | 手順 1 で表示されたロール ARN |
-   | Variable | `PARTALLY_BUDGET_EMAIL` | 任意: 予算アラートの通知先 |
-   | Variable | `PARTALLY_BUDGET_USD` | 任意: 予算（USD） |
-
-   Environment の「Required reviewers」に自分を入れると、デプロイ前に承認が必要になる。
-
-### デプロイの実行
-
-Actions タブ → Deploy → Run workflow。完了後、ジョブログの最後に出る `Partally.Url` / `Partally.AdminUrl` が URL。
-
-### 仕組みと権限
-
-- `infra/github-oidc.yaml` のロールは、このリポジトリの `production` Environment のジョブからしか引き受けられない。
-- ロール自体の権限は CDK のブートストラップロール（`cdk-hnb659fds-*`）を引き受けることだけ。実際のリソース作成は、ブートストラップ時に作られた CloudFormation 実行ロールが行う。
+デプロイ後、管理画面で QR を発行して印刷する。QR はデプロイ先の URL を指すため、**本番の管理画面から印刷すること**。
 
 ## 環境変数
 

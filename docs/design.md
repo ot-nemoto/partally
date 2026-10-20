@@ -106,7 +106,7 @@ flowchart LR
 | 名前 | 保管場所 | 用途 |
 |---|---|---|
 | `ADMIN_PASSWORD` | Lambda 環境変数（デプロイ時に指定） | 管理者ログイン |
-| `SESSION_SECRET` | SSM SecureString | セッション Cookie の HMAC 署名 |
+| `SESSION_SECRET` | SSM SecureString（`/partally/session-secret`） | セッション Cookie の HMAC 署名。作成手順と扱いは [setup.md](setup.md#セッション署名鍵とは) |
 | CloudFront 署名用秘密鍵 | SSM SecureString | 署名付き Cookie / URL の発行（公開鍵は CloudFront Key Group に登録） |
 
 SSM Parameter Store の標準パラメータは無料。Lambda のコールドスタート時に取得してメモリにキャッシュする。
@@ -191,9 +191,12 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 ### 4.1 参加者
 
 - QR 認証成功時に API が `session` Cookie を発行する。
-  - 中身: `{ uid, iat }` を `SESSION_SECRET` で HMAC 署名したもの
-  - 属性: `HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=30日`
-- API は毎リクエストでユーザレコードを読み、`status = active` かつ token が一致することを確認する。紐づけ解除されたユーザは 401 となり、SPA は QR 読み込みを促す。
+  - 形式: `<base64url(JSON)>.<base64url(HMAC-SHA256)>`。JSON は `{ uid, tok, iat }`（ユーザ ID・QR トークン・発行時刻）
+  - 署名鍵は `SESSION_SECRET`。署名が合わない Cookie は未ログインとして扱うため、中身を書き換えてのなりすましはできない
+  - 属性: `HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=30日`。`iat` から 30 日を過ぎたものもサーバ側で拒否する
+- API は毎リクエストでユーザレコードを読み、`status = active` かつ `token` が Cookie の `tok` と一致することを確認する。紐づけ解除・再紐づけされたユーザの古い Cookie は 401 となり、SPA は QR 読み込みを促す。
+- 署名鍵を変更すると、発行済みの Cookie はすべて無効になる（全員が再ログイン）。
+- 更新系 API は `Content-Type: application/json` のみ受け付ける。クロスオリジンからの JSON 送信はプリフライトが必要になるため、`SameSite=Lax` と合わせて CSRF 対策とする。
 - 同時に **CloudFront 署名付き Cookie**（`CloudFront-Policy` / `CloudFront-Signature` / `CloudFront-Key-Pair-Id`、`Path=/photos/approved/`、有効期限 12 時間）を発行する。`GET /api/me` 呼び出し時に期限が近ければ再発行する。
 - Cookie を失った場合（ブラウザ変更・アプリ内ブラウザ等）は QR を再度読み込めばログインできる。
 
@@ -202,8 +205,8 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 ### 4.2 管理者
 
 - `/admin` 画面でパスワードを入力 → `POST /api/admin/login` で `ADMIN_PASSWORD` と定数時間比較。
-- 成功時に `admin_session` Cookie（HMAC 署名、`HttpOnly; Secure; SameSite=Strict; Path=/api/admin; Max-Age=12時間`）を発行。
-- ログイン API は API Gateway のルート単位スロットリングで総当たりを緩和する。
+- 成功時に `admin_session` Cookie（`{ adm: true, iat }` を `SESSION_SECRET` で HMAC 署名、`HttpOnly; Secure; SameSite=Strict; Path=/api/admin; Max-Age=12時間`）を発行。
+- パスワードの総当たりは API Gateway の `$default` ステージのスロットリング（50 rps / バースト 100）で緩和する。
 
 ---
 
