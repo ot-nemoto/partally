@@ -52,16 +52,12 @@ export class DynamoRepository implements Repository {
   ) {}
 
   async getToken(token: string) {
-    const { Item } = await this.client.send(
-      new GetCommand({ TableName: this.tableName, Key: keys.token(token) }),
-    );
+    const { Item } = await this.client.send(new GetCommand({ TableName: this.tableName, Key: keys.token(token) }));
     return Item ? toTokenRecord(Item) : undefined;
   }
 
   async getUser(userId: string) {
-    const { Item } = await this.client.send(
-      new GetCommand({ TableName: this.tableName, Key: keys.user(userId) }),
-    );
+    const { Item } = await this.client.send(new GetCommand({ TableName: this.tableName, Key: keys.user(userId) }));
     return Item ? toUserRecord(Item) : undefined;
   }
 
@@ -193,9 +189,7 @@ export class DynamoRepository implements Repository {
 
     if (!epithetChanged) {
       try {
-        const { Attributes } = await this.client.send(
-          new UpdateCommand({ ...userUpdate, ReturnValues: "ALL_NEW" }),
-        );
+        const { Attributes } = await this.client.send(new UpdateCommand({ ...userUpdate, ReturnValues: "ALL_NEW" }));
         return toUserRecord(Attributes!);
       } catch (e) {
         if (isConditionalCheckFailed(e)) throw new NotFoundError();
@@ -243,7 +237,7 @@ export class DynamoRepository implements Repository {
 
   async unbindUser(userId: string, updatedAt: string) {
     const current = await this.getUser(userId);
-    if (!current || current.status !== "active" || !current.token) throw new NotFoundError();
+    if (current?.status !== "active" || !current.token) throw new NotFoundError();
 
     try {
       await this.client.send(
@@ -286,9 +280,7 @@ export class DynamoRepository implements Repository {
   }
 
   async getPhoto(photoId: string) {
-    const { Item } = await this.client.send(
-      new GetCommand({ TableName: this.tableName, Key: keys.photo(photoId) }),
-    );
+    const { Item } = await this.client.send(new GetCommand({ TableName: this.tableName, Key: keys.photo(photoId) }));
     return Item ? toPhotoRecord(Item) : undefined;
   }
 
@@ -374,9 +366,7 @@ export class DynamoRepository implements Repository {
   }
 
   async getSettings(): Promise<Settings> {
-    const { Item } = await this.client.send(
-      new GetCommand({ TableName: this.tableName, Key: keys.settings }),
-    );
+    const { Item } = await this.client.send(new GetCommand({ TableName: this.tableName, Key: keys.settings }));
     return { ...DEFAULT_SETTINGS, ...(Item ? { moderation: Item.moderation } : {}) };
   }
 

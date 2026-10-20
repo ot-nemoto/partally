@@ -30,7 +30,12 @@ export function CaptureButtons(props: { onQueued?: () => void }) {
   return (
     <section className="card">
       <div className="capture-buttons">
-        <button type="button" className="primary capture" onClick={() => cameraRef.current?.click()} disabled={processing}>
+        <button
+          type="button"
+          className="primary capture"
+          onClick={() => cameraRef.current?.click()}
+          disabled={processing}
+        >
           撮影する
         </button>
         <button type="button" onClick={() => libraryRef.current?.click()} disabled={processing}>

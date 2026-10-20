@@ -1,4 +1,4 @@
-import { parsePhotoKey, type PhotoStorage } from "./photo-storage.js";
+import { type PhotoStorage, parsePhotoKey } from "./photo-storage.js";
 import type { Repository } from "./repository.js";
 
 export interface IngestDeps {
@@ -17,7 +17,7 @@ export type IngestResult = "created" | "duplicate" | "ignored";
 export async function ingestUpload(deps: IngestDeps, key: string): Promise<IngestResult> {
   const { repo, storage, now = () => new Date() } = deps;
   const parsed = parsePhotoKey(key);
-  if (!parsed || parsed.area !== "uploads" || parsed.kind !== "full") return "ignored";
+  if (parsed?.area !== "uploads" || parsed.kind !== "full") return "ignored";
   const { photoId } = parsed;
 
   // 一度取り込んだ photoId は（却下・削除後も）受け付けない。署名付き POST は有効期限内なら何度でも使えるため、
@@ -38,7 +38,7 @@ export async function ingestUpload(deps: IngestDeps, key: string): Promise<Inges
     return "ignored";
   }
   const user = await repo.getUser(uploaderId);
-  if (!user || user.status !== "active") {
+  if (user?.status !== "active") {
     console.warn(`アップロード者 ${uploaderId} が有効なユーザではないため無視します: ${key}`);
     return "ignored";
   }

@@ -32,6 +32,7 @@ jobs:
       - name: Install
         run: npx -y npm@11 ci
 
+      # lint・整形は CI（ci.yml）で確認済みのため、デプロイでは動作に関わる型チェックとテストだけを行う
       - name: Test
         run: |
           npm run typecheck

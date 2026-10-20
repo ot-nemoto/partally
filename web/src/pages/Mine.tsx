@@ -1,4 +1,4 @@
-import type { PhotoDto, PhotosResponse, PhotoStatus } from "@partally/shared";
+import type { PhotoDto, PhotoStatus, PhotosResponse } from "@partally/shared";
 import { useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "../api";
 import { CaptureButtons } from "../components/CaptureButtons";
@@ -58,4 +58,3 @@ export function Mine() {
     </>
   );
 }
-

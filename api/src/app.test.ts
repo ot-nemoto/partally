@@ -431,7 +431,11 @@ describe("API", () => {
         const { fields } = res.body[kind];
         storage.put(fields.key, new Uint8Array(bytes), fields["x-amz-meta-uploader"]);
       }
-      return { photoId: res.body.photoId as string, forms: res.body, result: await ingestUpload({ repo, storage }, res.body.full.fields.key) };
+      return {
+        photoId: res.body.photoId as string,
+        forms: res.body,
+        result: await ingestUpload({ repo, storage }, res.body.full.fields.key),
+      };
     }
 
     it("取り込み後に同じ署名付き POST で再アップロードしても、検閲待ちの画像は差し替わらない", async () => {

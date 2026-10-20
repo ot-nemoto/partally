@@ -6,7 +6,8 @@ import { ApiError, api, errorMessage } from "../../api";
 
 interface Card {
   token: TokenDto;
-  svg: string;
+  /** QR コードの SVG を data URL にしたもの（拡大・印刷しても粗くならない） */
+  src: string;
 }
 
 /** QR コードを並べた印刷用ページ。ブラウザの印刷機能で PDF 化・印刷する */
@@ -24,11 +25,13 @@ export function AdminTokensPrint() {
       const rendered = await Promise.all(
         targets.map(async (token) => ({
           token,
-          svg: await QRCode.toString(`${location.origin}/q/${token.token}`, {
-            type: "svg",
-            errorCorrectionLevel: "M",
-            margin: 1,
-          }),
+          src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+            await QRCode.toString(`${location.origin}/q/${token.token}`, {
+              type: "svg",
+              errorCorrectionLevel: "M",
+              margin: 1,
+            }),
+          )}`,
         })),
       );
       setCards(rendered);
@@ -50,10 +53,9 @@ export function AdminTokensPrint() {
       </div>
       {error && <p className="error">{error}</p>}
       <div className="qr-grid">
-        {cards?.map(({ token, svg }) => (
+        {cards?.map(({ token, src }) => (
           <div key={token.token} className="qr-card">
-            {/* qrcode ライブラリが生成した SVG なので埋め込んで問題ない */}
-            <div className="qr" dangerouslySetInnerHTML={{ __html: svg }} />
+            <img className="qr" src={src} alt={`QR コード No. ${token.label}`} />
             <p className="qr-label">No. {token.label}</p>
             <p className="qr-hint">スマホのカメラで読み込んでください</p>
           </div>

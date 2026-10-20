@@ -23,9 +23,7 @@ export interface TokenDto {
   boundAt?: string;
 }
 
-export type QrLoginResponse =
-  | { status: "bound"; user: UserDto }
-  | { status: "unbound" };
+export type QrLoginResponse = { status: "bound"; user: UserDto } | { status: "unbound" };
 
 export interface RegisterResponse {
   user: UserDto;

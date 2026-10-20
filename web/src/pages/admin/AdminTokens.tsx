@@ -39,13 +39,7 @@ export function AdminTokens() {
       <form className="inline-form" onSubmit={issue}>
         <label>
           発行数
-          <input
-            type="number"
-            min={1}
-            max={200}
-            value={count}
-            onChange={(e) => setCount(Number(e.target.value))}
-          />
+          <input type="number" min={1} max={200} value={count} onChange={(e) => setCount(Number(e.target.value))} />
         </label>
         <button type="submit" className="primary" disabled={issuing}>
           発行

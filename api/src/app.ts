@@ -12,9 +12,9 @@ import {
   randomEpithet,
   registerRequestSchema,
   type TokenDto,
+  type UserDto,
   updateSettingsRequestSchema,
   updateUserRequestSchema,
-  type UserDto,
 } from "@partally/shared";
 import { type Context, Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
@@ -165,7 +165,7 @@ export function createApp(deps: AppDeps) {
     if (token.status === "unbound" || !token.userId) return c.json({ status: "unbound" as const });
 
     const user = await repo.getUser(token.userId);
-    if (!user || user.status !== "active" || user.token !== token.token) {
+    if (user?.status !== "active" || user.token !== token.token) {
       // トークンとユーザの状態が食い違っている。管理者に紐づけ解除してもらう必要がある
       return fail(c, 404, "invalid_token");
     }
@@ -215,14 +215,9 @@ export function createApp(deps: AppDeps) {
   });
 
   const requireUser = async (c: Context<Env>, next: () => Promise<void>) => {
-    const session = verify<UserSession>(
-      getCookie(c, USER_COOKIE),
-      sessionSecret,
-      USER_SESSION_MAX_AGE,
-      nowSeconds(),
-    );
+    const session = verify<UserSession>(getCookie(c, USER_COOKIE), sessionSecret, USER_SESSION_MAX_AGE, nowSeconds());
     const user = session && (await repo.getUser(session.uid));
-    if (!session || !user || user.status !== "active" || user.token !== session.tok) {
+    if (!session || user?.status !== "active" || user.token !== session.tok) {
       deleteCookie(c, USER_COOKIE, { path: "/", secure: secureCookies });
       return fail(c, 401, "unauthorized");
     }

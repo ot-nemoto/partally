@@ -1,6 +1,7 @@
 import type { UserDto, UserResponse, UsersResponse } from "@partally/shared";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
+import { Modal } from "../../components/Modal";
 
 export function AdminUsers() {
   const [users, setUsers] = useState<UserDto[]>();
@@ -20,7 +21,11 @@ export function AdminUsers() {
   }
 
   async function unbind(user: UserDto) {
-    if (!confirm(`${user.displayName} と QR コードの紐づけを解除します。\n本人は再ログインできなくなり、その QR は新規登録用に戻ります。よろしいですか？`)) {
+    if (
+      !confirm(
+        `${user.displayName} と QR コードの紐づけを解除します。\n本人は再ログインできなくなり、その QR は新規登録用に戻ります。よろしいですか？`,
+      )
+    ) {
       return;
     }
     try {
@@ -112,8 +117,8 @@ function EditUserDialog(props: { user: UserDto; onClose: () => void; onSaved: (u
   }
 
   return (
-    <div className="dialog-backdrop" onClick={props.onClose}>
-      <form className="card dialog" onSubmit={onSubmit} onClick={(e) => e.stopPropagation()}>
+    <Modal className="dialog" label="ユーザの編集" onClose={props.onClose} closable={!saving}>
+      <form className="card" onSubmit={onSubmit}>
         <h2>ユーザの編集</h2>
         <label className="field">
           <span>二つ名</span>
@@ -125,7 +130,7 @@ function EditUserDialog(props: { user: UserDto; onClose: () => void; onSaved: (u
         </label>
         {error && <p className="error">{error}</p>}
         <div className="buttons">
-          <button type="button" onClick={props.onClose}>
+          <button type="button" onClick={props.onClose} disabled={saving}>
             キャンセル
           </button>
           <button type="submit" className="primary" disabled={saving}>
@@ -133,6 +138,6 @@ function EditUserDialog(props: { user: UserDto; onClose: () => void; onSaved: (u
           </button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

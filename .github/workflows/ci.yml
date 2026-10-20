@@ -1,0 +1,42 @@
+name: CI
+
+# master 宛ての PR と master への push で、lint・型チェック・テスト・ビルドを行う（デプロイはしない）
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+# PR は新しい push で古い実行を取り消す。master は取り消さず、どのコミットで壊れたかを残す
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npx -y npm@11 ci
+
+      - name: Lint
+        run: npx biome ci .
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build web
+        run: npm run build

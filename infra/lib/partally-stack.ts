@@ -1,27 +1,27 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
+  aws_apigatewayv2 as apigw,
+  aws_budgets as budgets,
   CfnOutput,
   CustomResource,
+  aws_cloudfront as cloudfront,
+  custom_resources as cr,
   Duration,
+  aws_dynamodb as dynamodb,
+  aws_iam as iam,
+  aws_apigatewayv2_integrations as integrations,
+  aws_lambda as lambda,
+  aws_logs as logs,
+  aws_lambda_nodejs as nodejs,
+  aws_cloudfront_origins as origins,
   RemovalPolicy,
   Stack,
   type StackProps,
-  aws_apigatewayv2 as apigw,
-  aws_apigatewayv2_integrations as integrations,
-  aws_budgets as budgets,
-  aws_cloudfront as cloudfront,
-  aws_cloudfront_origins as origins,
-  aws_dynamodb as dynamodb,
-  aws_iam as iam,
-  aws_lambda as lambda,
-  aws_lambda_nodejs as nodejs,
-  aws_logs as logs,
   aws_s3 as s3,
   aws_s3_deployment as s3deploy,
   aws_s3_notifications as s3n,
   aws_ssm as ssm,
-  custom_resources as cr,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
 
@@ -157,9 +157,7 @@ function handler(event) {
         origin: origins.S3BucketOrigin.withOriginAccessControl(webBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
-        functionAssociations: [
-          { function: spaRewrite, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST },
-        ],
+        functionAssociations: [{ function: spaRewrite, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }],
       },
       additionalBehaviors: {
         "/api/*": {
@@ -251,11 +249,10 @@ function handler(event) {
     table.grantReadWriteData(ingestFunction);
     photoBucket.grantReadWrite(ingestFunction);
     photoBucket.grantDelete(ingestFunction);
-    photoBucket.addEventNotification(
-      s3.EventType.OBJECT_CREATED,
-      new s3n.LambdaDestination(ingestFunction),
-      { prefix: "uploads/", suffix: "/full.jpg" },
-    );
+    photoBucket.addEventNotification(s3.EventType.OBJECT_CREATED, new s3n.LambdaDestination(ingestFunction), {
+      prefix: "uploads/",
+      suffix: "/full.jpg",
+    });
 
     // web/dist が無い場合（npm run build 前の synth やテスト）はアップロードを省く
     const webDist = path("../../web/dist");

@@ -21,10 +21,7 @@ describe("PartallyStack", () => {
   it("DynamoDB はオンデマンドで GSI を 2 つ持つ", () => {
     template.hasResourceProperties("AWS::DynamoDB::GlobalTable", {
       BillingMode: "PAY_PER_REQUEST",
-      GlobalSecondaryIndexes: [
-        Match.objectLike({ IndexName: "GSI1" }),
-        Match.objectLike({ IndexName: "GSI2" }),
-      ],
+      GlobalSecondaryIndexes: [Match.objectLike({ IndexName: "GSI1" }), Match.objectLike({ IndexName: "GSI2" })],
     });
   });
 

@@ -31,8 +31,8 @@ describe("randomEpithet", () => {
   });
 
   it("すべての組み合わせが二つ名の上限文字数に収まる", () => {
-    const longest = Math.max(...EPITHET_PREFIXES.map((p) => p.length)) +
-      Math.max(...EPITHET_TITLES.map((t) => t.length));
+    const longest =
+      Math.max(...EPITHET_PREFIXES.map((p) => p.length)) + Math.max(...EPITHET_TITLES.map((t) => t.length));
     expect(longest).toBeLessThanOrEqual(20);
   });
 });
