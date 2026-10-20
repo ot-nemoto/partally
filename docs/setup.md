@@ -130,7 +130,7 @@ aws iam list-open-id-connect-providers --query "OpenIDConnectProviderList[].Arn"
 
   既存のプロバイダを流用しても、プロバイダ自体は変更しないので他のシステムに影響はない。
 
-ロールを作成する（判定を自動で行う版）。
+ロールを作成する（OIDC プロバイダの有無と GitHub の数値 ID を自動で取得する版）。
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/ot-nemoto/partally/claude/friendly-shannon-yppq56/infra/github-oidc.yaml
@@ -141,9 +141,14 @@ else
   CREATE=true
 fi
 
+# GitHub の owner とリポジトリの数値 ID（公開情報）
+read OWNER_ID REPO_ID < <(curl -fsSL https://api.github.com/repos/ot-nemoto/partally \
+  | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r["owner"]["id"], r["id"])')
+echo "CreateOidcProvider=$CREATE OwnerId=$OWNER_ID RepoId=$REPO_ID"
+
 aws cloudformation deploy --stack-name partally-github-oidc \
   --template-file github-oidc.yaml --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides CreateOidcProvider=$CREATE
+  --parameter-overrides CreateOidcProvider=$CREATE GitHubOwnerId=$OWNER_ID GitHubRepoId=$REPO_ID
 
 aws cloudformation describe-stacks --stack-name partally-github-oidc \
   --query "Stacks[0].Outputs[?OutputKey=='DeployRoleArn'].OutputValue" --output text
@@ -154,6 +159,8 @@ aws cloudformation describe-stacks --stack-name partally-github-oidc \
 #### このロールの権限
 
 - 引き受けられるのは **`ot-nemoto/partally` リポジトリの `production` Environment で動くジョブだけ**（`sub` クレームで制限）。
+- GitHub の OIDC トークンの `sub` は、ユーザ名・リポジトリ名に数値 ID が付いた形式（`repo:ot-nemoto@<owner ID>/partally@<repo ID>:environment:production`）で発行される。ID を条件に含めることで、リポジトリやアカウントが削除され同じ名前で作り直された場合のなりすましも防ぐ。
+- `GitHubOwnerId` / `GitHubRepoId` を省略すると、ID なしの形式（`repo:ot-nemoto/partally:environment:production`）で照合する。トークンがどちらの形式かは、Deploy ワークフローの「Show OIDC claims」ステップのログで確認できる。
 - ロール自体の権限は CDK のブートストラップロール（`cdk-hnb659fds-*`）を引き受けることだけ。実際のリソース作成は、ブートストラップで作られた CloudFormation 実行ロールが行う。
 
 ### A-2. GitHub の Environment 設定

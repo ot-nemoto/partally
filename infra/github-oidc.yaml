@@ -4,10 +4,21 @@ Description: >-
   ロール自体は CDK のブートストラップロール（cdk-hnb659fds-*）を引き受ける権限だけを持つ。
 
 Parameters:
-  GitHubRepository:
+  GitHubOwner:
     Type: String
-    Default: ot-nemoto/partally
-    Description: owner/repo 形式
+    Default: ot-nemoto
+  GitHubRepo:
+    Type: String
+    Default: partally
+  GitHubOwnerId:
+    Type: String
+    Default: ""
+    Description: >-
+      GitHub の owner の数値 ID。OIDC の sub が ID 付き形式（repo:owner@ID/repo@ID:...）の場合に指定する
+  GitHubRepoId:
+    Type: String
+    Default: ""
+    Description: GitHub のリポジトリの数値 ID。GitHubOwnerId と合わせて指定する
   GitHubEnvironment:
     Type: String
     Default: production
@@ -20,6 +31,9 @@ Parameters:
 
 Conditions:
   ShouldCreateOidcProvider: !Equals [!Ref CreateOidcProvider, "true"]
+  HasGitHubIds: !And
+    - !Not [!Equals [!Ref GitHubOwnerId, ""]]
+    - !Not [!Equals [!Ref GitHubRepoId, ""]]
 
 Resources:
   GitHubOidcProvider:
@@ -50,8 +64,12 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                # 指定リポジトリの指定 Environment のジョブだけが引き受けられる
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:environment:${GitHubEnvironment}
+                # 指定リポジトリの指定 Environment のジョブだけが引き受けられる。
+                # ID 付き形式は、同名で作り直されたリポジトリ・アカウントからのなりすましも防ぐ
+                token.actions.githubusercontent.com:sub: !If
+                  - HasGitHubIds
+                  - !Sub repo:${GitHubOwner}@${GitHubOwnerId}/${GitHubRepo}@${GitHubRepoId}:environment:${GitHubEnvironment}
+                  - !Sub repo:${GitHubOwner}/${GitHubRepo}:environment:${GitHubEnvironment}
       Policies:
         - PolicyName: assume-cdk-bootstrap-roles
           PolicyDocument:
