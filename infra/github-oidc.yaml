@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  partally: GitHub Actions から OIDC でデプロイするための IAM ロール。
+  ロール自体は CDK のブートストラップロール（cdk-hnb659fds-*）を引き受ける権限だけを持つ。
+
+Parameters:
+  GitHubRepository:
+    Type: String
+    Default: ot-nemoto/partally
+    Description: owner/repo 形式
+  GitHubEnvironment:
+    Type: String
+    Default: production
+    Description: デプロイを許可する GitHub の Environment 名
+  CreateOidcProvider:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: "true"
+    Description: アカウントに token.actions.githubusercontent.com の OIDC プロバイダが既にある場合は false
+
+Conditions:
+  ShouldCreateOidcProvider: !Equals [!Ref CreateOidcProvider, "true"]
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: partally-github-deploy
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - ShouldCreateOidcProvider
+                - !Ref GitHubOidcProvider
+                - !Sub arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                # 指定リポジトリの指定 Environment のジョブだけが引き受けられる
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:environment:${GitHubEnvironment}
+      Policies:
+        - PolicyName: assume-cdk-bootstrap-roles
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/cdk-hnb659fds-*
+      Tags:
+        - Key: Project
+          Value: partally
+
+Outputs:
+  DeployRoleArn:
+    Description: GitHub の Environment 変数 AWS_ROLE_ARN に設定する
+    Value: !GetAtt DeployRole.Arn

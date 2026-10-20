@@ -1,0 +1,49 @@
+name: Deploy
+
+# 手動実行のみ（Actions タブの「Run workflow」から）
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # OIDC で AWS のロールを引き受けるため
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_REGION: ap-northeast-1
+      PARTALLY_ADMIN_PASSWORD: ${{ secrets.PARTALLY_ADMIN_PASSWORD }}
+      PARTALLY_BUDGET_EMAIL: ${{ vars.PARTALLY_BUDGET_EMAIL }}
+      PARTALLY_BUDGET_USD: ${{ vars.PARTALLY_BUDGET_USD }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npx -y npm@11 ci
+
+      - name: Test
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Build web
+        run: npm run build
+
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy
+        run: npm run cdk -w infra -- deploy --require-approval never
