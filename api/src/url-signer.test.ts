@@ -31,7 +31,10 @@ describe("CloudFrontSigner", () => {
   });
 
   it("署名付き URL はパス専用のポリシーをクエリに付ける", () => {
-    const url = new URL(signer.signPath("/photos/pending/P1/thumb.jpg", expiresAt), "https://example.com");
+    const signed = signer.signPath("/photos/pending/P1/thumb.jpg", expiresAt);
+    // CloudFront の URL セーフ Base64 の ~ をパーセントエンコードしない
+    expect(signed).not.toMatch(/%/);
+    const url = new URL(signed, "https://example.com");
     expect(url.pathname).toBe("/photos/pending/P1/thumb.jpg");
     expect(url.searchParams.get("Key-Pair-Id")).toBe("K123");
 

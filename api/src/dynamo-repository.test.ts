@@ -146,8 +146,8 @@ describe("DynamoRepository", () => {
       const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
       expect(items[0]!.Update!.ExpressionAttributeValues).toMatchObject({ ":gsi1pk": "PHOTOS#approved" });
       expect(items[1]!.Update).toMatchObject({
-        UpdateExpression: "ADD approvedCount :delta",
-        ExpressionAttributeValues: { ":delta": 1 },
+        UpdateExpression: "ADD approvedCount :approvedCount",
+        ExpressionAttributeValues: { ":approvedCount": 1 },
       });
 
       ddb.on(GetCommand).resolves({ Item: { ...photo, status: "approved" } });
@@ -169,6 +169,23 @@ describe("DynamoRepository", () => {
 
       await repo.listPhotosByStatus("approved", 30, page.cursor);
       expect(ddb.commandCalls(QueryCommand)[1]!.args[0].input.ExclusiveStartKey).toEqual(lastKey);
+    });
+  });
+
+  describe("削除", () => {
+    it("公開済みの写真は記録を残したまま deleted にし、両方のカウンタを減らす", async () => {
+      ddb.on(GetCommand).resolves({
+        Item: { photoId: "P1", uploaderId: "u1", status: "approved", createdAt: "2026-01-01T00:00:00.000Z" },
+      });
+      ddb.on(TransactWriteCommand).resolves({});
+      const deleted = await repo.deleteApprovedPhoto("P1", "2026-01-02T00:00:00.000Z");
+      expect(deleted.status).toBe("deleted");
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items[0]!.Update!.ExpressionAttributeValues).toMatchObject({ ":to": "deleted", ":from": "approved" });
+      expect(items[1]!.Update).toMatchObject({
+        UpdateExpression: "ADD uploadCount :uploadCount, approvedCount :approvedCount",
+        ExpressionAttributeValues: { ":uploadCount": -1, ":approvedCount": -1 },
+      });
     });
   });
 });

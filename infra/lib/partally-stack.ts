@@ -70,7 +70,11 @@ export class PartallyStack extends Stack {
       enforceSSL: true,
       // ブラウザから署名付き POST で直接アップロードする。POST は署名済みポリシーが無いと受け付けられない
       cors: [{ allowedMethods: [s3.HttpMethods.POST], allowedOrigins: ["*"], allowedHeaders: ["*"] }],
-      lifecycleRules: [{ abortIncompleteMultipartUploadAfter: Duration.days(1) }],
+      lifecycleRules: [
+        { abortIncompleteMultipartUploadAfter: Duration.days(1) },
+        // 受け口に残ったもの（片方だけ届いた・取り込みで無視された）は 1 日で消す
+        { prefix: "uploads/", expiration: Duration.days(1) },
+      ],
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
@@ -250,7 +254,7 @@ function handler(event) {
     photoBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
       new s3n.LambdaDestination(ingestFunction),
-      { prefix: "photos/pending/", suffix: "/full.jpg" },
+      { prefix: "uploads/", suffix: "/full.jpg" },
     );
 
     // web/dist が無い場合（npm run build 前の synth やテスト）はアップロードを省く

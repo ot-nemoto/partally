@@ -1,5 +1,7 @@
 import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import {
+  BatchGetCommand,
+  type BatchGetCommandOutput,
   BatchWriteCommand,
   type BatchWriteCommandInput,
   type BatchWriteCommandOutput,
@@ -20,6 +22,7 @@ import {
   NotFoundError,
   type Page,
   type PhotoRecord,
+  type PhotoRecordStatus,
   type Repository,
   TokenNotAvailableError,
   type TokenRecord,
@@ -40,6 +43,7 @@ export const keys = {
 const GSI1 = "GSI1";
 const GSI2 = "GSI2";
 const BATCH_WRITE_MAX = 25;
+const BATCH_GET_MAX = 100;
 
 export class DynamoRepository implements Repository {
   constructor(
@@ -59,6 +63,24 @@ export class DynamoRepository implements Repository {
       new GetCommand({ TableName: this.tableName, Key: keys.user(userId) }),
     );
     return Item ? toUserRecord(Item) : undefined;
+  }
+
+  async getUsers(userIds: string[]) {
+    const unique = [...new Set(userIds)];
+    const users: UserRecord[] = [];
+    for (let i = 0; i < unique.length; i += BATCH_GET_MAX) {
+      let keysToGet: Record<string, unknown>[] | undefined = unique.slice(i, i + BATCH_GET_MAX).map(keys.user);
+      for (let attempt = 0; keysToGet && keysToGet.length > 0; attempt++) {
+        if (attempt >= 5) throw new Error("BatchGet が未処理のまま残りました");
+        const res: BatchGetCommandOutput = await this.client.send(
+          new BatchGetCommand({ RequestItems: { [this.tableName]: { Keys: keysToGet } } }),
+        );
+        users.push(...(res.Responses?.[this.tableName] ?? []).map(toUserRecord));
+        keysToGet = res.UnprocessedKeys?.[this.tableName]?.Keys;
+        if (keysToGet?.length) await sleep(50 * 2 ** attempt);
+      }
+    }
+    return users;
   }
 
   async listTokens() {
@@ -340,46 +362,15 @@ export class DynamoRepository implements Repository {
   }
 
   async approvePhoto(photoId: string, reviewedAt: string) {
-    return this.review(photoId, "approved", reviewedAt, { attr: "approvedCount", delta: 1 });
+    return this.transition(photoId, "pending", "approved", reviewedAt, { approvedCount: 1 });
   }
 
   async rejectPhoto(photoId: string, reviewedAt: string) {
-    return this.review(photoId, "rejected", reviewedAt, { attr: "uploadCount", delta: -1 });
+    return this.transition(photoId, "pending", "rejected", reviewedAt, { uploadCount: -1 });
   }
 
-  async deleteApprovedPhoto(photoId: string) {
-    const photo = await this.getPhoto(photoId);
-    if (!photo) throw new NotFoundError();
-    if (photo.status !== "approved") throw new InvalidStateError();
-    try {
-      await this.client.send(
-        new TransactWriteCommand({
-          TransactItems: [
-            {
-              Delete: {
-                TableName: this.tableName,
-                Key: keys.photo(photoId),
-                ConditionExpression: "#status = :approved",
-                ExpressionAttributeNames: { "#status": "status" },
-                ExpressionAttributeValues: { ":approved": "approved" },
-              },
-            },
-            {
-              Update: {
-                TableName: this.tableName,
-                Key: keys.user(photo.uploaderId),
-                UpdateExpression: "ADD uploadCount :minus, approvedCount :minus",
-                ExpressionAttributeValues: { ":minus": -1 },
-              },
-            },
-          ],
-        }),
-      );
-    } catch (e) {
-      if (conditionFailures(e)?.[0]) throw new InvalidStateError();
-      throw e;
-    }
-    return photo;
+  async deleteApprovedPhoto(photoId: string, deletedAt: string) {
+    return this.transition(photoId, "approved", "deleted", deletedAt, { uploadCount: -1, approvedCount: -1 });
   }
 
   async getSettings(): Promise<Settings> {
@@ -395,16 +386,18 @@ export class DynamoRepository implements Repository {
     );
   }
 
-  /** pending の写真を承認・却下し、アップロード者のカウンタを更新する */
-  private async review(
+  /** 写真の状態を from → to に変え、同じトランザクションでアップロード者のカウンタを更新する */
+  private async transition(
     photoId: string,
-    status: "approved" | "rejected",
+    from: PhotoRecordStatus,
+    to: PhotoRecordStatus,
     reviewedAt: string,
-    counter: { attr: "approvedCount" | "uploadCount"; delta: 1 | -1 },
+    counters: Partial<Record<"uploadCount" | "approvedCount", number>>,
   ): Promise<PhotoRecord> {
     const photo = await this.getPhoto(photoId);
     if (!photo) throw new NotFoundError();
-    if (photo.status !== "pending") throw new InvalidStateError();
+    if (photo.status !== from) throw new InvalidStateError();
+    const entries = Object.entries(counters);
     try {
       await this.client.send(
         new TransactWriteCommand({
@@ -413,14 +406,14 @@ export class DynamoRepository implements Repository {
               Update: {
                 TableName: this.tableName,
                 Key: keys.photo(photoId),
-                UpdateExpression: "SET #status = :status, GSI1PK = :gsi1pk, reviewedAt = :reviewedAt",
-                ConditionExpression: "#status = :pending",
+                UpdateExpression: "SET #status = :to, GSI1PK = :gsi1pk, reviewedAt = :reviewedAt",
+                ConditionExpression: "#status = :from",
                 ExpressionAttributeNames: { "#status": "status" },
                 ExpressionAttributeValues: {
-                  ":status": status,
-                  ":gsi1pk": `PHOTOS#${status}`,
+                  ":to": to,
+                  ":gsi1pk": `PHOTOS#${to}`,
                   ":reviewedAt": reviewedAt,
-                  ":pending": "pending",
+                  ":from": from,
                 },
               },
             },
@@ -428,8 +421,8 @@ export class DynamoRepository implements Repository {
               Update: {
                 TableName: this.tableName,
                 Key: keys.user(photo.uploaderId),
-                UpdateExpression: `ADD ${counter.attr} :delta`,
-                ExpressionAttributeValues: { ":delta": counter.delta },
+                UpdateExpression: `ADD ${entries.map(([attr]) => `${attr} :${attr}`).join(", ")}`,
+                ExpressionAttributeValues: Object.fromEntries(entries.map(([attr, delta]) => [`:${attr}`, delta])),
               },
             },
           ],
@@ -439,7 +432,7 @@ export class DynamoRepository implements Repository {
       if (conditionFailures(e)?.[0]) throw new InvalidStateError();
       throw e;
     }
-    return { ...photo, status, reviewedAt };
+    return { ...photo, status: to, reviewedAt };
   }
 
   /** 通し番号カウンタを count だけ進め、採番後の最大値を返す */
@@ -503,7 +496,7 @@ function toPhotoRecord(item: Record<string, unknown>): PhotoRecord {
   return {
     photoId: item.photoId as string,
     uploaderId: item.uploaderId as string,
-    status: item.status as PhotoRecord["status"],
+    status: item.status as PhotoRecordStatus,
     createdAt: item.createdAt as string,
     reviewedAt: item.reviewedAt as string | undefined,
   };

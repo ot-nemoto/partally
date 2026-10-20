@@ -30,8 +30,8 @@ export class CloudFrontSigner implements UrlSigner {
 
   signPath(path: string, expiresAt: Date) {
     const { policy, signature } = this.sign(`https://*${path}`, expiresAt);
-    const query = new URLSearchParams({ Policy: policy, Signature: signature, "Key-Pair-Id": this.keyPairId });
-    return `${path}?${query}`;
+    // 値は URL セーフな文字だけなので、URLSearchParams で ~ を %7E にエンコードさせずにそのまま並べる
+    return `${path}?Policy=${policy}&Signature=${signature}&Key-Pair-Id=${this.keyPairId}`;
   }
 
   private sign(resource: string, expiresAt: Date) {

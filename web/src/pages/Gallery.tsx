@@ -2,6 +2,7 @@ import type { PhotoDto, PhotosResponse } from "@partally/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../api";
 import { Lightbox } from "../components/Lightbox";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 const POLL_INTERVAL_MS = 20_000;
 
@@ -39,9 +40,8 @@ export function Gallery() {
 
   useEffect(() => {
     void fetchLatest();
-    const timer = setInterval(() => document.visibilityState === "visible" && void fetchLatest(), POLL_INTERVAL_MS);
-    return () => clearInterval(timer);
   }, [fetchLatest]);
+  useAutoRefresh(fetchLatest, POLL_INTERVAL_MS);
 
   async function loadMore() {
     if (!cursor) return;

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
 import { ingestUpload } from "./ingest.js";
 import { MemoryRepository } from "./memory-repository.js";
@@ -299,10 +299,10 @@ describe("API", () => {
       const { request, userId } = await registerUser();
       const res = await request("POST", "/api/photos/upload-url");
       expect(res.body.full.fields).toMatchObject({
-        key: `photos/pending/${res.body.photoId}/full.jpg`,
+        key: `uploads/${res.body.photoId}/full.jpg`,
         "x-amz-meta-uploader": userId,
       });
-      expect(res.body.thumb.fields.key).toBe(`photos/pending/${res.body.photoId}/thumb.jpg`);
+      expect(res.body.thumb.fields.key).toBe(`uploads/${res.body.photoId}/thumb.jpg`);
     });
 
     it("事前承認モード: 検閲待ち → 承認で公開され、カウンタが増える", async () => {
@@ -375,7 +375,9 @@ describe("API", () => {
       expect(storage.invalidated).toEqual([photoId]);
       expect((await request("GET", "/api/photos")).body.photos).toEqual([]);
       expect((await request("GET", "/api/me")).body.user).toMatchObject({ uploadCount: 0, approvedCount: 0 });
-      expect((await admin("DELETE", `/api/admin/photos/${photoId}`)).status).toBe(404);
+      // 削除済みの記録は残り、自分の写真にも出ない
+      expect((await admin("DELETE", `/api/admin/photos/${photoId}`)).status).toBe(409);
+      expect((await request("GET", "/api/photos/mine")).body.photos).toEqual([]);
     });
 
     it("即時公開モード: 取り込み時に公開される", async () => {
@@ -413,6 +415,74 @@ describe("API", () => {
     });
   });
 
+  describe("写真（レビュー指摘の回帰テスト）", () => {
+    async function setup() {
+      const token = await issueToken();
+      const request = createClient(app);
+      await request("POST", "/api/auth/register", { token, name: "田中" });
+      const admin = createClient(app);
+      await admin("POST", "/api/admin/login", { password: ADMIN_PASSWORD });
+      return { request, admin };
+    }
+
+    async function uploadWith(request: ReturnType<typeof createClient>, bytes: number[]) {
+      const res = await request("POST", "/api/photos/upload-url");
+      for (const kind of ["thumb", "full"] as const) {
+        const { fields } = res.body[kind];
+        storage.put(fields.key, new Uint8Array(bytes), fields["x-amz-meta-uploader"]);
+      }
+      return { photoId: res.body.photoId as string, forms: res.body, result: await ingestUpload({ repo, storage }, res.body.full.fields.key) };
+    }
+
+    it("取り込み後に同じ署名付き POST で再アップロードしても、検閲待ちの画像は差し替わらない", async () => {
+      const { request, admin } = await setup();
+      const { photoId, forms } = await uploadWith(request, [1]);
+      expect(storage.get(photoKey("uploads", photoId, "full"))).toBeUndefined();
+
+      // 同じフォームで別の画像を送り直す
+      storage.put(forms.thumb.fields.key, new Uint8Array([9]), forms.thumb.fields["x-amz-meta-uploader"]);
+      storage.put(forms.full.fields.key, new Uint8Array([9]), forms.full.fields["x-amz-meta-uploader"]);
+      expect(await ingestUpload({ repo, storage }, forms.full.fields.key)).toBe("duplicate");
+      expect(storage.get(photoKey("uploads", photoId, "full"))).toBeUndefined();
+
+      await admin("POST", `/api/admin/photos/${photoId}/approve`);
+      expect([...storage.get(photoKey("approved", photoId, "full"))!]).toEqual([1]);
+    });
+
+    it("削除した写真は同じ署名付き POST で再アップロードしても復活しない", async () => {
+      const { request, admin } = await setup();
+      await repo.putSettings({ moderation: "post" });
+      const { photoId, forms } = await uploadWith(request, [1]);
+      await admin("DELETE", `/api/admin/photos/${photoId}`);
+
+      storage.put(forms.thumb.fields.key, new Uint8Array([1]), forms.thumb.fields["x-amz-meta-uploader"]);
+      storage.put(forms.full.fields.key, new Uint8Array([1]), forms.full.fields["x-amz-meta-uploader"]);
+      expect(await ingestUpload({ repo, storage }, forms.full.fields.key)).toBe("duplicate");
+      expect(storage.get(photoKey("approved", photoId, "full"))).toBeUndefined();
+      expect((await request("GET", "/api/photos")).body.photos).toEqual([]);
+    });
+
+    it("承認の DB 更新が失敗したら、公開領域へのコピーを取り消す", async () => {
+      const { request, admin } = await setup();
+      const { photoId } = await uploadWith(request, [1]);
+      // 承認処理の途中で別の操作により却下された状況を再現する
+      vi.spyOn(repo, "approvePhoto").mockImplementationOnce(async () => {
+        await repo.rejectPhoto(photoId, "2026-01-01T00:00:00.000Z");
+        throw new (await import("./repository.js")).InvalidStateError();
+      });
+      expect((await admin("POST", `/api/admin/photos/${photoId}/approve`)).status).toBe(409);
+      expect(storage.get(photoKey("approved", photoId, "full"))).toBeUndefined();
+    });
+
+    it("一覧の取得時にも写真用 Cookie を更新する", async () => {
+      const { request } = await setup();
+      for (const path of ["/api/photos", "/api/photos/mine"]) {
+        const res = await request("GET", path);
+        expect(res.headers.getSetCookie().some((c) => c.startsWith("CloudFront-Policy="))).toBe(true);
+      }
+    });
+  });
+
   describe("取り込み（ingestUpload）", () => {
     async function activeUser() {
       const token = await issueToken();
@@ -421,30 +491,31 @@ describe("API", () => {
     }
 
     it("対象外のキーは無視する", async () => {
-      expect(await ingestUpload({ repo, storage }, "photos/pending/ID1/thumb.jpg")).toBe("ignored");
+      expect(await ingestUpload({ repo, storage }, "uploads/ID1/thumb.jpg")).toBe("ignored");
+      expect(await ingestUpload({ repo, storage }, "photos/pending/ID1/full.jpg")).toBe("ignored");
       expect(await ingestUpload({ repo, storage }, "photos/approved/ID1/full.jpg")).toBe("ignored");
       expect(await ingestUpload({ repo, storage }, "other/file.jpg")).toBe("ignored");
     });
 
     it("サムネイルが無い・アップロード者が一致しない・ユーザが無効なら無視する", async () => {
       const userId = await activeUser();
-      storage.put(photoKey("pending", "P1", "full"), new Uint8Array([1]), userId);
-      expect(await ingestUpload({ repo, storage }, photoKey("pending", "P1", "full"))).toBe("ignored");
+      storage.put(photoKey("uploads", "P1", "full"), new Uint8Array([1]), userId);
+      expect(await ingestUpload({ repo, storage }, photoKey("uploads", "P1", "full"))).toBe("ignored");
 
-      storage.put(photoKey("pending", "P1", "thumb"), new Uint8Array([1]), "someone-else");
-      expect(await ingestUpload({ repo, storage }, photoKey("pending", "P1", "full"))).toBe("ignored");
+      storage.put(photoKey("uploads", "P1", "thumb"), new Uint8Array([1]), "someone-else");
+      expect(await ingestUpload({ repo, storage }, photoKey("uploads", "P1", "full"))).toBe("ignored");
 
-      storage.put(photoKey("pending", "P2", "full"), new Uint8Array([1]), "ghost");
-      storage.put(photoKey("pending", "P2", "thumb"), new Uint8Array([1]), "ghost");
-      expect(await ingestUpload({ repo, storage }, photoKey("pending", "P2", "full"))).toBe("ignored");
+      storage.put(photoKey("uploads", "P2", "full"), new Uint8Array([1]), "ghost");
+      storage.put(photoKey("uploads", "P2", "thumb"), new Uint8Array([1]), "ghost");
+      expect(await ingestUpload({ repo, storage }, photoKey("uploads", "P2", "full"))).toBe("ignored");
     });
 
     it("同じイベントが重複して届いてもカウンタは 1 回だけ増える", async () => {
       const userId = await activeUser();
-      storage.put(photoKey("pending", "P1", "full"), new Uint8Array([1]), userId);
-      storage.put(photoKey("pending", "P1", "thumb"), new Uint8Array([1]), userId);
-      expect(await ingestUpload({ repo, storage }, photoKey("pending", "P1", "full"))).toBe("created");
-      expect(await ingestUpload({ repo, storage }, photoKey("pending", "P1", "full"))).toBe("duplicate");
+      storage.put(photoKey("uploads", "P1", "full"), new Uint8Array([1]), userId);
+      storage.put(photoKey("uploads", "P1", "thumb"), new Uint8Array([1]), userId);
+      expect(await ingestUpload({ repo, storage }, photoKey("uploads", "P1", "full"))).toBe("created");
+      expect(await ingestUpload({ repo, storage }, photoKey("uploads", "P1", "full"))).toBe("duplicate");
       expect((await repo.getUser(userId))!.uploadCount).toBe(1);
     });
   });

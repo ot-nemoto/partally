@@ -94,6 +94,13 @@ export class MemoryRepository implements Repository {
     return clone(updated);
   }
 
+  async getUsers(userIds: string[]) {
+    return [...new Set(userIds)].flatMap((id) => {
+      const user = this.users.get(id);
+      return user ? [clone(user)] : [];
+    });
+  }
+
   async getPhoto(photoId: string) {
     return clone(this.photos.get(photoId));
   }
@@ -138,11 +145,12 @@ export class MemoryRepository implements Repository {
     return clone(photo);
   }
 
-  async deleteApprovedPhoto(photoId: string) {
+  async deleteApprovedPhoto(photoId: string, deletedAt: string) {
     const photo = this.photos.get(photoId);
     if (!photo) throw new NotFoundError();
     if (photo.status !== "approved") throw new InvalidStateError();
-    this.photos.delete(photoId);
+    photo.status = "deleted";
+    photo.reviewedAt = deletedAt;
     const user = this.userOf(photo);
     user.uploadCount--;
     user.approvedCount--;

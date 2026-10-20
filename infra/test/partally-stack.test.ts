@@ -46,14 +46,17 @@ describe("PartallyStack", () => {
     });
   });
 
-  it("写真バケットは非公開で、POST の CORS だけを許可する", () => {
+  it("写真バケットは非公開で、POST の CORS だけを許可し、受け口の残りを 1 日で消す", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
       CorsConfiguration: { CorsRules: [Match.objectLike({ AllowedMethods: ["POST"] })] },
       PublicAccessBlockConfiguration: Match.objectLike({ BlockPublicPolicy: true }),
+      LifecycleConfiguration: {
+        Rules: Match.arrayWith([Match.objectLike({ Prefix: "uploads/", ExpirationInDays: 1 })]),
+      },
     });
   });
 
-  it("検閲待ちの本体画像が置かれたら取り込み Lambda を呼ぶ", () => {
+  it("受け口（uploads/）に本体画像が置かれたら取り込み Lambda を呼ぶ", () => {
     template.hasResourceProperties("Custom::S3BucketNotifications", {
       NotificationConfiguration: {
         LambdaFunctionConfigurations: [
@@ -63,7 +66,7 @@ describe("PartallyStack", () => {
               Key: {
                 FilterRules: Match.arrayWith([
                   { Name: "suffix", Value: "/full.jpg" },
-                  { Name: "prefix", Value: "photos/pending/" },
+                  { Name: "prefix", Value: "uploads/" },
                 ]),
               },
             },

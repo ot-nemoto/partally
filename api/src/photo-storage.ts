@@ -8,37 +8,42 @@ import {
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import { PHOTO_FULL_MAX_BYTES, PHOTO_THUMB_MAX_BYTES, type PresignedPost } from "@partally/shared";
 
-export type PhotoArea = "pending" | "approved";
+/**
+ * - uploads: 参加者が署名付き POST で書き込む受け口。配信しない。取り込み後に消し、残りもライフサイクルで消える
+ * - pending: 検閲待ち。サーバだけが書き込むので、検閲後に参加者が中身を差し替えることはできない
+ * - approved: 公開済み
+ */
+export type PhotoArea = "uploads" | "pending" | "approved";
 export type PhotoKind = "full" | "thumb";
 
 const KINDS: PhotoKind[] = ["full", "thumb"];
 const MAX_BYTES: Record<PhotoKind, number> = { full: PHOTO_FULL_MAX_BYTES, thumb: PHOTO_THUMB_MAX_BYTES };
-const UPLOAD_EXPIRES_SECONDS = 300;
+export const UPLOAD_EXPIRES_SECONDS = 300;
 /** 公開済み写真のブラウザ・CloudFront キャッシュ時間。削除後もこの時間はブラウザに残り得る */
 const APPROVED_CACHE_CONTROL = "max-age=3600";
 
-/** S3 のキー。CloudFront のパス（/photos/...）と一致させ、パスの書き換えを不要にする */
+/** S3 のキー。配信する領域は CloudFront のパス（/photos/...）と一致させ、パスの書き換えを不要にする */
 export function photoKey(area: PhotoArea, photoId: string, kind: PhotoKind): string {
-  return `photos/${area}/${photoId}/${kind}.jpg`;
+  return area === "uploads" ? `uploads/${photoId}/${kind}.jpg` : `photos/${area}/${photoId}/${kind}.jpg`;
 }
 
-export function photoPath(area: PhotoArea, photoId: string, kind: PhotoKind): string {
+export function photoPath(area: Exclude<PhotoArea, "uploads">, photoId: string, kind: PhotoKind): string {
   return `/${photoKey(area, photoId, kind)}`;
 }
 
 export function parsePhotoKey(key: string): { area: PhotoArea; photoId: string; kind: PhotoKind } | undefined {
-  const m = /^photos\/(pending|approved)\/([0-9A-Za-z]+)\/(full|thumb)\.jpg$/.exec(key);
+  const m = /^(?:(uploads)|photos\/(pending|approved))\/([0-9A-Za-z]+)\/(full|thumb)\.jpg$/.exec(key);
   if (!m) return undefined;
-  return { area: m[1] as PhotoArea, photoId: m[2]!, kind: m[3] as PhotoKind };
+  return { area: (m[1] ?? m[2]) as PhotoArea, photoId: m[3]!, kind: m[4] as PhotoKind };
 }
 
 export interface PhotoStorage {
-  /** 本体・サムネイルを pending 領域へ直接アップロードするための署名付き POST を発行する */
+  /** 本体・サムネイルを uploads 領域へ直接アップロードするための署名付き POST を発行する */
   createUploads(photoId: string, uploaderId: string): Promise<Record<PhotoKind, PresignedPost>>;
   /** オブジェクトのアップロード者（メタデータ）。オブジェクトが無ければ undefined */
   getUploader(key: string): Promise<string | undefined>;
-  /** pending の本体・サムネイルを approved へコピーする（pending は残す） */
-  copyToApproved(photoId: string): Promise<void>;
+  /** 本体・サムネイルを別の領域へコピーする（コピー元は残す） */
+  copy(photoId: string, from: PhotoArea, to: Exclude<PhotoArea, "uploads">): Promise<void>;
   remove(photoId: string, area: PhotoArea): Promise<void>;
   /** CDN に残っている公開済み写真のキャッシュを消す */
   invalidate(photoId: string): Promise<void>;
@@ -57,7 +62,7 @@ export class S3PhotoStorage implements PhotoStorage {
       KINDS.map(async (kind) => {
         const { url, fields } = await createPresignedPost(this.s3, {
           Bucket: this.bucket,
-          Key: photoKey("pending", photoId, kind),
+          Key: photoKey("uploads", photoId, kind),
           Fields: { "Content-Type": "image/jpeg", "x-amz-meta-uploader": uploaderId },
           Conditions: [
             ["content-length-range", 1, MAX_BYTES[kind]],
@@ -82,17 +87,17 @@ export class S3PhotoStorage implements PhotoStorage {
     }
   }
 
-  async copyToApproved(photoId: string) {
+  async copy(photoId: string, from: PhotoArea, to: Exclude<PhotoArea, "uploads">) {
     await Promise.all(
       KINDS.map((kind) =>
         this.s3.send(
           new CopyObjectCommand({
             Bucket: this.bucket,
-            CopySource: `${this.bucket}/${photoKey("pending", photoId, kind)}`,
-            Key: photoKey("approved", photoId, kind),
+            CopySource: `${this.bucket}/${photoKey(from, photoId, kind)}`,
+            Key: photoKey(to, photoId, kind),
             MetadataDirective: "REPLACE",
             ContentType: "image/jpeg",
-            CacheControl: APPROVED_CACHE_CONTROL,
+            CacheControl: to === "approved" ? APPROVED_CACHE_CONTROL : undefined,
           }),
         ),
       ),

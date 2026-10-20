@@ -26,10 +26,13 @@ export function formatLabel(n: number): string {
   return String(n).padStart(3, "0");
 }
 
+/** deleted は管理者が削除した写真の記録。同じ photoId の再取り込みを防ぐために残す */
+export type PhotoRecordStatus = PhotoStatus | "deleted";
+
 export interface PhotoRecord {
   photoId: string;
   uploaderId: string;
-  status: PhotoStatus;
+  status: PhotoRecordStatus;
   createdAt: string;
   reviewedAt?: string;
 }
@@ -81,6 +84,8 @@ export class NotFoundError extends Error {
 export interface Repository {
   getToken(token: string): Promise<TokenRecord | undefined>;
   getUser(userId: string): Promise<UserRecord | undefined>;
+  /** 指定したユーザをまとめて取得する（存在しない ID は結果に含まれない） */
+  getUsers(userIds: string[]): Promise<UserRecord[]>;
   listTokens(): Promise<TokenRecord[]>;
   listUsers(): Promise<UserRecord[]>;
 
@@ -113,7 +118,7 @@ export interface Repository {
   /** 状態別に新しい順で返す */
   listPhotosByStatus(status: PhotoStatus, limit: number, cursor?: string): Promise<Page<PhotoRecord>>;
 
-  /** アップロード者別に新しい順で返す */
+  /** アップロード者別に新しい順で返す（削除済みも含む） */
   listPhotosByUploader(uploaderId: string): Promise<PhotoRecord[]>;
 
   /**
@@ -135,10 +140,10 @@ export interface Repository {
   rejectPhoto(photoId: string, reviewedAt: string): Promise<PhotoRecord>;
 
   /**
-   * 公開済みの写真を削除し、uploadCount・approvedCount を減算する。
+   * approved → deleted。uploadCount・approvedCount を減算する。
    * @throws NotFoundError / InvalidStateError
    */
-  deleteApprovedPhoto(photoId: string): Promise<PhotoRecord>;
+  deleteApprovedPhoto(photoId: string, deletedAt: string): Promise<PhotoRecord>;
 
   // ---- 設定 ----
 

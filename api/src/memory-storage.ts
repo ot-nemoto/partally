@@ -6,6 +6,8 @@ interface StoredObject {
   uploader: string;
 }
 
+const KINDS: PhotoKind[] = ["full", "thumb"];
+
 /** ローカル開発・テスト用。S3 の代わりにメモリ上に保存する */
 export class MemoryPhotoStorage implements PhotoStorage {
   readonly objects = new Map<string, StoredObject>();
@@ -18,7 +20,7 @@ export class MemoryPhotoStorage implements PhotoStorage {
     const post = (kind: PhotoKind): PresignedPost => ({
       url: this.uploadUrl,
       fields: {
-        key: photoKey("pending", photoId, kind),
+        key: photoKey("uploads", photoId, kind),
         "Content-Type": "image/jpeg",
         "x-amz-meta-uploader": uploaderId,
       },
@@ -38,15 +40,16 @@ export class MemoryPhotoStorage implements PhotoStorage {
     return this.objects.get(key)?.uploader;
   }
 
-  async copyToApproved(photoId: string) {
-    for (const kind of ["full", "thumb"] as const) {
-      const obj = this.objects.get(photoKey("pending", photoId, kind));
-      if (obj) this.objects.set(photoKey("approved", photoId, kind), { ...obj });
+  async copy(photoId: string, from: PhotoArea, to: Exclude<PhotoArea, "uploads">) {
+    for (const kind of KINDS) {
+      const obj = this.objects.get(photoKey(from, photoId, kind));
+      if (!obj) throw new Error(`コピー元がありません: ${photoKey(from, photoId, kind)}`);
+      this.objects.set(photoKey(to, photoId, kind), { ...obj });
     }
   }
 
   async remove(photoId: string, area: PhotoArea) {
-    for (const kind of ["full", "thumb"] as const) this.objects.delete(photoKey(area, photoId, kind));
+    for (const kind of KINDS) this.objects.delete(photoKey(area, photoId, kind));
   }
 
   async invalidate(photoId: string) {

@@ -10,14 +10,22 @@ export interface IngestDeps {
 export type IngestResult = "created" | "duplicate" | "ignored";
 
 /**
- * pending 領域に本体画像が置かれたときに呼ぶ。アップロードを検証して写真を登録する。
- * クライアントはサムネイル → 本体の順に送るので、本体が届いた時点でサムネイルも揃っている。
+ * uploads 領域に本体画像が置かれたときに呼ぶ。アップロードを検証し、検閲待ち（即時公開なら公開済み）へ
+ * サーバ側でコピーしてから写真を登録する。クライアントはサムネイル → 本体の順に送るので、
+ * 本体が届いた時点でサムネイルも揃っている。
  */
 export async function ingestUpload(deps: IngestDeps, key: string): Promise<IngestResult> {
   const { repo, storage, now = () => new Date() } = deps;
   const parsed = parsePhotoKey(key);
-  if (!parsed || parsed.area !== "pending" || parsed.kind !== "full") return "ignored";
+  if (!parsed || parsed.area !== "uploads" || parsed.kind !== "full") return "ignored";
   const { photoId } = parsed;
+
+  // 一度取り込んだ photoId は（却下・削除後も）受け付けない。署名付き POST は有効期限内なら何度でも使えるため、
+  // 再アップロードで検閲済みの画像を差し替えたり、削除した写真を復活させたりできないようにする
+  if (await repo.getPhoto(photoId)) {
+    await storage.remove(photoId, "uploads");
+    return "duplicate";
+  }
 
   const uploaderId = await storage.getUploader(key);
   if (!uploaderId) {
@@ -36,15 +44,9 @@ export async function ingestUpload(deps: IngestDeps, key: string): Promise<Inges
   }
 
   const { moderation } = await repo.getSettings();
-  const immediate = moderation === "post";
-  if (immediate) await storage.copyToApproved(photoId);
-
-  const created = await repo.createPhoto({
-    photoId,
-    uploaderId,
-    status: immediate ? "approved" : "pending",
-    createdAt: now().toISOString(),
-  });
-  if (immediate) await storage.remove(photoId, "pending");
+  const status = moderation === "post" ? "approved" : "pending";
+  await storage.copy(photoId, "uploads", status);
+  const created = await repo.createPhoto({ photoId, uploaderId, status, createdAt: now().toISOString() });
+  await storage.remove(photoId, "uploads");
   return created ? "created" : "duplicate";
 }
