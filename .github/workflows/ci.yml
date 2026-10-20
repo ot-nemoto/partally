@@ -1,0 +1,40 @@
+name: CI
+
+# PR と master への push で、型チェック・lint・テスト・ビルドを行う（デプロイはしない）
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npx -y npm@11 ci
+
+      - name: Lint
+        run: npx biome ci .
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build web
+        run: npm run build

@@ -165,7 +165,7 @@ export function createApp(deps: AppDeps) {
     if (token.status === "unbound" || !token.userId) return c.json({ status: "unbound" as const });
 
     const user = await repo.getUser(token.userId);
-    if (!user || user.status !== "active" || user.token !== token.token) {
+    if (user?.status !== "active" || user.token !== token.token) {
       // トークンとユーザの状態が食い違っている。管理者に紐づけ解除してもらう必要がある
       return fail(c, 404, "invalid_token");
     }

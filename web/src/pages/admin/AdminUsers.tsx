@@ -116,8 +116,15 @@ function EditUserDialog(props: { user: UserDto; onClose: () => void; onSaved: (u
   }
 
   return (
-    <div className="dialog-backdrop" onClick={props.onClose}>
-      <form className="card dialog" onSubmit={onSubmit} onClick={(e) => e.stopPropagation()}>
+    <div className="dialog-backdrop">
+      <button
+        type="button"
+        className="dialog-backdrop-button"
+        onClick={props.onClose}
+        aria-label="閉じる"
+        tabIndex={-1}
+      />
+      <form className="card dialog" onSubmit={onSubmit} onKeyDown={(e) => e.key === "Escape" && props.onClose()}>
         <h2>ユーザの編集</h2>
         <label className="field">
           <span>二つ名</span>

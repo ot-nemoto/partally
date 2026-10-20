@@ -43,12 +43,19 @@ npm run dev:web   # http://localhost:5173 （/api は API へプロキシ）
 - 管理画面: http://localhost:5173/admin （パスワードは `admin`。`ADMIN_PASSWORD` で変更可）
 - 参加者: `dev:api` のログに出る `http://localhost:5173/q/...` を開く
 
-## テスト・型チェック
+## テスト・型チェック・lint
 
 ```sh
 npm test
 npm run typecheck
+npm run lint     # Biome による lint と整形のチェック
+npm run format   # 整形と import の並べ替え、安全な自動修正を適用する
 ```
+
+- lint と整形は [Biome](https://biomejs.dev/) で行う。設定は `biome.json`。
+- `style/noNonNullAssertion` は無効にしている（`noUncheckedIndexedAccess` を有効にしているため、添字アクセスの後の `!` を意図して使う）。テストでは `any` を許可している。
+- PR と master への push では GitHub Actions の CI（`.github/workflows/ci.yml`）が lint・型チェック・テスト・ビルドを実行する。
+- エディタは Biome の拡張機能（VS Code なら `biomejs.biome`）を入れると、保存時に整形できる。
 
 ## デプロイ
 

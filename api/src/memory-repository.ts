@@ -54,7 +54,7 @@ export class MemoryRepository implements Repository {
 
   async registerUser(user: UserRecord & { token: string }) {
     const token = this.tokens.get(user.token);
-    if (!token || token.status !== "unbound") throw new TokenNotAvailableError();
+    if (token?.status !== "unbound") throw new TokenNotAvailableError();
     if (this.epithets.has(user.epithet)) throw new EpithetTakenError();
 
     this.tokens.set(user.token, {
@@ -83,7 +83,7 @@ export class MemoryRepository implements Repository {
 
   async unbindUser(userId: string, updatedAt: string) {
     const user = this.users.get(userId);
-    if (!user || user.status !== "active" || !user.token) throw new NotFoundError();
+    if (user?.status !== "active" || !user.token) throw new NotFoundError();
     const token = this.tokens.get(user.token);
     if (!token || token.userId !== userId) throw new NotFoundError();
 

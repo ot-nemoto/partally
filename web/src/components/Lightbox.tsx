@@ -12,9 +12,11 @@ export function Lightbox(props: { photo: PhotoDto; onClose: () => void; children
   }, [onClose]);
 
   return (
-    <div className="lightbox" onClick={onClose}>
-      <img src={photo.fullUrl} alt="" onClick={(e) => e.stopPropagation()} />
-      <div className="lightbox-caption" onClick={(e) => e.stopPropagation()}>
+    <div className="lightbox">
+      {/* 背景のどこを押しても閉じる。キーボードでは Esc か右上の閉じるボタンで閉じられる */}
+      <button type="button" className="lightbox-backdrop" onClick={onClose} aria-label="閉じる" tabIndex={-1} />
+      <img src={photo.fullUrl} alt="" />
+      <div className="lightbox-caption">
         <span>{photo.uploaderName}</span>
         <span className="muted small">{formatTime(photo.createdAt)}</span>
         {props.children}

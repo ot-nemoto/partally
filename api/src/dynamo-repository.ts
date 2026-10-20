@@ -237,7 +237,7 @@ export class DynamoRepository implements Repository {
 
   async unbindUser(userId: string, updatedAt: string) {
     const current = await this.getUser(userId);
-    if (!current || current.status !== "active" || !current.token) throw new NotFoundError();
+    if (current?.status !== "active" || !current.token) throw new NotFoundError();
 
     try {
       await this.client.send(
