@@ -20,7 +20,11 @@ export function AdminUsers() {
   }
 
   async function unbind(user: UserDto) {
-    if (!confirm(`${user.displayName} と QR コードの紐づけを解除します。\n本人は再ログインできなくなり、その QR は新規登録用に戻ります。よろしいですか？`)) {
+    if (
+      !confirm(
+        `${user.displayName} と QR コードの紐づけを解除します。\n本人は再ログインできなくなり、その QR は新規登録用に戻ります。よろしいですか？`,
+      )
+    ) {
       return;
     }
     try {

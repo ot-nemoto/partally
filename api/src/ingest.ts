@@ -1,4 +1,4 @@
-import { parsePhotoKey, type PhotoStorage } from "./photo-storage.js";
+import { type PhotoStorage, parsePhotoKey } from "./photo-storage.js";
 import type { Repository } from "./repository.js";
 
 export interface IngestDeps {

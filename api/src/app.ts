@@ -12,9 +12,9 @@ import {
   randomEpithet,
   registerRequestSchema,
   type TokenDto,
+  type UserDto,
   updateSettingsRequestSchema,
   updateUserRequestSchema,
-  type UserDto,
 } from "@partally/shared";
 import { type Context, Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
@@ -215,12 +215,7 @@ export function createApp(deps: AppDeps) {
   });
 
   const requireUser = async (c: Context<Env>, next: () => Promise<void>) => {
-    const session = verify<UserSession>(
-      getCookie(c, USER_COOKIE),
-      sessionSecret,
-      USER_SESSION_MAX_AGE,
-      nowSeconds(),
-    );
+    const session = verify<UserSession>(getCookie(c, USER_COOKIE), sessionSecret, USER_SESSION_MAX_AGE, nowSeconds());
     const user = session && (await repo.getUser(session.uid));
     if (!session || !user || user.status !== "active" || user.token !== session.tok) {
       deleteCookie(c, USER_COOKIE, { path: "/", secure: secureCookies });

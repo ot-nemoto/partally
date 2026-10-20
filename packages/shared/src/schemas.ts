@@ -9,11 +9,7 @@ export function normalizeText(input: string): string {
   return input.normalize("NFKC").trim().replace(/\s+/g, " ");
 }
 
-const normalized = (max: number) =>
-  z
-    .string()
-    .transform(normalizeText)
-    .pipe(z.string().min(1).max(max));
+const normalized = (max: number) => z.string().transform(normalizeText).pipe(z.string().min(1).max(max));
 
 export const nameSchema = normalized(NAME_MAX_LENGTH);
 export const epithetSchema = normalized(EPITHET_MAX_LENGTH);

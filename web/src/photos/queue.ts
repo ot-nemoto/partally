@@ -129,7 +129,10 @@ export async function flushQueue(): Promise<void> {
 
   const errorDetail = lastError instanceof Error ? lastError.message : lastError ? String(lastError) : undefined;
   if (discarded > 0) {
-    setState({ error: `送信できなかった写真が ${discarded} 枚ありました。もう一度撮影・選択してください。`, errorDetail });
+    setState({
+      error: `送信できなかった写真が ${discarded} 枚ありました。もう一度撮影・選択してください。`,
+      errorDetail,
+    });
   } else if (failed) {
     setState({ error: "送信に失敗しました。自動的に再送します。", errorDetail });
   }

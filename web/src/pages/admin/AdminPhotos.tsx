@@ -1,4 +1,4 @@
-import type { PhotoDto, PhotoResponse, PhotosResponse, PhotoStatus, SettingsResponse } from "@partally/shared";
+import type { PhotoDto, PhotoResponse, PhotoStatus, PhotosResponse, SettingsResponse } from "@partally/shared";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../api";
@@ -47,7 +47,10 @@ export function AdminPhotos() {
   async function loadMore() {
     if (!cursor) return;
     try {
-      const res = await api<PhotosResponse>("GET", `/admin/photos?status=${status}&cursor=${encodeURIComponent(cursor)}`);
+      const res = await api<PhotosResponse>(
+        "GET",
+        `/admin/photos?status=${status}&cursor=${encodeURIComponent(cursor)}`,
+      );
       setPhotos((prev) => [...(prev ?? []), ...res.photos]);
       setCursor(res.cursor);
     } catch (e) {

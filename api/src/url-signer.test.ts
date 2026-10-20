@@ -39,9 +39,7 @@ describe("CloudFrontSigner", () => {
     expect(url.searchParams.get("Key-Pair-Id")).toBe("K123");
 
     const policy = url.searchParams.get("Policy")!;
-    expect(JSON.parse(decode(policy).toString()).Statement[0].Resource).toBe(
-      "https://*/photos/pending/P1/thumb.jpg",
-    );
+    expect(JSON.parse(decode(policy).toString()).Statement[0].Resource).toBe("https://*/photos/pending/P1/thumb.jpg");
     assertValid(policy, url.searchParams.get("Signature")!);
   });
 });

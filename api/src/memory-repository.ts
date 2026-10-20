@@ -87,7 +87,12 @@ export class MemoryRepository implements Repository {
     const token = this.tokens.get(user.token);
     if (!token || token.userId !== userId) throw new NotFoundError();
 
-    this.tokens.set(token.token, { token: token.token, label: token.label, status: "unbound", createdAt: token.createdAt });
+    this.tokens.set(token.token, {
+      token: token.token,
+      label: token.label,
+      status: "unbound",
+      createdAt: token.createdAt,
+    });
     const { token: _removed, ...rest } = user;
     const updated: UserRecord = { ...rest, status: "unbound", updatedAt };
     this.users.set(userId, updated);

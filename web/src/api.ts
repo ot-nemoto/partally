@@ -12,7 +12,11 @@ export class ApiError extends Error {
 }
 
 /** 同一オリジンの /api を呼ぶ。Cookie は自動で送られる */
-export async function api<T>(method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE", path: string, body?: unknown): Promise<T> {
+export async function api<T>(
+  method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
+  path: string,
+  body?: unknown,
+): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method,
     headers: method === "GET" ? undefined : { "content-type": "application/json" },
@@ -41,7 +45,9 @@ export function errorMessage(e: unknown): string {
       case "unauthorized":
         return "ログインが必要です。";
       case "bad_request":
-        return e.message && e.message !== e.code ? `入力内容を確認してください（${e.message}）` : "入力内容を確認してください。";
+        return e.message && e.message !== e.code
+          ? `入力内容を確認してください（${e.message}）`
+          : "入力内容を確認してください。";
       default:
         return "エラーが発生しました。時間をおいてもう一度お試しください。";
     }

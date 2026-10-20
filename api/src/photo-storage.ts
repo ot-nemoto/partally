@@ -1,10 +1,5 @@
 import { CloudFrontClient, CreateInvalidationCommand } from "@aws-sdk/client-cloudfront";
-import {
-  CopyObjectCommand,
-  DeleteObjectsCommand,
-  HeadObjectCommand,
-  type S3Client,
-} from "@aws-sdk/client-s3";
+import { CopyObjectCommand, DeleteObjectsCommand, HeadObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import { PHOTO_FULL_MAX_BYTES, PHOTO_THUMB_MAX_BYTES, type PresignedPost } from "@partally/shared";
 
