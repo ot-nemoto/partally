@@ -4,11 +4,15 @@ import {
   adminLoginRequestSchema,
   formatDisplayName,
   issueTokensRequestSchema,
+  type PhotoDto,
+  type PhotoStatus,
+  photoStatusSchema,
   qrLoginRequestSchema,
   type RandomInt,
   randomEpithet,
   registerRequestSchema,
   type TokenDto,
+  updateSettingsRequestSchema,
   updateUserRequestSchema,
   type UserDto,
 } from "@partally/shared";
@@ -17,9 +21,12 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { ulid } from "ulid";
 import type { z } from "zod";
+import { type PhotoStorage, photoPath } from "./photo-storage.js";
 import {
   EpithetTakenError,
+  InvalidStateError,
   NotFoundError,
+  type PhotoRecord,
   type Repository,
   TokenNotAvailableError,
   type TokenRecord,
@@ -34,9 +41,12 @@ import {
   type UserSession,
   verify,
 } from "./session.js";
+import type { UrlSigner } from "./url-signer.js";
 
 export interface AppDeps {
   repo: Repository;
+  storage: PhotoStorage;
+  signer: UrlSigner;
   sessionSecret: string;
   adminPassword: string;
   /** ローカル開発（http）では false にする */
@@ -53,10 +63,18 @@ const USER_COOKIE = "session";
 const ADMIN_COOKIE = "admin_session";
 const ADMIN_COOKIE_PATH = "/api/admin";
 const EPITHET_ATTEMPTS = 10;
+const PHOTO_COOKIE_PATH = "/photos/approved/";
+/** 公開済み写真を見るための CloudFront 署名付き Cookie の有効期間 */
+const PHOTO_COOKIE_TTL_MS = 12 * 60 * 60 * 1000;
+/** 検閲待ち写真・管理画面の署名付き URL の有効期間。画面は一覧の取り直しで URL を更新する */
+const SIGNED_URL_TTL_MS = 60 * 60 * 1000;
+const PHOTO_PAGE_SIZE = 30;
 
 export function createApp(deps: AppDeps) {
   const {
     repo,
+    storage,
+    signer,
     sessionSecret,
     adminPassword,
     secureCookies,
@@ -97,7 +115,46 @@ export function createApp(deps: AppDeps) {
       path: "/",
       maxAge: USER_SESSION_MAX_AGE,
     });
+    setPhotoCookies(c);
   };
+
+  const setPhotoCookies = (c: Context) => {
+    const cookies = signer.approvedCookies(new Date(now().getTime() + PHOTO_COOKIE_TTL_MS));
+    for (const [name, value] of Object.entries(cookies)) {
+      setCookie(c, name, value, {
+        httpOnly: true,
+        secure: secureCookies,
+        sameSite: "Lax",
+        path: PHOTO_COOKIE_PATH,
+        maxAge: PHOTO_COOKIE_TTL_MS / 1000,
+      });
+    }
+  };
+
+  /** 公開済み写真は Cookie で、検閲待ち（と signAll 指定時はすべて）は署名付き URL で見せる */
+  const toPhotoDto = (photo: VisiblePhoto, users: Map<string, UserRecord>, signAll = false): PhotoDto => {
+    const uploader = users.get(photo.uploaderId);
+    const dto: PhotoDto = {
+      photoId: photo.photoId,
+      uploaderId: photo.uploaderId,
+      uploaderName: uploader ? formatDisplayName(uploader.epithet, uploader.name) : undefined,
+      status: photo.status,
+      createdAt: photo.createdAt,
+      reviewedAt: photo.reviewedAt,
+    };
+    if (photo.status === "rejected") return dto;
+    const area = photo.status === "approved" ? "approved" : "pending";
+    const expiresAt = new Date(now().getTime() + SIGNED_URL_TTL_MS);
+    const url = (kind: "thumb" | "full") =>
+      area === "approved" && !signAll
+        ? photoPath(area, photo.photoId, kind)
+        : signer.signPath(photoPath(area, photo.photoId, kind), expiresAt);
+    return { ...dto, thumbUrl: url("thumb"), fullUrl: url("full") };
+  };
+
+  /** 一覧に出てくるアップロード者だけを取得する */
+  const uploadersOf = async (photos: PhotoRecord[]) =>
+    new Map((await repo.getUsers(photos.map((p) => p.uploaderId))).map((u) => [u.userId, u]));
 
   app.post("/auth/qr", async (c) => {
     const body = await parseBody(c, qrLoginRequestSchema);
@@ -173,7 +230,33 @@ export function createApp(deps: AppDeps) {
     await next();
   };
 
-  app.get("/me", requireUser, (c) => c.json({ user: toUserDto(c.get("user")) }));
+  app.get("/me", requireUser, (c) => {
+    // 写真用の署名付き Cookie は有効期間が短いので、アプリを開くたびに更新する
+    setPhotoCookies(c);
+    return c.json({ user: toUserDto(c.get("user")) });
+  });
+
+  app.post("/photos/upload-url", requireUser, async (c) => {
+    const photoId = newId();
+    const { full, thumb } = await storage.createUploads(photoId, c.get("user").userId);
+    return c.json({ photoId, full, thumb });
+  });
+
+  // 一覧を開いたままの画面でも写真が見え続けるよう、一覧の取得時にも写真用 Cookie を更新する
+  app.get("/photos", requireUser, async (c) => {
+    const page = await repo.listPhotosByStatus("approved", PHOTO_PAGE_SIZE, c.req.query("cursor"));
+    const users = await uploadersOf(page.items);
+    setPhotoCookies(c);
+    return c.json({ photos: page.items.filter(isVisible).map((p) => toPhotoDto(p, users)), cursor: page.cursor });
+  });
+
+  app.get("/photos/mine", requireUser, async (c) => {
+    const user = c.get("user");
+    const photos = await repo.listPhotosByUploader(user.userId);
+    const users = new Map([[user.userId, user]]);
+    setPhotoCookies(c);
+    return c.json({ photos: photos.filter(isVisible).map((p) => toPhotoDto(p, users)) });
+  });
 
   // ---- 管理者 ----
 
@@ -256,7 +339,76 @@ export function createApp(deps: AppDeps) {
     }
   });
 
+  app.get("/admin/photos", async (c) => {
+    const status = photoStatusSchema.safeParse(c.req.query("status") ?? "pending");
+    if (!status.success) return fail(c, 400, "bad_request");
+    const page = await repo.listPhotosByStatus(status.data, PHOTO_PAGE_SIZE, c.req.query("cursor"));
+    const users = await uploadersOf(page.items);
+    return c.json({ photos: page.items.filter(isVisible).map((p) => toPhotoDto(p, users, true)), cursor: page.cursor });
+  });
+
+  app.post("/admin/photos/:photoId/approve", async (c) => {
+    const photoId = c.req.param("photoId");
+    const photo = await repo.getPhoto(photoId);
+    if (!photo) return fail(c, 404, "not_found");
+    if (photo.status !== "pending") return fail(c, 409, "invalid_state");
+    // 画像を先に公開領域へコピーし、DB を更新してから検閲待ちの画像を消す。
+    // 同時に却下されるなどで DB の更新に失敗したら、公開領域へのコピーを取り消す
+    await storage.copy(photoId, "pending", "approved");
+    const approved = await photoAction(c, () => repo.approvePhoto(photoId, now().toISOString()));
+    if (approved instanceof Response) {
+      await storage.remove(photoId, "approved");
+      return approved;
+    }
+    await storage.remove(photoId, "pending");
+    return c.json({ photo: toPhotoDto(approved as VisiblePhoto, await uploadersOf([approved]), true) });
+  });
+
+  app.post("/admin/photos/:photoId/reject", async (c) => {
+    const photoId = c.req.param("photoId");
+    const rejected = await photoAction(c, () => repo.rejectPhoto(photoId, now().toISOString()));
+    if (rejected instanceof Response) return rejected;
+    await storage.remove(photoId, "pending");
+    return c.json({ photo: toPhotoDto(rejected as VisiblePhoto, await uploadersOf([rejected]), true) });
+  });
+
+  app.delete("/admin/photos/:photoId", async (c) => {
+    const photoId = c.req.param("photoId");
+    const deleted = await photoAction(c, () => repo.deleteApprovedPhoto(photoId, now().toISOString()));
+    if (deleted instanceof Response) return deleted;
+    await storage.remove(photoId, "approved");
+    await storage.invalidate(photoId);
+    return c.json({});
+  });
+
+  app.get("/admin/settings", async (c) => c.json({ settings: await repo.getSettings() }));
+
+  app.put("/admin/settings", async (c) => {
+    const body = await parseBody(c, updateSettingsRequestSchema);
+    if (!body.ok) return body.response;
+    await repo.putSettings(body.data);
+    return c.json({ settings: body.data });
+  });
+
   return app;
+}
+
+/** 参加者・管理画面に出す写真（削除済みの記録は出さない） */
+type VisiblePhoto = PhotoRecord & { status: PhotoStatus };
+
+function isVisible(photo: PhotoRecord): photo is VisiblePhoto {
+  return photo.status !== "deleted";
+}
+
+/** 写真の状態遷移を実行し、想定内の失敗は API エラーのレスポンスにする */
+async function photoAction(c: Context, action: () => Promise<PhotoRecord>): Promise<PhotoRecord | Response> {
+  try {
+    return await action();
+  } catch (e) {
+    if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+    if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state");
+    throw e;
+  }
 }
 
 function toUserDto(user: UserRecord): UserDto {

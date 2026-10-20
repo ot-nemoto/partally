@@ -2,6 +2,8 @@ import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import {
   BatchWriteCommand,
   DynamoDBDocumentClient,
+  GetCommand,
+  QueryCommand,
   TransactWriteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
@@ -9,7 +11,13 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DynamoRepository } from "./dynamo-repository.js";
-import { EpithetTakenError, TokenNotAvailableError, type UserRecord } from "./repository.js";
+import {
+  EpithetTakenError,
+  InvalidStateError,
+  type PhotoRecord,
+  TokenNotAvailableError,
+  type UserRecord,
+} from "./repository.js";
 
 const ddb = mockClient(DynamoDBDocumentClient);
 const repo = new DynamoRepository(DynamoDBDocumentClient.from(new DynamoDBClient({})), "table");
@@ -94,6 +102,90 @@ describe("DynamoRepository", () => {
       const calls = ddb.commandCalls(BatchWriteCommand);
       expect(calls).toHaveLength(2);
       expect(calls[1]!.args[0].input.RequestItems!.table).toEqual(unprocessed);
+    });
+  });
+
+  describe("写真", () => {
+    const photo: PhotoRecord = {
+      photoId: "P1",
+      uploaderId: "u1",
+      status: "pending",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    it("createPhoto は写真の作成とアップロード数の加算を 1 トランザクションで行い、重複は false", async () => {
+      ddb
+        .on(TransactWriteCommand)
+        .resolvesOnce({})
+        .rejectsOnce(canceled(["ConditionalCheckFailed", "None"]));
+      expect(await repo.createPhoto(photo)).toBe(true);
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items[0]!.Put!.Item).toMatchObject({
+        PK: "PHOTO#P1",
+        GSI1PK: "PHOTOS#pending",
+        GSI1SK: "2026-01-01T00:00:00.000Z#P1",
+        GSI2PK: "USER#u1",
+      });
+      expect(items[1]!.Update!.UpdateExpression).toBe("ADD uploadCount :one");
+
+      expect(await repo.createPhoto(photo)).toBe(false);
+    });
+
+    it("即時公開の写真は approvedCount も加算する", async () => {
+      ddb.on(TransactWriteCommand).resolves({});
+      await repo.createPhoto({ ...photo, status: "approved" });
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items[1]!.Update!.UpdateExpression).toBe("ADD uploadCount :one, approvedCount :one");
+    });
+
+    it("承認は状態と GSI を更新し approvedCount を加算する。pending 以外は InvalidStateError", async () => {
+      ddb.on(GetCommand).resolves({ Item: { ...photo } });
+      ddb.on(TransactWriteCommand).resolves({});
+      const approved = await repo.approvePhoto("P1", "2026-01-02T00:00:00.000Z");
+      expect(approved.status).toBe("approved");
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items[0]!.Update!.ExpressionAttributeValues).toMatchObject({ ":gsi1pk": "PHOTOS#approved" });
+      expect(items[1]!.Update).toMatchObject({
+        UpdateExpression: "ADD approvedCount :approvedCount",
+        ExpressionAttributeValues: { ":approvedCount": 1 },
+      });
+
+      ddb.on(GetCommand).resolves({ Item: { ...photo, status: "approved" } });
+      await expect(repo.approvePhoto("P1", "x")).rejects.toBeInstanceOf(InvalidStateError);
+    });
+
+    it("一覧は新しい順で、続きはカーソルで受け渡す", async () => {
+      const lastKey = { PK: "PHOTO#P1", SK: "META", GSI1PK: "PHOTOS#approved", GSI1SK: "x" };
+      ddb
+        .on(QueryCommand)
+        .resolvesOnce({ Items: [{ ...photo, status: "approved" }], LastEvaluatedKey: lastKey })
+        .resolvesOnce({ Items: [] });
+      const page = await repo.listPhotosByStatus("approved", 30);
+      expect(ddb.commandCalls(QueryCommand)[0]!.args[0].input).toMatchObject({
+        IndexName: "GSI1",
+        ScanIndexForward: false,
+        Limit: 30,
+      });
+
+      await repo.listPhotosByStatus("approved", 30, page.cursor);
+      expect(ddb.commandCalls(QueryCommand)[1]!.args[0].input.ExclusiveStartKey).toEqual(lastKey);
+    });
+  });
+
+  describe("削除", () => {
+    it("公開済みの写真は記録を残したまま deleted にし、両方のカウンタを減らす", async () => {
+      ddb.on(GetCommand).resolves({
+        Item: { photoId: "P1", uploaderId: "u1", status: "approved", createdAt: "2026-01-01T00:00:00.000Z" },
+      });
+      ddb.on(TransactWriteCommand).resolves({});
+      const deleted = await repo.deleteApprovedPhoto("P1", "2026-01-02T00:00:00.000Z");
+      expect(deleted.status).toBe("deleted");
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items[0]!.Update!.ExpressionAttributeValues).toMatchObject({ ":to": "deleted", ":from": "approved" });
+      expect(items[1]!.Update).toMatchObject({
+        UpdateExpression: "ADD uploadCount :uploadCount, approvedCount :approvedCount",
+        ExpressionAttributeValues: { ":uploadCount": -1, ":approvedCount": -1 },
+      });
     });
   });
 });

@@ -15,6 +15,7 @@ new PartallyStack(app, "Partally", {
   },
   adminPassword,
   sessionSecretParam: app.node.tryGetContext("sessionSecretParam"),
+  cloudfrontPrivateKeyParam: app.node.tryGetContext("cloudfrontPrivateKeyParam"),
   budgetEmail: process.env.PARTALLY_BUDGET_EMAIL,
   budgetLimitUsd: process.env.PARTALLY_BUDGET_USD ? Number(process.env.PARTALLY_BUDGET_USD) : undefined,
 });

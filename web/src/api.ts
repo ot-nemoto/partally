@@ -36,6 +36,8 @@ export function errorMessage(e: unknown): string {
         return "この QR コードは既に登録されています。もう一度 QR を読み込んでください。";
       case "epithet_taken":
         return "その二つ名は他の人が使っています。";
+      case "invalid_state":
+        return "他の操作で状態が変わっています。画面を更新してください。";
       case "unauthorized":
         return "ログインが必要です。";
       case "bad_request":

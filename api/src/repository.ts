@@ -1,4 +1,4 @@
-import type { TokenStatus, UserStatus } from "@partally/shared";
+import type { PhotoStatus, Settings, TokenStatus, UserStatus } from "@partally/shared";
 
 export interface TokenRecord {
   token: string;
@@ -26,6 +26,25 @@ export function formatLabel(n: number): string {
   return String(n).padStart(3, "0");
 }
 
+/** deleted は管理者が削除した写真の記録。同じ photoId の再取り込みを防ぐために残す */
+export type PhotoRecordStatus = PhotoStatus | "deleted";
+
+export interface PhotoRecord {
+  photoId: string;
+  uploaderId: string;
+  status: PhotoRecordStatus;
+  createdAt: string;
+  reviewedAt?: string;
+}
+
+export interface Page<T> {
+  items: T[];
+  /** 続きがある場合の位置。次の呼び出しにそのまま渡す */
+  cursor?: string;
+}
+
+export const DEFAULT_SETTINGS: Settings = { moderation: "pre" };
+
 export interface UserChanges {
   name?: string;
   epithet?: string;
@@ -47,6 +66,14 @@ export class EpithetTakenError extends Error {
   }
 }
 
+/** 写真の状態が操作の前提と合わない（承認済みを承認しようとした等） */
+export class InvalidStateError extends Error {
+  constructor() {
+    super("invalid state");
+    this.name = "InvalidStateError";
+  }
+}
+
 export class NotFoundError extends Error {
   constructor() {
     super("not found");
@@ -57,6 +84,8 @@ export class NotFoundError extends Error {
 export interface Repository {
   getToken(token: string): Promise<TokenRecord | undefined>;
   getUser(userId: string): Promise<UserRecord | undefined>;
+  /** 指定したユーザをまとめて取得する（存在しない ID は結果に含まれない） */
+  getUsers(userIds: string[]): Promise<UserRecord[]>;
   listTokens(): Promise<TokenRecord[]>;
   listUsers(): Promise<UserRecord[]>;
 
@@ -81,4 +110,43 @@ export interface Repository {
    * @throws NotFoundError ユーザが存在しないか、既に解除済み
    */
   unbindUser(userId: string, updatedAt: string): Promise<UserRecord>;
+
+  // ---- 写真 ----
+
+  getPhoto(photoId: string): Promise<PhotoRecord | undefined>;
+
+  /** 状態別に新しい順で返す */
+  listPhotosByStatus(status: PhotoStatus, limit: number, cursor?: string): Promise<Page<PhotoRecord>>;
+
+  /** アップロード者別に新しい順で返す（削除済みも含む） */
+  listPhotosByUploader(uploaderId: string): Promise<PhotoRecord[]>;
+
+  /**
+   * 写真を登録し、アップロード者の uploadCount（approved なら approvedCount も）を加算する。
+   * 同じ photoId が既にあれば何もせず false を返す（S3 イベントの重複配信に備える）。
+   */
+  createPhoto(photo: PhotoRecord): Promise<boolean>;
+
+  /**
+   * pending → approved。approvedCount を加算する。
+   * @throws NotFoundError / InvalidStateError
+   */
+  approvePhoto(photoId: string, reviewedAt: string): Promise<PhotoRecord>;
+
+  /**
+   * pending → rejected。uploadCount を減算する。
+   * @throws NotFoundError / InvalidStateError
+   */
+  rejectPhoto(photoId: string, reviewedAt: string): Promise<PhotoRecord>;
+
+  /**
+   * approved → deleted。uploadCount・approvedCount を減算する。
+   * @throws NotFoundError / InvalidStateError
+   */
+  deleteApprovedPhoto(photoId: string, deletedAt: string): Promise<PhotoRecord>;
+
+  // ---- 設定 ----
+
+  getSettings(): Promise<Settings>;
+  putSettings(settings: Settings): Promise<void>;
 }

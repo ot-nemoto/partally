@@ -27,6 +27,8 @@ export function AdminLayout() {
         <nav>
           <NavLink to="/admin/users">ユーザ</NavLink>
           <NavLink to="/admin/tokens">QR</NavLink>
+          <NavLink to="/admin/photos">写真</NavLink>
+          <NavLink to="/admin/settings">設定</NavLink>
         </nav>
         <button type="button" className="link" onClick={logout}>
           ログアウト
