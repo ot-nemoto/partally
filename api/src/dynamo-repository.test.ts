@@ -1,0 +1,99 @@
+import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
+import {
+  BatchWriteCommand,
+  DynamoDBDocumentClient,
+  TransactWriteCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { mockClient } from "aws-sdk-client-mock";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DynamoRepository } from "./dynamo-repository.js";
+import { EpithetTakenError, TokenNotAvailableError, type UserRecord } from "./repository.js";
+
+const ddb = mockClient(DynamoDBDocumentClient);
+const repo = new DynamoRepository(DynamoDBDocumentClient.from(new DynamoDBClient({})), "table");
+
+const user: UserRecord & { token: string } = {
+  userId: "u1",
+  name: "田中",
+  epithet: "疾風の魔術師",
+  token: "t".repeat(22),
+  status: "active",
+  uploadCount: 0,
+  approvedCount: 0,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+};
+
+function canceled(codes: string[]) {
+  return new TransactionCanceledException({
+    message: "canceled",
+    $metadata: {},
+    CancellationReasons: codes.map((Code) => ({ Code })),
+  });
+}
+
+describe("DynamoRepository", () => {
+  beforeEach(() => ddb.reset());
+
+  describe("registerUser", () => {
+    it("トークン紐づけ・ユーザ作成・二つ名ロックを 1 トランザクションで書く", async () => {
+      ddb.on(TransactWriteCommand).resolves({});
+      await repo.registerUser(user);
+
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items[0]!.Update).toMatchObject({
+        Key: { PK: `TOKEN#${user.token}`, SK: "META" },
+        ConditionExpression: "#status = :unbound",
+      });
+      expect(items[1]!.Put).toMatchObject({
+        Item: { PK: "USER#u1", SK: "PROFILE", GSI1PK: "USERS", name: "田中" },
+        ConditionExpression: "attribute_not_exists(PK)",
+      });
+      expect(items[2]!.Put).toMatchObject({
+        Item: { PK: "EPITHET#疾風の魔術師", SK: "LOCK", userId: "u1" },
+      });
+    });
+
+    it("トークンの条件チェック失敗は TokenNotAvailableError", async () => {
+      ddb.on(TransactWriteCommand).rejects(canceled(["ConditionalCheckFailed", "None", "None"]));
+      await expect(repo.registerUser(user)).rejects.toBeInstanceOf(TokenNotAvailableError);
+    });
+
+    it("二つ名ロックの条件チェック失敗は EpithetTakenError", async () => {
+      ddb.on(TransactWriteCommand).rejects(canceled(["None", "None", "ConditionalCheckFailed"]));
+      await expect(repo.registerUser(user)).rejects.toBeInstanceOf(EpithetTakenError);
+    });
+  });
+
+  describe("createTokens", () => {
+    it("カウンタから通し番号を採番し、25 件ずつ書き込む", async () => {
+      ddb.on(UpdateCommand).resolves({ Attributes: { value: 40 } });
+      ddb.on(BatchWriteCommand).resolves({});
+
+      const tokens = Array.from({ length: 30 }, (_, i) => `token-${i}`);
+      const records = await repo.createTokens(tokens, "2026-01-01T00:00:00.000Z");
+
+      expect(records[0]!.label).toBe("011");
+      expect(records[29]!.label).toBe("040");
+      const batches = ddb.commandCalls(BatchWriteCommand).map((c) => c.args[0].input.RequestItems!.table!);
+      expect(batches.map((b) => b.length)).toEqual([25, 5]);
+      expect(batches[0]![0]!.PutRequest!.Item).toMatchObject({ GSI1PK: "TOKENS", GSI1SK: "000011" });
+    });
+
+    it("未処理分を再送する", async () => {
+      ddb.on(UpdateCommand).resolves({ Attributes: { value: 1 } });
+      const unprocessed = [{ PutRequest: { Item: { PK: "TOKEN#x" } } }];
+      ddb
+        .on(BatchWriteCommand)
+        .resolvesOnce({ UnprocessedItems: { table: unprocessed } })
+        .resolves({});
+
+      await repo.createTokens(["x"], "2026-01-01T00:00:00.000Z");
+      const calls = ddb.commandCalls(BatchWriteCommand);
+      expect(calls).toHaveLength(2);
+      expect(calls[1]!.args[0].input.RequestItems!.table).toEqual(unprocessed);
+    });
+  });
+});

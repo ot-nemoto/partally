@@ -1,0 +1,301 @@
+import { randomBytes, randomInt } from "node:crypto";
+import {
+  type ApiErrorCode,
+  adminLoginRequestSchema,
+  formatDisplayName,
+  issueTokensRequestSchema,
+  qrLoginRequestSchema,
+  type RandomInt,
+  randomEpithet,
+  registerRequestSchema,
+  type TokenDto,
+  updateUserRequestSchema,
+  type UserDto,
+} from "@partally/shared";
+import { type Context, Hono } from "hono";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { ulid } from "ulid";
+import type { z } from "zod";
+import {
+  EpithetTakenError,
+  NotFoundError,
+  type Repository,
+  TokenNotAvailableError,
+  type TokenRecord,
+  type UserRecord,
+} from "./repository.js";
+import {
+  ADMIN_SESSION_MAX_AGE,
+  type AdminSession,
+  safeEqual,
+  sign,
+  USER_SESSION_MAX_AGE,
+  type UserSession,
+  verify,
+} from "./session.js";
+
+export interface AppDeps {
+  repo: Repository;
+  sessionSecret: string;
+  adminPassword: string;
+  /** ローカル開発（http）では false にする */
+  secureCookies: boolean;
+  now?: () => Date;
+  randomInt?: RandomInt;
+  newId?: () => string;
+  newToken?: () => string;
+}
+
+type Env = { Variables: { user: UserRecord } };
+
+const USER_COOKIE = "session";
+const ADMIN_COOKIE = "admin_session";
+const ADMIN_COOKIE_PATH = "/api/admin";
+const EPITHET_ATTEMPTS = 10;
+
+export function createApp(deps: AppDeps) {
+  const {
+    repo,
+    sessionSecret,
+    adminPassword,
+    secureCookies,
+    now = () => new Date(),
+    randomInt: rand = (max) => randomInt(max),
+    newId = () => ulid(),
+    newToken = () => randomBytes(16).toString("base64url"),
+  } = deps;
+  const nowSeconds = () => Math.floor(now().getTime() / 1000);
+
+  const app = new Hono<Env>().basePath("/api");
+
+  app.onError((err, c) => {
+    console.error(err);
+    return fail(c, 500, "internal_error");
+  });
+  app.notFound((c) => fail(c, 404, "not_found"));
+
+  // 更新系は JSON に限定する。クロスオリジンからの JSON 送信はプリフライトが必要になるため CSRF 対策になる
+  app.use("*", async (c, next) => {
+    if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+      const type = c.req.header("content-type") ?? "";
+      if (!type.startsWith("application/json")) {
+        return fail(c, 415, "bad_request", "Content-Type は application/json にしてください");
+      }
+    }
+    await next();
+  });
+
+  // ---- 参加者 ----
+
+  const setUserSession = (c: Context, user: UserRecord & { token: string }) => {
+    const session: UserSession = { uid: user.userId, tok: user.token, iat: nowSeconds() };
+    setCookie(c, USER_COOKIE, sign(session, sessionSecret), {
+      httpOnly: true,
+      secure: secureCookies,
+      sameSite: "Lax",
+      path: "/",
+      maxAge: USER_SESSION_MAX_AGE,
+    });
+  };
+
+  app.post("/auth/qr", async (c) => {
+    const body = await parseBody(c, qrLoginRequestSchema);
+    if (!body.ok) return body.response;
+
+    const token = await repo.getToken(body.data.token);
+    if (!token) return fail(c, 404, "invalid_token");
+    if (token.status === "unbound" || !token.userId) return c.json({ status: "unbound" as const });
+
+    const user = await repo.getUser(token.userId);
+    if (!user || user.status !== "active" || user.token !== token.token) {
+      // トークンとユーザの状態が食い違っている。管理者に紐づけ解除してもらう必要がある
+      return fail(c, 404, "invalid_token");
+    }
+    setUserSession(c, { ...user, token: token.token });
+    return c.json({ status: "bound" as const, user: toUserDto(user) });
+  });
+
+  app.post("/auth/register", async (c) => {
+    const body = await parseBody(c, registerRequestSchema);
+    if (!body.ok) return body.response;
+    const { token, name } = body.data;
+
+    const existing = await repo.getToken(token);
+    if (!existing) return fail(c, 404, "invalid_token");
+    if (existing.status !== "unbound") return fail(c, 409, "token_already_bound");
+
+    const timestamp = now().toISOString();
+    const userId = newId();
+    for (let attempt = 0; attempt < EPITHET_ATTEMPTS; attempt++) {
+      const user: UserRecord & { token: string } = {
+        userId,
+        name,
+        epithet: randomEpithet(rand),
+        token,
+        status: "active",
+        uploadCount: 0,
+        approvedCount: 0,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      try {
+        await repo.registerUser(user);
+      } catch (e) {
+        if (e instanceof EpithetTakenError) continue;
+        if (e instanceof TokenNotAvailableError) return fail(c, 409, "token_already_bound");
+        throw e;
+      }
+      setUserSession(c, user);
+      return c.json({ user: toUserDto(user) }, 201);
+    }
+    throw new Error(`二つ名を ${EPITHET_ATTEMPTS} 回抽選しても空きが見つかりませんでした`);
+  });
+
+  app.post("/auth/logout", (c) => {
+    deleteCookie(c, USER_COOKIE, { path: "/", secure: secureCookies });
+    return c.json({});
+  });
+
+  const requireUser = async (c: Context<Env>, next: () => Promise<void>) => {
+    const session = verify<UserSession>(
+      getCookie(c, USER_COOKIE),
+      sessionSecret,
+      USER_SESSION_MAX_AGE,
+      nowSeconds(),
+    );
+    const user = session && (await repo.getUser(session.uid));
+    if (!session || !user || user.status !== "active" || user.token !== session.tok) {
+      deleteCookie(c, USER_COOKIE, { path: "/", secure: secureCookies });
+      return fail(c, 401, "unauthorized");
+    }
+    c.set("user", user);
+    await next();
+  };
+
+  app.get("/me", requireUser, (c) => c.json({ user: toUserDto(c.get("user")) }));
+
+  // ---- 管理者 ----
+
+  app.post("/admin/login", async (c) => {
+    const body = await parseBody(c, adminLoginRequestSchema);
+    if (!body.ok) return body.response;
+    if (!safeEqual(body.data.password, adminPassword)) return fail(c, 401, "unauthorized");
+
+    const session: AdminSession = { adm: true, iat: nowSeconds() };
+    setCookie(c, ADMIN_COOKIE, sign(session, sessionSecret), {
+      httpOnly: true,
+      secure: secureCookies,
+      sameSite: "Strict",
+      path: ADMIN_COOKIE_PATH,
+      maxAge: ADMIN_SESSION_MAX_AGE,
+    });
+    return c.json({});
+  });
+
+  app.post("/admin/logout", (c) => {
+    deleteCookie(c, ADMIN_COOKIE, { path: ADMIN_COOKIE_PATH, secure: secureCookies });
+    return c.json({});
+  });
+
+  app.use("/admin/*", async (c, next) => {
+    if (c.req.path === `${ADMIN_COOKIE_PATH}/login` || c.req.path === `${ADMIN_COOKIE_PATH}/logout`) {
+      return next();
+    }
+    const session = verify<AdminSession>(
+      getCookie(c, ADMIN_COOKIE),
+      sessionSecret,
+      ADMIN_SESSION_MAX_AGE,
+      nowSeconds(),
+    );
+    if (!session?.adm) return fail(c, 401, "unauthorized");
+    await next();
+  });
+
+  app.get("/admin/me", (c) => c.json({}));
+
+  app.post("/admin/tokens", async (c) => {
+    const body = await parseBody(c, issueTokensRequestSchema);
+    if (!body.ok) return body.response;
+    const tokens = Array.from({ length: body.data.count }, newToken);
+    const created = await repo.createTokens(tokens, now().toISOString());
+    return c.json({ tokens: created.map((t) => toTokenDto(t)) }, 201);
+  });
+
+  app.get("/admin/tokens", async (c) => {
+    const [tokens, users] = await Promise.all([repo.listTokens(), repo.listUsers()]);
+    const byId = new Map(users.map((u) => [u.userId, u]));
+    return c.json({ tokens: tokens.map((t) => toTokenDto(t, t.userId ? byId.get(t.userId) : undefined)) });
+  });
+
+  app.get("/admin/users", async (c) => {
+    const users = await repo.listUsers();
+    return c.json({ users: users.map(toUserDto) });
+  });
+
+  app.patch("/admin/users/:userId", async (c) => {
+    const body = await parseBody(c, updateUserRequestSchema);
+    if (!body.ok) return body.response;
+    try {
+      const user = await repo.updateUser(c.req.param("userId"), body.data, now().toISOString());
+      return c.json({ user: toUserDto(user) });
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      if (e instanceof EpithetTakenError) return fail(c, 409, "epithet_taken");
+      throw e;
+    }
+  });
+
+  app.post("/admin/users/:userId/unbind", async (c) => {
+    try {
+      const user = await repo.unbindUser(c.req.param("userId"), now().toISOString());
+      return c.json({ user: toUserDto(user) });
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      throw e;
+    }
+  });
+
+  return app;
+}
+
+function toUserDto(user: UserRecord): UserDto {
+  return {
+    userId: user.userId,
+    name: user.name,
+    epithet: user.epithet,
+    displayName: formatDisplayName(user.epithet, user.name),
+    status: user.status,
+    uploadCount: user.uploadCount,
+    approvedCount: user.approvedCount,
+    createdAt: user.createdAt,
+  };
+}
+
+function toTokenDto(token: TokenRecord, user?: UserRecord): TokenDto {
+  return {
+    token: token.token,
+    label: token.label,
+    status: token.status,
+    userId: token.userId,
+    displayName: user ? formatDisplayName(user.epithet, user.name) : undefined,
+    createdAt: token.createdAt,
+    boundAt: token.boundAt,
+  };
+}
+
+function fail(c: Context, status: ContentfulStatusCode, error: ApiErrorCode, message?: string) {
+  return c.json({ error, message }, status);
+}
+
+async function parseBody<S extends z.ZodType>(
+  c: Context,
+  schema: S,
+): Promise<{ ok: true; data: z.infer<S> } | { ok: false; response: Response }> {
+  const json = await c.req.json().catch(() => undefined);
+  const result = schema.safeParse(json);
+  if (!result.success) {
+    return { ok: false, response: fail(c, 400, "bad_request", result.error.issues[0]?.message) };
+  }
+  return { ok: true, data: result.data };
+}

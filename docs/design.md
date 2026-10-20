@@ -126,9 +126,11 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | 二つ名ロック | `EPITHET#<epithet>` | `LOCK` | – | – |
 | 写真 | `PHOTO#<photoId>` | `META` | `PHOTOS#<status>` | `<createdAt>#<photoId>` |
 | 設定 | `SETTINGS` | `GLOBAL` | – | – |
+| 通し番号カウンタ | `COUNTER` | `TOKEN_LABEL` | – | – |
 
 - **GSI1**: 一覧取得用（トークン一覧・ユーザ一覧・状態別の写真一覧を時系列で）。
 - **GSI2**: ユーザ別の写真一覧。写真のみ `GSI2PK = USER#<uploaderId>`, `GSI2SK = <createdAt>#<photoId>` を持つ。
+- QR トークンの GSI1SK は通し番号を 6 桁ゼロ埋めした値（表示用 `label` は 3 桁）。通し番号はカウンタへのアトミック加算で採番する。
 - ID は ULID（時系列ソート可能）。トークンは 128bit の暗号論的乱数を base64url（22 文字）にしたもの。
 
 ### 3.2 属性

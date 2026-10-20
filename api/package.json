@@ -1,0 +1,25 @@
+{
+  "name": "@partally/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/dev.ts",
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1153.0",
+    "@aws-sdk/client-ssm": "^3.1153.0",
+    "@aws-sdk/lib-dynamodb": "^3.1153.0",
+    "@partally/shared": "*",
+    "hono": "^4.13.13",
+    "ulid": "^3.0.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@hono/node-server": "^2.1.5",
+    "@types/aws-lambda": "^8.10.164",
+    "aws-sdk-client-mock": "^4.1.0",
+    "tsx": "^4.23.15"
+  }
+}
