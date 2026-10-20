@@ -2,11 +2,16 @@ import type { PresignedPost, UploadUrlResponse } from "@partally/shared";
 import { ApiError, api } from "../api";
 import { processPhoto } from "./process";
 
-/** 送信待ちの写真。通信が切れてもページを閉じても消えないよう IndexedDB に置く */
+/**
+ * 送信待ちの写真。通信が切れてもページを閉じても消えないよう IndexedDB に置く。
+ * 画像は Blob ではなく ArrayBuffer で持つ。iOS Safari では IndexedDB から読み出した Blob を送ると
+ * 通信エラー（Load failed）になることがあるため、送信のたびに Blob を作り直す。
+ */
 interface QueuedUpload {
   id: string;
-  full: Blob;
-  thumb: Blob;
+  /** 以前の版は Blob で保存していたため、読み出し時は両方を受け付ける */
+  full: ArrayBuffer | Blob;
+  thumb: ArrayBuffer | Blob;
   createdAt: number;
   /** 発行済みのアップロード先。再送時に使い回し、同じ写真が別の写真として二重に登録されないようにする */
   target?: UploadUrlResponse & { issuedAt: number };
@@ -20,6 +25,8 @@ export interface QueueState {
   uploading: boolean;
   /** 直近の送信が失敗していれば、その理由 */
   error?: string;
+  /** 失敗の詳細（問い合わせ時の手がかり） */
+  errorDetail?: string;
 }
 
 const DB_NAME = "partally";
@@ -29,6 +36,13 @@ const RETRY_INTERVAL_MS = 30_000;
 const TARGET_REUSE_MS = 4 * 60 * 1000;
 /** サーバにこの回数断られた写真は諦めて破棄する（後ろの写真が送れなくなるのを防ぐ） */
 const MAX_FAILURES = 5;
+
+/** 保存した画像データを読み出せない（再送しても直らない） */
+class UnreadableError extends Error {
+  constructor() {
+    super("保存した写真のデータを読み出せません");
+  }
+}
 
 /** S3 や API が送信を断った（通信エラーではない） */
 class RejectedError extends Error {
@@ -52,7 +66,13 @@ export function subscribeQueue(listener: (s: QueueState) => void): () => void {
 /** 写真を縮小して送信待ちに入れ、送信を始める */
 export async function enqueuePhoto(file: File): Promise<void> {
   const { full, thumb } = await processPhoto(file);
-  const item: QueuedUpload = { id: newId(), full, thumb, createdAt: Date.now(), failures: 0 };
+  const item: QueuedUpload = {
+    id: newId(),
+    full: await full.arrayBuffer(),
+    thumb: await thumb.arrayBuffer(),
+    createdAt: Date.now(),
+    failures: 0,
+  };
   await withStore("readwrite", (store) => store.put(item));
   await refreshCount();
   void flushQueue();
@@ -68,8 +88,9 @@ export async function flushQueue(): Promise<void> {
     return;
   }
   clearTimeout(retryTimer);
-  setState({ uploading: true, error: undefined });
+  setState({ uploading: true, error: undefined, errorDetail: undefined });
   let failed = false;
+  let lastError: unknown;
   let discarded = 0;
   try {
     const skipped = new Set<string>();
@@ -86,13 +107,14 @@ export async function flushQueue(): Promise<void> {
           return;
         }
         failed = true;
+        lastError = e;
         skipped.add(item.id);
         if (e instanceof RejectedError || e instanceof ApiError) {
           item.failures++;
           // 期限切れなどでアップロード先が使えなくなった可能性があるので、次回は取り直す
           item.target = undefined;
         }
-        if (item.failures >= MAX_FAILURES) {
+        if (e instanceof UnreadableError || item.failures >= MAX_FAILURES) {
           await withStore("readwrite", (store) => store.delete(item.id));
           discarded++;
         } else {
@@ -105,10 +127,11 @@ export async function flushQueue(): Promise<void> {
     setState({ uploading: false });
   }
 
+  const errorDetail = lastError instanceof Error ? lastError.message : lastError ? String(lastError) : undefined;
   if (discarded > 0) {
-    setState({ error: `送信できなかった写真が ${discarded} 枚ありました。もう一度撮影・選択してください。` });
+    setState({ error: `送信できなかった写真が ${discarded} 枚ありました。もう一度撮影・選択してください。`, errorDetail });
   } else if (failed) {
-    setState({ error: "送信に失敗しました。電波の良い場所で自動的に再送します。" });
+    setState({ error: "送信に失敗しました。自動的に再送します。", errorDetail });
   }
   if (failed) retryTimer = setTimeout(() => void flushQueue(), RETRY_INTERVAL_MS);
   if (rerunRequested) {
@@ -132,15 +155,25 @@ async function upload(item: QueuedUpload): Promise<void> {
     // 送信の途中で失敗しても、再送で同じ photoId に送れるよう先に保存する
     await withStore("readwrite", (store) => store.put(item));
   }
+  const [thumb, full] = await Promise.all([readData(item.thumb), readData(item.full)]);
   // サムネイルを先に送る（本体の到着をきっかけにサーバが登録するため）
-  await post(item.target.thumb, item.thumb);
-  await post(item.target.full, item.full);
+  await post(item.target.thumb, thumb);
+  await post(item.target.full, full);
 }
 
-async function post(target: PresignedPost, blob: Blob): Promise<void> {
+async function readData(data: ArrayBuffer | Blob): Promise<ArrayBuffer> {
+  if (data instanceof ArrayBuffer) return data;
+  try {
+    return await data.arrayBuffer();
+  } catch {
+    throw new UnreadableError();
+  }
+}
+
+async function post(target: PresignedPost, data: ArrayBuffer): Promise<void> {
   const form = new FormData();
   for (const [k, v] of Object.entries(target.fields)) form.append(k, v);
-  form.append("file", blob, "photo.jpg");
+  form.append("file", new Blob([data], { type: "image/jpeg" }), "photo.jpg");
   const res = await fetch(target.url, { method: "POST", body: form });
   if (!res.ok) throw new RejectedError(res.status);
 }
