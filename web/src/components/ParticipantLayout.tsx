@@ -63,13 +63,22 @@ export function ParticipantLayout() {
     [],
   );
 
-  const [quiz, setQuiz] = useState<CurrentQuizDto | null>();
+  const [quiz, setQuizState] = useState<CurrentQuizDto | null>();
   const loggedIn = useRef(false);
   loggedIn.current = state.kind === "user";
+  // 回答した回数。確認の途中で回答されたら、古い応答で回答を上書きしない
+  const answerCount = useRef(0);
+  const setQuiz = useCallback((next: CurrentQuizDto | null) => {
+    answerCount.current++;
+    setQuizState(next);
+  }, []);
   const refreshQuiz = useCallback(() => {
     if (!loggedIn.current) return;
+    const startedAt = answerCount.current;
     api<CurrentQuizResponse>("GET", "/quiz/current")
-      .then((res) => setQuiz(res.quiz))
+      .then((res) => {
+        if (answerCount.current === startedAt) setQuizState(res.quiz);
+      })
       .catch(() => undefined);
   }, []);
   useEffect(() => {

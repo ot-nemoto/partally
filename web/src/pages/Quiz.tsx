@@ -1,7 +1,7 @@
 import type { CurrentQuizResponse } from "@partally/shared";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, errorMessage } from "../api";
+import { ApiError, api, errorMessage } from "../api";
 import { useParticipant } from "../components/ParticipantLayout";
 
 /** 出題中のクイズに答える。締め切られるまで選び直せる */
@@ -31,7 +31,9 @@ export function Quiz() {
       const res = await api<CurrentQuizResponse>("PUT", `/quiz/${quiz.quizId}/answer`, { choiceId });
       setQuiz(res.quiz);
     } catch (e) {
-      setError(errorMessage(e));
+      // 次の確認を待たずに「締め切られました」に切り替える
+      if (e instanceof ApiError && e.code === "quiz_closed") setQuiz(null);
+      else setError(errorMessage(e));
     } finally {
       setSending(undefined);
     }

@@ -588,9 +588,10 @@ export class DynamoRepository implements Repository {
         }),
       );
     } catch (e) {
+      // 無い・下書きでないを、別の問題が出題中より先に判定する（メモリ実装と同じ順）
       const failed = conditionFailures(e);
-      if (failed?.[0]) throw new QuizAlreadyOpenError();
       if (failed?.[1]) throw await this.quizStateError(quizId);
+      if (failed?.[0]) throw new QuizAlreadyOpenError();
       throw e;
     }
     return (await this.getQuiz(quizId))!;
@@ -638,9 +639,7 @@ export class DynamoRepository implements Repository {
 
   async putQuizAnswer(answer: QuizAnswerRecord) {
     // 全員が一斉に答えるので、クイズのアイテムを含むトランザクションにはしない（TransactionConflict が多発する）。
-    // 確認と保存の間に締め切られた回答は、点数の計算で answeredAt > closedAt として除く
-    const quiz = await this.getQuiz(answer.quizId);
-    if (quiz?.status !== "open") throw new InvalidStateError();
+    // 呼び出し側の確認と保存の間に締め切られた回答は、点数の計算で answeredAt > closedAt として除く
     await this.client.send(
       new PutCommand({
         TableName: this.tableName,

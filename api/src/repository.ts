@@ -258,8 +258,8 @@ export interface Repository {
   getOpenQuizId(): Promise<string | undefined>;
 
   /**
-   * 回答を保存する（選び直しは上書き）。
-   * @throws InvalidStateError クイズが出題中でない
+   * 回答を保存する（選び直しは上書き）。出題中かどうかは呼び出し側が強い整合性で読んで確かめ、
+   * その後に answeredAt を付けて呼ぶ（全員が一斉に答えるため、クイズのアイテムを含むトランザクションにはしない）
    */
   putQuizAnswer(answer: QuizAnswerRecord): Promise<void>;
   getQuizAnswer(userId: string, quizId: string): Promise<QuizAnswerRecord | undefined>;

@@ -766,6 +766,7 @@ describe("API", () => {
       await admin("POST", `/api/admin/quizzes/${q1.quizId}/close`);
       expect((await admin("POST", `/api/admin/quizzes/${q1.quizId}/open`)).status).toBe(409);
       expect((await admin("POST", `/api/admin/quizzes/${q2.quizId}/open`)).status).toBe(200);
+      // 出題中の問題があっても、無い問題は 404
       expect((await admin("POST", "/api/admin/quizzes/NOPE/open")).status).toBe(404);
       const list = (await admin("GET", "/api/admin/quizzes")).body.quizzes;
       expect(list.map((q: any) => q.status)).toEqual(["closed", "open"]);
@@ -807,6 +808,11 @@ describe("API", () => {
         choices: [...kept.slice(0, 3), { choiceId: "NOPE", text: "x", points: 0 }],
       });
       expect(unknown.status).toBe(400);
+      const duplicated = await admin("PUT", `/api/admin/quizzes/${quiz.quizId}`, {
+        text: quiz.text,
+        choices: [kept[0], kept[0], kept[1], kept[2]],
+      });
+      expect(duplicated.status).toBe(400);
 
       const rescored = await admin("PUT", `/api/admin/quizzes/${quiz.quizId}`, {
         text: "直した問題文",

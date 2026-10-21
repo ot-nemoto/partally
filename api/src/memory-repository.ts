@@ -250,8 +250,8 @@ export class MemoryRepository implements Repository {
   async openQuiz(quizId: string, openedAt: string) {
     const quiz = this.quizzes.get(quizId);
     if (!quiz) throw new NotFoundError();
-    if (this.openQuizId !== undefined) throw new QuizAlreadyOpenError();
     if (quiz.status !== "draft") throw new InvalidStateError();
+    if (this.openQuizId !== undefined) throw new QuizAlreadyOpenError();
     this.openQuizId = quizId;
     Object.assign(quiz, { status: "open", openedAt, updatedAt: openedAt });
     return clone(quiz);
@@ -271,7 +271,6 @@ export class MemoryRepository implements Repository {
   }
 
   async putQuizAnswer(answer: QuizAnswerRecord) {
-    if (this.quizzes.get(answer.quizId)?.status !== "open") throw new InvalidStateError();
     this.quizAnswers.set(`${answer.userId}#${answer.quizId}`, clone(answer));
   }
 

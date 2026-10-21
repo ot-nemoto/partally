@@ -320,7 +320,7 @@ describe("DynamoRepository", () => {
         .resolvesOnce({})
         .rejectsOnce(canceled(["ConditionalCheckFailed", "None"]))
         .rejectsOnce(canceled(["None", "ConditionalCheckFailed"]))
-        .rejectsOnce(canceled(["None", "ConditionalCheckFailed"]));
+        .rejectsOnce(canceled(["ConditionalCheckFailed", "ConditionalCheckFailed"]));
       ddb
         .on(GetCommand)
         .resolvesOnce({ Item: quizItem("open") })
@@ -362,15 +362,9 @@ describe("DynamoRepository", () => {
       await expect(repo.closeQuiz("Q1", "x")).rejects.toBeInstanceOf(InvalidStateError);
     });
 
-    it("回答は出題中のときだけ、ユーザの下に保存する（クイズを含むトランザクションにはしない）", async () => {
-      ddb
-        .on(GetCommand)
-        .resolvesOnce({ Item: quizItem("open") })
-        .resolvesOnce({ Item: quizItem("closed") });
+    it("回答はユーザの下に保存する（クイズを含むトランザクションにはしない）", async () => {
       ddb.on(PutCommand).resolves({});
-      const answer = { quizId: "Q1", userId: "u1", choiceId: "A", answeredAt: "2026-01-01T00:01:30.000Z" };
-      await repo.putQuizAnswer(answer);
-      expect(ddb.commandCalls(GetCommand)[0]!.args[0].input.ConsistentRead).toBe(true);
+      await repo.putQuizAnswer({ quizId: "Q1", userId: "u1", choiceId: "A", answeredAt: "2026-01-01T00:01:30.000Z" });
       expect(ddb.commandCalls(PutCommand)[0]!.args[0].input.Item).toMatchObject({
         PK: "USER#u1",
         SK: "ANSWER#Q1",
@@ -378,8 +372,6 @@ describe("DynamoRepository", () => {
         choiceId: "A",
       });
       expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(0);
-      await expect(repo.putQuizAnswer(answer)).rejects.toBeInstanceOf(InvalidStateError);
-      expect(ddb.commandCalls(PutCommand)).toHaveLength(1);
     });
 
     it("削除は出題中でなければクイズを消し、その回答もまとめて消す", async () => {

@@ -183,10 +183,18 @@ export function createApp(deps: AppDeps) {
     return scoreQuizAnswers(answers, quizzes);
   };
 
+  /** 全クイズとそれぞれの回答（管理画面用。問題数は数十程度の想定なので、クイズごとに並行して読む） */
+  const quizzesWithAnswers = async () => {
+    const quizzes = await repo.listQuizzes();
+    const answers = await Promise.all(quizzes.map((q) => repo.listQuizAnswersByQuiz(q.quizId)));
+    return quizzes.map((quiz, i) => ({ quiz, answers: answers[i]! }));
+  };
+
   /** 全員分のクイズの回答数と点数（管理画面のユーザ一覧用） */
   const quizStatsOfAll = async (): Promise<Map<string, QuizStats>> => {
-    const quizzes = await repo.listQuizzes();
-    const answers = (await Promise.all(quizzes.map((q) => repo.listQuizAnswersByQuiz(q.quizId)))).flat();
+    const entries = await quizzesWithAnswers();
+    const quizzes = entries.map((e) => e.quiz);
+    const answers = entries.flatMap((e) => e.answers);
     const byUser = new Map<string, QuizAnswerRecord[]>();
     for (const a of answers) byUser.set(a.userId, [...(byUser.get(a.userId) ?? []), a]);
     return new Map([...byUser].map(([userId, list]) => [userId, scoreQuizAnswers(list, quizzes)]));
@@ -298,17 +306,13 @@ export function createApp(deps: AppDeps) {
     if (quiz.status !== "open") return fail(c, 409, "quiz_closed");
     const { choiceId } = body.data;
     if (!quiz.choices.some((ch) => ch.choiceId === choiceId)) return fail(c, 400, "bad_request", "選択肢がありません");
-    try {
-      await repo.putQuizAnswer({
-        quizId: quiz.quizId,
-        userId: c.get("user").userId,
-        choiceId,
-        answeredAt: now().toISOString(),
-      });
-    } catch (e) {
-      if (e instanceof InvalidStateError) return fail(c, 409, "quiz_closed");
-      throw e;
-    }
+    // 時刻は出題中を確かめた後に付ける。この後に締め切られて保存が遅れた回答は、点数の計算で除かれる
+    await repo.putQuizAnswer({
+      quizId: quiz.quizId,
+      userId: c.get("user").userId,
+      choiceId,
+      answeredAt: now().toISOString(),
+    });
     return c.json({ quiz: toCurrentQuizDto(quiz, choiceId) });
   });
 
@@ -514,9 +518,8 @@ export function createApp(deps: AppDeps) {
   });
 
   app.get("/admin/quizzes", async (c) => {
-    const quizzes = await repo.listQuizzes();
-    const answers = await Promise.all(quizzes.map((q) => repo.listQuizAnswersByQuiz(q.quizId)));
-    return c.json({ quizzes: quizzes.map((q, i) => toQuizDto(q, answers[i]!)) });
+    const entries = await quizzesWithAnswers();
+    return c.json({ quizzes: entries.map(({ quiz, answers }) => toQuizDto(quiz, answers)) });
   });
 
   app.post("/admin/quizzes", async (c) => {
@@ -567,16 +570,15 @@ export function createApp(deps: AppDeps) {
     const quiz = await repo.getQuiz(c.req.param("quizId"));
     if (!quiz) return fail(c, 404, "not_found");
     const existingIds = new Set(quiz.choices.map((ch) => ch.choiceId));
-    if (body.data.choices.some((ch) => ch.choiceId !== undefined && !existingIds.has(ch.choiceId))) {
-      return fail(c, 400, "bad_request", "存在しない選択肢があります");
-    }
+    const sentIds = body.data.choices.flatMap((ch) => (ch.choiceId ? [ch.choiceId] : []));
+    if (sentIds.some((id) => !existingIds.has(id))) return fail(c, 400, "bad_request", "存在しない選択肢があります");
+    if (new Set(sentIds).size !== sentIds.length) return fail(c, 400, "bad_request", "同じ選択肢が重複しています");
     const choices: QuizChoice[] = body.data.choices.map((ch) => ({
       choiceId: ch.choiceId ?? newId(),
       text: ch.text,
       points: ch.points,
     }));
-    const keptIds = new Set(body.data.choices.flatMap((ch) => (ch.choiceId ? [ch.choiceId] : [])));
-    const structureChanged = keptIds.size !== choices.length || keptIds.size !== existingIds.size;
+    const structureChanged = sentIds.length !== choices.length || sentIds.length !== existingIds.size;
     if (structureChanged && quiz.status !== "draft") {
       return fail(c, 409, "invalid_state", "出題した後は選択肢を増やしたり減らしたりできません");
     }
