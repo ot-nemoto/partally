@@ -2,6 +2,10 @@ import type { MeResponse, Rules, UserDto } from "@partally/shared";
 import { useCallback, useEffect, useState } from "react";
 import { NavLink, Outlet, useOutletContext } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../api";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
+
+/** お気に入りの受付の開始・終了をタブに反映するため、表示中はこの間隔で自分の情報とルールを取り直す */
+const RULES_REFRESH_MS = 30_000;
 
 export interface ParticipantContext {
   user: UserDto;
@@ -38,6 +42,16 @@ export function ParticipantLayout() {
 
   useEffect(reloadUser, [reloadUser]);
 
+  // 裏での取り直しは、通信エラーでは画面を切り替えない（ログアウト状態になったときだけ反映する）
+  const refreshQuietly = useCallback(() => {
+    api<MeResponse>("GET", "/me")
+      .then((res) => setState((prev) => (prev.kind === "user" ? { ...prev, user: res.user, rules: res.rules } : prev)))
+      .catch((e) => {
+        if (e instanceof ApiError && e.status === 401) setState({ kind: "guest" });
+      });
+  }, []);
+  useAutoRefresh(refreshQuietly, RULES_REFRESH_MS);
+
   const setUser = useCallback(
     (user: UserDto) => setState((prev) => (prev.kind === "user" ? { ...prev, user } : prev)),
     [],
@@ -72,6 +86,7 @@ export function ParticipantLayout() {
           ホーム
         </NavLink>
         <NavLink to="/gallery">みんなの写真</NavLink>
+        {state.rules.favoritesEnabled && <NavLink to="/favorites">お気に入り</NavLink>}
         <NavLink to="/mine">自分の写真</NavLink>
       </nav>
     </div>

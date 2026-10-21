@@ -221,7 +221,9 @@ input {
   bottom: 0;
   left: 0;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* お気に入りの受付中はタブが 1 つ増えるので、数に合わせて等分する */
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
   padding-bottom: env(safe-area-inset-bottom);
   border-top: 1px solid var(--border);
   background: var(--surface);
@@ -666,6 +668,21 @@ button.more {
 
 .favorite.compact.on {
   background: #f43f5e;
+}
+
+.favorite-mark {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  background: #f43f5e;
+  color: #fff;
+  font-size: 0.85rem;
+  pointer-events: none;
 }
 
 .favorite:disabled {

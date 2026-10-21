@@ -8,8 +8,12 @@ import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 const POLL_INTERVAL_MS = 20_000;
 
-/** 公開済みの写真を新しい順に表示する。新着は定期的に取り込む */
-export function Gallery() {
+/**
+ * 公開済みの写真を新しい順に表示する。新着は定期的に取り込む。
+ * mode="favorite" は「お気に入り」タブ用で、他の人の写真だけを並べて ♡ で選べるようにする
+ */
+export function Gallery(props: { mode?: "view" | "favorite" }) {
+  const choosing = props.mode === "favorite";
   const [photos, setPhotos] = useState<PhotoDto[]>([]);
   const [cursor, setCursor] = useState<string>();
   const [loaded, setLoaded] = useState(false);
@@ -76,26 +80,46 @@ export function Gallery() {
     }
   }
 
+  if (choosing && !rules.favoritesEnabled) {
+    return (
+      <>
+        <h1>お気に入り</h1>
+        <p className="muted">お気に入りの受付は終了しました。</p>
+      </>
+    );
+  }
+
+  const shown = choosing ? photos.filter((p) => p.uploaderId !== user.userId) : photos;
+
   return (
     <>
-      <h1>みんなの写真</h1>
-      {rules.favoritesEnabled ? (
+      <h1>{choosing ? "お気に入り" : "みんなの写真"}</h1>
+      {choosing && (
         <p className="muted small">
-          ♡ を押すとお気に入りに選べます（{user.favoritesGiven} / {rules.favoriteLimit} 枚）。
+          気に入った写真の ♡ を押して選んでください（{user.favoritesGiven} / {rules.favoriteLimit} 枚選択中）。
           {rules.favoritePoints > 0 && `選ばれた人に ${rules.favoritePoints} ポイント入ります。`}
         </p>
-      ) : (
-        <p className="muted small">お気に入りの受付は終了しました。</p>
       )}
       {error && <p className="error">{error}</p>}
-      {loaded && photos.length === 0 && <p className="muted">まだ写真がありません。</p>}
+      {loaded && !error && !cursor && shown.length === 0 && (
+        <p className="muted">{choosing ? "選べる写真がまだありません。" : "まだ写真がありません。"}</p>
+      )}
       <div className="photo-grid">
-        {photos.map((p) => (
+        {shown.map((p) => (
           <div key={p.photoId} className="photo-tile">
             <button type="button" onClick={() => setSelected(p)}>
               <img src={p.thumbUrl} alt="" loading="lazy" />
             </button>
-            <FavoriteButton photo={p} onChange={replacePhoto} compact />
+            {choosing ? (
+              <FavoriteButton photo={p} onChange={replacePhoto} compact />
+            ) : (
+              // 受付が終わった後も、自分が選んだ写真はわかるようにする
+              p.favorited && (
+                <span className="favorite-mark" role="img" aria-label="お気に入りに選んだ写真">
+                  ♥
+                </span>
+              )
+            )}
           </div>
         ))}
       </div>
@@ -106,7 +130,7 @@ export function Gallery() {
       )}
       {selected && (
         <Lightbox photo={selected} onClose={() => setSelected(undefined)}>
-          <FavoriteButton photo={selected} onChange={replacePhoto} />
+          {choosing && <FavoriteButton photo={selected} onChange={replacePhoto} />}
         </Lightbox>
       )}
     </>

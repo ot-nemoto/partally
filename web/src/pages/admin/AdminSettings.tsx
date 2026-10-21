@@ -5,7 +5,7 @@ import {
   type Settings,
   type SettingsResponse,
 } from "@partally/shared";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useId, useState } from "react";
 import { api, errorMessage } from "../../api";
 
 const MODERATION_OPTIONS: { value: ModerationMode; label: string; description: string }[] = [
@@ -57,6 +57,8 @@ export function AdminSettings() {
   }
 
   const changed = JSON.stringify(settings) !== JSON.stringify(saved);
+  // 数値欄が空のときは NaN が入る
+  const incomplete = settings !== undefined && Object.values(settings).some((v) => Number.isNaN(v));
 
   return (
     <section>
@@ -130,9 +132,10 @@ export function AdminSettings() {
           </div>
 
           {error && <p className="error">{error}</p>}
+          {incomplete && <p className="error">空欄の項目に数値を入れてください。</p>}
           {message && <p className="small">{message}</p>}
           <div className="buttons">
-            <button type="submit" className="primary" disabled={!changed}>
+            <button type="submit" className="primary" disabled={!changed || incomplete}>
               保存
             </button>
           </div>
@@ -143,20 +146,34 @@ export function AdminSettings() {
   );
 }
 
+/**
+ * 0 以上の整数の入力欄。入力中は空欄にでき（このとき onChange には NaN を渡す）、
+ * 先頭の 0 は取り除く（0 の後に 1 を押すと 1 になる）。全角数字は半角にし、数字以外が混ざった入力は受け付けず、上限を超えたら上限にする
+ */
 function NumberField(props: { label: string; value: number; max: number; onChange: (value: number) => void }) {
+  const hintId = useId();
+  const text = Number.isNaN(props.value) ? "" : String(props.value);
   return (
     <label className="field number-field">
       <span>{props.label}</span>
       <input
-        type="number"
+        type="text"
         inputMode="numeric"
-        min={0}
-        max={props.max}
-        step={1}
-        value={props.value}
-        onChange={(e) => props.onChange(Math.max(0, Math.min(props.max, Math.trunc(Number(e.target.value) || 0))))}
+        pattern="[0-9]*"
+        autoComplete="off"
+        value={text}
+        onChange={(e) => {
+          const digits = e.target.value.normalize("NFKC").trim();
+          // 「2.5」「-3」などを数字だけ拾って別の数にしないよう、数字以外が混ざった入力は無視する
+          if (!/^[0-9]*$/.test(digits)) return;
+          props.onChange(digits === "" ? Number.NaN : Math.min(props.max, Number(digits)));
+        }}
+        aria-describedby={hintId}
         required
       />
+      <span id={hintId} className="muted small">
+        0〜{props.max}
+      </span>
     </label>
   );
 }

@@ -46,7 +46,7 @@ export function Home() {
         </p>
         {rules.favoritesEnabled && (
           <p className="muted small">
-            お気に入り：{user.favoritesGiven} / {rules.favoriteLimit} 枚選択中（「みんなの写真」で ♡ を押して選べます）
+            お気に入り：{user.favoritesGiven} / {rules.favoriteLimit} 枚選択中（「お気に入り」タブで選べます）
           </p>
         )}
       </section>
