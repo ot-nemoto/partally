@@ -72,6 +72,30 @@ describe("DynamoRepository", () => {
       });
     });
 
+    it("同時登録で TransactionConflict により取り消されたら再実行し、成功すれば登録できる", async () => {
+      ddb
+        .on(TransactWriteCommand)
+        .rejectsOnce(canceled(["TransactionConflict", "None", "None"]))
+        .resolves({});
+      await repo.registerUser(user);
+      expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(2);
+    });
+
+    it("再実行で先の登録が済んでいれば、トークンの条件チェックに失敗して TokenNotAvailableError", async () => {
+      ddb
+        .on(TransactWriteCommand)
+        .rejectsOnce(canceled(["TransactionConflict", "None", "None"]))
+        .rejects(canceled(["ConditionalCheckFailed", "None", "None"]));
+      await expect(repo.registerUser(user)).rejects.toBeInstanceOf(TokenNotAvailableError);
+      expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(2);
+    });
+
+    it("取り消され続けたら回数を限って諦め、例外のまま投げる", async () => {
+      ddb.on(TransactWriteCommand).rejects(canceled(["TransactionConflict", "None", "None"]));
+      await expect(repo.registerUser(user)).rejects.toBeInstanceOf(TransactionCanceledException);
+      expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(5);
+    });
+
     it("トークンの条件チェック失敗は TokenNotAvailableError", async () => {
       ddb.on(TransactWriteCommand).rejects(canceled(["ConditionalCheckFailed", "None", "None"]));
       await expect(repo.registerUser(user)).rejects.toBeInstanceOf(TokenNotAvailableError);

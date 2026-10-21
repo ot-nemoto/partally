@@ -113,7 +113,11 @@ export class DynamoRepository implements Repository {
 
   async registerUser(user: UserRecord & { token: string }) {
     try {
-      await this.client.send(
+      // 同じ QR（や同じ二つ名）への同時登録は TransactionConflict で取り消されることがあるので再実行する。
+      // 再実行で先の登録が済んでいれば、トークンの条件チェックで TokenNotAvailableError（409）になる。
+      // 再実行しても取り消され続けたら例外のまま（500）にする。どちらが登録できたか分からないまま
+      // 「登録済み」とは返さず、利用者にもう一度読み込んでもらう
+      await this.transactWithRetry(
         new TransactWriteCommand({
           TransactItems: [
             {
@@ -692,7 +696,10 @@ export class DynamoRepository implements Repository {
     }
   }
 
-  /** 人気の写真に同時にお気に入りが付くと TransactionConflict で取り消されるため、少し待って再実行する */
+  /**
+   * 同じアイテムを同時に書き換えるトランザクションは TransactionConflict で取り消されることがあるため、
+   * 少し待って再実行する（人気の写真へのお気に入り、同じ QR への同時登録など）
+   */
   private async transactWithRetry(command: TransactWriteCommand) {
     for (let attempt = 0; ; attempt++) {
       try {
