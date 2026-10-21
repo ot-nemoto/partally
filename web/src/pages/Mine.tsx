@@ -52,7 +52,10 @@ export function Mine() {
       )}
       {selected && (
         <Lightbox photo={selected} onClose={() => setSelected(undefined)}>
-          <span className="small">{STATUS_LABEL[selected.status]}</span>
+          <span className="small">
+            {STATUS_LABEL[selected.status]}
+            {selected.status === "approved" && ` ・ ♥ ${selected.favoriteCount}`}
+          </span>
         </Lightbox>
       )}
     </>

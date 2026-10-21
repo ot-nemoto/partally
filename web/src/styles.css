@@ -611,3 +611,89 @@ button.more {
   display: flex;
   flex-direction: column;
 }
+
+/* ---- ポイント ---- */
+
+.points {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.points-value {
+  color: var(--gold);
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.points-unit {
+  font-weight: 600;
+}
+
+/* ---- お気に入り ---- */
+
+.favorite {
+  gap: 0.35rem;
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border-color: #fff;
+  background: transparent;
+  color: #fff;
+}
+
+.favorite.on {
+  border-color: #f43f5e;
+  background: #f43f5e;
+}
+
+.favorite.compact {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 2rem;
+  height: 2rem;
+  min-height: auto;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.45);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.favorite.compact.on {
+  background: #f43f5e;
+}
+
+.favorite:disabled {
+  opacity: 0.6;
+}
+
+/* ---- 管理画面の設定 ---- */
+
+.settings-form {
+  max-width: 36rem;
+}
+
+.settings .checkbox {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.settings .checkbox input {
+  width: auto;
+  margin-top: 0.35rem;
+}
+
+.settings .checkbox span {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings .number-field input {
+  max-width: 8rem;
+}

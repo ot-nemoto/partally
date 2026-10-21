@@ -11,7 +11,9 @@ import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DynamoRepository } from "./dynamo-repository.js";
 import {
+  DEFAULT_SETTINGS,
   EpithetTakenError,
+  FavoriteLimitError,
   InvalidStateError,
   type PhotoRecord,
   TokenNotAvailableError,
@@ -29,6 +31,8 @@ const user: UserRecord & { token: string } = {
   status: "active",
   uploadCount: 0,
   approvedCount: 0,
+  favoritesGiven: 0,
+  favoritesReceived: 0,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
@@ -109,6 +113,7 @@ describe("DynamoRepository", () => {
       photoId: "P1",
       uploaderId: "u1",
       status: "pending",
+      favoriteCount: 0,
       createdAt: "2026-01-01T00:00:00.000Z",
     };
 
@@ -185,6 +190,72 @@ describe("DynamoRepository", () => {
         UpdateExpression: "ADD uploadCount :uploadCount, approvedCount :approvedCount",
         ExpressionAttributeValues: { ":uploadCount": -1, ":approvedCount": -1 },
       });
+    });
+  });
+
+  describe("お気に入り", () => {
+    const photo: PhotoRecord = {
+      photoId: "P1",
+      uploaderId: "u2",
+      status: "approved",
+      favoriteCount: 0,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    it("お気に入りの作成と 3 つのカウンタの加算を 1 トランザクションで行い、上限は条件で守る", async () => {
+      ddb.on(TransactWriteCommand).resolves({});
+      await repo.addFavorite("u1", photo, 10, "2026-01-02T00:00:00.000Z");
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items[0]!.Put!.Item).toMatchObject({ PK: "USER#u1", SK: "FAV#P1", GSI1PK: "FAVS#P1" });
+      expect(items[1]!.Update).toMatchObject({
+        Key: { PK: "USER#u1", SK: "PROFILE" },
+        UpdateExpression: "ADD favoritesGiven :one",
+        ExpressionAttributeValues: { ":one": 1, ":limit": 10 },
+      });
+      expect(items[2]!.Update).toMatchObject({ Key: { PK: "PHOTO#P1" }, UpdateExpression: "ADD favoriteCount :one" });
+      expect(items[3]!.Update).toMatchObject({
+        Key: { PK: "USER#u2", SK: "PROFILE" },
+        UpdateExpression: "ADD favoritesReceived :one",
+      });
+    });
+
+    it("条件チェックの失敗箇所で、選択済み・上限・公開中でないを分ける", async () => {
+      ddb
+        .on(TransactWriteCommand)
+        .rejectsOnce(canceled(["ConditionalCheckFailed", "None", "None", "None"]))
+        .rejectsOnce(canceled(["None", "ConditionalCheckFailed", "None", "None"]))
+        .rejectsOnce(canceled(["None", "None", "ConditionalCheckFailed", "None"]));
+      await expect(repo.addFavorite("u1", photo, 10, "x")).resolves.toBeUndefined();
+      await expect(repo.addFavorite("u1", photo, 10, "x")).rejects.toBeInstanceOf(FavoriteLimitError);
+      await expect(repo.addFavorite("u1", photo, 10, "x")).rejects.toBeInstanceOf(InvalidStateError);
+    });
+
+    it("自分の写真は選べない", async () => {
+      await expect(repo.addFavorite("u2", photo, 10, "x")).rejects.toBeInstanceOf(InvalidStateError);
+      expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(0);
+    });
+
+    it("外すときは 3 つのカウンタを減らし、選んでいなければ何もしない", async () => {
+      ddb
+        .on(TransactWriteCommand)
+        .resolvesOnce({})
+        .rejectsOnce(canceled(["ConditionalCheckFailed", "None", "None", "None"]));
+      await repo.removeFavorite("u1", photo);
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items[0]!.Delete).toMatchObject({ Key: { PK: "USER#u1", SK: "FAV#P1" } });
+      expect(items.slice(1).map((i) => i.Update!.UpdateExpression)).toEqual([
+        "ADD favoritesGiven :minus",
+        "ADD favoriteCount :minus",
+        "ADD favoritesReceived :minus",
+      ]);
+      await expect(repo.removeFavorite("u1", photo)).resolves.toBeUndefined();
+    });
+  });
+
+  describe("設定", () => {
+    it("保存されていない項目は既定値で補う", async () => {
+      ddb.on(GetCommand).resolves({ Item: { PK: "SETTINGS", SK: "GLOBAL", moderation: "post" } });
+      expect(await repo.getSettings()).toEqual({ ...DEFAULT_SETTINGS, moderation: "post" });
     });
   });
 });

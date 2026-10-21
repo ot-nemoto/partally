@@ -105,7 +105,10 @@ export function AdminPhotos() {
               <div className="photo-tile photo-placeholder">画像なし</div>
             )}
             <p className="small">{p.uploaderName ?? "（不明）"}</p>
-            <p className="muted small">{formatTime(p.createdAt)}</p>
+            <p className="muted small">
+              {formatTime(p.createdAt)}
+              {p.status === "approved" && ` ・ ♥ ${p.favoriteCount}`}
+            </p>
             <PhotoActions photo={p} onAct={act} />
           </div>
         ))}

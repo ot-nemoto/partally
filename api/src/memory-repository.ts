@@ -2,6 +2,7 @@ import type { PhotoStatus, Settings } from "@partally/shared";
 import {
   DEFAULT_SETTINGS,
   EpithetTakenError,
+  FavoriteLimitError,
   formatLabel,
   InvalidStateError,
   NotFoundError,
@@ -20,6 +21,8 @@ export class MemoryRepository implements Repository {
   private users = new Map<string, UserRecord>();
   private epithets = new Map<string, string>();
   private photos = new Map<string, PhotoRecord>();
+  /** 「選んだ人 → 写真」の組。キーは `${userId}#${photoId}` */
+  private favorites = new Set<string>();
   private settings: Settings = { ...DEFAULT_SETTINGS };
   private labelCounter = 0;
 
@@ -160,6 +163,40 @@ export class MemoryRepository implements Repository {
     user.uploadCount--;
     user.approvedCount--;
     return clone(photo);
+  }
+
+  async addFavorite(userId: string, photo: PhotoRecord, limit: number) {
+    const key = `${userId}#${photo.photoId}`;
+    if (this.favorites.has(key)) return;
+    const chooser = this.users.get(userId);
+    if (!chooser) throw new NotFoundError();
+    if (chooser.favoritesGiven >= limit) throw new FavoriteLimitError();
+    const stored = this.photos.get(photo.photoId);
+    if (stored?.status !== "approved") throw new InvalidStateError();
+    this.favorites.add(key);
+    chooser.favoritesGiven++;
+    stored.favoriteCount++;
+    this.userOf(stored).favoritesReceived++;
+  }
+
+  async removeFavorite(userId: string, photo: PhotoRecord) {
+    const key = `${userId}#${photo.photoId}`;
+    if (!this.favorites.delete(key)) return;
+    const chooser = this.users.get(userId);
+    if (chooser) chooser.favoritesGiven--;
+    const stored = this.photos.get(photo.photoId);
+    if (stored) {
+      stored.favoriteCount--;
+      this.userOf(stored).favoritesReceived--;
+    }
+  }
+
+  async listFavoritePhotoIds(userId: string) {
+    return [...this.favorites].filter((k) => k.startsWith(`${userId}#`)).map((k) => k.split("#")[1]!);
+  }
+
+  async listFavoriteUserIds(photoId: string) {
+    return [...this.favorites].filter((k) => k.endsWith(`#${photoId}`)).map((k) => k.split("#")[0]!);
   }
 
   async getSettings() {

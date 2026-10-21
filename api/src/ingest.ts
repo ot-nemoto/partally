@@ -46,7 +46,13 @@ export async function ingestUpload(deps: IngestDeps, key: string): Promise<Inges
   const { moderation } = await repo.getSettings();
   const status = moderation === "post" ? "approved" : "pending";
   await storage.copy(photoId, "uploads", status);
-  const created = await repo.createPhoto({ photoId, uploaderId, status, createdAt: now().toISOString() });
+  const created = await repo.createPhoto({
+    photoId,
+    uploaderId,
+    status,
+    favoriteCount: 0,
+    createdAt: now().toISOString(),
+  });
   await storage.remove(photoId, "uploads");
   return created ? "created" : "duplicate";
 }

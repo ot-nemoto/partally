@@ -52,8 +52,11 @@ export function AdminUsers() {
           <thead>
             <tr>
               <th>表示名</th>
+              <th className="num">ポイント</th>
               <th className="num">アップロード</th>
               <th className="num">公開</th>
+              <th className="num">選ばれた</th>
+              <th className="num">選んだ</th>
               <th>状態</th>
               <th />
             </tr>
@@ -62,8 +65,13 @@ export function AdminUsers() {
             {users?.map((u) => (
               <tr key={u.userId} className={u.status === "unbound" ? "dimmed" : undefined}>
                 <td>{u.displayName}</td>
+                <td className="num">
+                  <strong>{u.points}</strong>
+                </td>
                 <td className="num">{u.uploadCount}</td>
                 <td className="num">{u.approvedCount}</td>
+                <td className="num">{u.favoritesReceived}</td>
+                <td className="num">{u.favoritesGiven}</td>
                 <td>{u.status === "active" ? "登録済み" : "解除済み"}</td>
                 <td>
                   <div className="actions">

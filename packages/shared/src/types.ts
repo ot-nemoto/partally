@@ -10,6 +10,12 @@ export interface UserDto {
   status: UserStatus;
   uploadCount: number;
   approvedCount: number;
+  /** 自分が選んだお気に入りの数 */
+  favoritesGiven: number;
+  /** 自分の写真が他の人にお気に入りに選ばれた数 */
+  favoritesReceived: number;
+  /** 現在の設定で計算したポイント（公開枚数 × 1 枚あたり + 選ばれた数 × 1 件あたり） */
+  points: number;
   createdAt: string;
 }
 
@@ -31,6 +37,7 @@ export interface RegisterResponse {
 
 export interface MeResponse {
   user: UserDto;
+  rules: Rules;
 }
 
 export interface TokensResponse {
@@ -52,6 +59,8 @@ export type ApiErrorCode =
   | "token_already_bound"
   | "epithet_taken"
   | "invalid_state"
+  | "favorites_disabled"
+  | "favorite_limit"
   | "not_found"
   | "internal_error";
 
@@ -74,6 +83,10 @@ export interface PhotoDto {
   thumbUrl?: string;
   /** 本体画像の URL */
   fullUrl?: string;
+  /** 他の人にお気に入りに選ばれた数 */
+  favoriteCount: number;
+  /** 自分がお気に入りに選んでいるか（参加者の一覧のみ） */
+  favorited?: boolean;
   createdAt: string;
   reviewedAt?: string;
 }
@@ -102,6 +115,22 @@ export interface UploadUrlResponse {
 
 export interface Settings {
   moderation: ModerationMode;
+  /** 写真 1 枚が公開されたときのポイント */
+  uploadPoints: number;
+  /** お気に入りの選択（追加・解除）を受け付けるか。無効にしても付いたポイントは残る */
+  favoritesEnabled: boolean;
+  /** 1 人が選べるお気に入りの数 */
+  favoriteLimit: number;
+  /** お気に入りに 1 件選ばれたときのポイント */
+  favoritePoints: number;
+}
+
+/** 参加者に見せるポイントのルール（設定のうち公開してよい部分） */
+export type Rules = Omit<Settings, "moderation">;
+
+export interface FavoriteResponse {
+  photo: PhotoDto;
+  user: UserDto;
 }
 
 export interface SettingsResponse {

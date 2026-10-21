@@ -41,7 +41,13 @@ export function errorMessage(e: unknown): string {
       case "epithet_taken":
         return "その二つ名は他の人が使っています。";
       case "invalid_state":
-        return "他の操作で状態が変わっています。画面を更新してください。";
+        return e.message && e.message !== e.code
+          ? e.message
+          : "他の操作で状態が変わっています。画面を更新してください。";
+      case "favorite_limit":
+        return "お気に入りは上限まで選んでいます。他の写真を外してから選んでください。";
+      case "favorites_disabled":
+        return "お気に入りの受付は終了しました。";
       case "unauthorized":
         return "ログインが必要です。";
       case "bad_request":

@@ -9,8 +9,10 @@ import {
   photoStatusSchema,
   qrLoginRequestSchema,
   type RandomInt,
+  type Rules,
   randomEpithet,
   registerRequestSchema,
+  type Settings,
   type TokenDto,
   type UserDto,
   updateSettingsRequestSchema,
@@ -24,6 +26,7 @@ import type { z } from "zod";
 import { type PhotoStorage, photoPath } from "./photo-storage.js";
 import {
   EpithetTakenError,
+  FavoriteLimitError,
   InvalidStateError,
   NotFoundError,
   type PhotoRecord,
@@ -131,14 +134,24 @@ export function createApp(deps: AppDeps) {
     }
   };
 
-  /** 公開済み写真は Cookie で、検閲待ち（と signAll 指定時はすべて）は署名付き URL で見せる */
-  const toPhotoDto = (photo: VisiblePhoto, users: Map<string, UserRecord>, signAll = false): PhotoDto => {
+  /**
+   * 公開済み写真は Cookie で、検閲待ち（と signAll 指定時はすべて）は署名付き URL で見せる。
+   * favorites を渡すと、その中にある写真に favorited を付ける（参加者の一覧用）
+   */
+  const toPhotoDto = (
+    photo: VisiblePhoto,
+    users: Map<string, UserRecord>,
+    options: { signAll?: boolean; favorites?: Set<string> } = {},
+  ): PhotoDto => {
+    const { signAll = false, favorites } = options;
     const uploader = users.get(photo.uploaderId);
     const dto: PhotoDto = {
       photoId: photo.photoId,
       uploaderId: photo.uploaderId,
       uploaderName: uploader ? formatDisplayName(uploader.epithet, uploader.name) : undefined,
       status: photo.status,
+      favoriteCount: photo.favoriteCount,
+      favorited: favorites ? favorites.has(photo.photoId) : undefined,
       createdAt: photo.createdAt,
       reviewedAt: photo.reviewedAt,
     };
@@ -170,7 +183,7 @@ export function createApp(deps: AppDeps) {
       return fail(c, 404, "invalid_token");
     }
     setUserSession(c, { ...user, token: token.token });
-    return c.json({ status: "bound" as const, user: toUserDto(user) });
+    return c.json({ status: "bound" as const, user: toUserDto(user, await repo.getSettings()) });
   });
 
   app.post("/auth/register", async (c) => {
@@ -193,6 +206,8 @@ export function createApp(deps: AppDeps) {
         status: "active",
         uploadCount: 0,
         approvedCount: 0,
+        favoritesGiven: 0,
+        favoritesReceived: 0,
         createdAt: timestamp,
         updatedAt: timestamp,
       };
@@ -204,7 +219,7 @@ export function createApp(deps: AppDeps) {
         throw e;
       }
       setUserSession(c, user);
-      return c.json({ user: toUserDto(user) }, 201);
+      return c.json({ user: toUserDto(user, await repo.getSettings()) }, 201);
     }
     throw new Error(`二つ名を ${EPITHET_ATTEMPTS} 回抽選しても空きが見つかりませんでした`);
   });
@@ -225,10 +240,11 @@ export function createApp(deps: AppDeps) {
     await next();
   };
 
-  app.get("/me", requireUser, (c) => {
+  app.get("/me", requireUser, async (c) => {
     // 写真用の署名付き Cookie は有効期間が短いので、アプリを開くたびに更新する
     setPhotoCookies(c);
-    return c.json({ user: toUserDto(c.get("user")) });
+    const settings = await repo.getSettings();
+    return c.json({ user: toUserDto(c.get("user"), settings), rules: toRules(settings) });
   });
 
   app.post("/photos/upload-url", requireUser, async (c) => {
@@ -239,10 +255,17 @@ export function createApp(deps: AppDeps) {
 
   // 一覧を開いたままの画面でも写真が見え続けるよう、一覧の取得時にも写真用 Cookie を更新する
   app.get("/photos", requireUser, async (c) => {
-    const page = await repo.listPhotosByStatus("approved", PHOTO_PAGE_SIZE, c.req.query("cursor"));
+    const [page, favoriteIds] = await Promise.all([
+      repo.listPhotosByStatus("approved", PHOTO_PAGE_SIZE, c.req.query("cursor")),
+      repo.listFavoritePhotoIds(c.get("user").userId),
+    ]);
     const users = await uploadersOf(page.items);
+    const favorites = new Set(favoriteIds);
     setPhotoCookies(c);
-    return c.json({ photos: page.items.filter(isVisible).map((p) => toPhotoDto(p, users)), cursor: page.cursor });
+    return c.json({
+      photos: page.items.filter(isVisible).map((p) => toPhotoDto(p, users, { favorites })),
+      cursor: page.cursor,
+    });
   });
 
   app.get("/photos/mine", requireUser, async (c) => {
@@ -252,6 +275,37 @@ export function createApp(deps: AppDeps) {
     setPhotoCookies(c);
     return c.json({ photos: photos.filter(isVisible).map((p) => toPhotoDto(p, users)) });
   });
+
+  /** お気に入りの追加・解除。無効にされている間は締め切りとして、どちらも受け付けない */
+  const changeFavorite = async (c: Context<Env>, action: "add" | "remove") => {
+    const settings = await repo.getSettings();
+    if (!settings.favoritesEnabled) return fail(c, 409, "favorites_disabled");
+    const user = c.get("user");
+    const photo = await repo.getPhoto(c.req.param("photoId") ?? "");
+    if (!photo) return fail(c, 404, "not_found");
+    if (photo.uploaderId === user.userId) return fail(c, 409, "invalid_state", "自分の写真は選べません");
+    try {
+      if (action === "add") await repo.addFavorite(user.userId, photo, settings.favoriteLimit, now().toISOString());
+      else await repo.removeFavorite(user.userId, photo);
+    } catch (e) {
+      if (e instanceof FavoriteLimitError) return fail(c, 409, "favorite_limit");
+      if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state");
+      throw e;
+    }
+    const [updatedPhoto, updatedUser, uploaders] = await Promise.all([
+      repo.getPhoto(photo.photoId),
+      repo.getUser(user.userId),
+      uploadersOf([photo]),
+    ]);
+    if (!updatedPhoto || !isVisible(updatedPhoto) || !updatedUser) return fail(c, 404, "not_found");
+    return c.json({
+      photo: toPhotoDto(updatedPhoto, uploaders, { favorites: new Set(action === "add" ? [photo.photoId] : []) }),
+      user: toUserDto(updatedUser, settings),
+    });
+  };
+
+  app.put("/photos/:photoId/favorite", requireUser, (c) => changeFavorite(c, "add"));
+  app.delete("/photos/:photoId/favorite", requireUser, (c) => changeFavorite(c, "remove"));
 
   // ---- 管理者 ----
 
@@ -307,8 +361,8 @@ export function createApp(deps: AppDeps) {
   });
 
   app.get("/admin/users", async (c) => {
-    const users = await repo.listUsers();
-    return c.json({ users: users.map(toUserDto) });
+    const [users, settings] = await Promise.all([repo.listUsers(), repo.getSettings()]);
+    return c.json({ users: users.map((u) => toUserDto(u, settings)) });
   });
 
   app.patch("/admin/users/:userId", async (c) => {
@@ -316,7 +370,7 @@ export function createApp(deps: AppDeps) {
     if (!body.ok) return body.response;
     try {
       const user = await repo.updateUser(c.req.param("userId"), body.data, now().toISOString());
-      return c.json({ user: toUserDto(user) });
+      return c.json({ user: toUserDto(user, await repo.getSettings()) });
     } catch (e) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
       if (e instanceof EpithetTakenError) return fail(c, 409, "epithet_taken");
@@ -327,7 +381,7 @@ export function createApp(deps: AppDeps) {
   app.post("/admin/users/:userId/unbind", async (c) => {
     try {
       const user = await repo.unbindUser(c.req.param("userId"), now().toISOString());
-      return c.json({ user: toUserDto(user) });
+      return c.json({ user: toUserDto(user, await repo.getSettings()) });
     } catch (e) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
       throw e;
@@ -339,7 +393,10 @@ export function createApp(deps: AppDeps) {
     if (!status.success) return fail(c, 400, "bad_request");
     const page = await repo.listPhotosByStatus(status.data, PHOTO_PAGE_SIZE, c.req.query("cursor"));
     const users = await uploadersOf(page.items);
-    return c.json({ photos: page.items.filter(isVisible).map((p) => toPhotoDto(p, users, true)), cursor: page.cursor });
+    return c.json({
+      photos: page.items.filter(isVisible).map((p) => toPhotoDto(p, users, { signAll: true })),
+      cursor: page.cursor,
+    });
   });
 
   app.post("/admin/photos/:photoId/approve", async (c) => {
@@ -356,7 +413,7 @@ export function createApp(deps: AppDeps) {
       return approved;
     }
     await storage.remove(photoId, "pending");
-    return c.json({ photo: toPhotoDto(approved as VisiblePhoto, await uploadersOf([approved]), true) });
+    return c.json({ photo: toPhotoDto(approved as VisiblePhoto, await uploadersOf([approved]), { signAll: true }) });
   });
 
   app.post("/admin/photos/:photoId/reject", async (c) => {
@@ -364,13 +421,15 @@ export function createApp(deps: AppDeps) {
     const rejected = await photoAction(c, () => repo.rejectPhoto(photoId, now().toISOString()));
     if (rejected instanceof Response) return rejected;
     await storage.remove(photoId, "pending");
-    return c.json({ photo: toPhotoDto(rejected as VisiblePhoto, await uploadersOf([rejected]), true) });
+    return c.json({ photo: toPhotoDto(rejected as VisiblePhoto, await uploadersOf([rejected]), { signAll: true }) });
   });
 
   app.delete("/admin/photos/:photoId", async (c) => {
     const photoId = c.req.param("photoId");
     const deleted = await photoAction(c, () => repo.deleteApprovedPhoto(photoId, now().toISOString()));
     if (deleted instanceof Response) return deleted;
+    // 削除した写真へのお気に入りを外し、選んだ人の枠とアップロード者のポイントを戻す
+    for (const userId of await repo.listFavoriteUserIds(photoId)) await repo.removeFavorite(userId, deleted);
     await storage.remove(photoId, "approved");
     await storage.invalidate(photoId);
     return c.json({});
@@ -406,7 +465,12 @@ async function photoAction(c: Context, action: () => Promise<PhotoRecord>): Prom
   }
 }
 
-function toUserDto(user: UserRecord): UserDto {
+/** ポイントは保存せず、現在の設定で毎回計算する（設定を変えると全員に同じ基準で反映される） */
+export function calculatePoints(user: UserRecord, settings: Settings): number {
+  return user.approvedCount * settings.uploadPoints + user.favoritesReceived * settings.favoritePoints;
+}
+
+function toUserDto(user: UserRecord, settings: Settings): UserDto {
   return {
     userId: user.userId,
     name: user.name,
@@ -415,8 +479,16 @@ function toUserDto(user: UserRecord): UserDto {
     status: user.status,
     uploadCount: user.uploadCount,
     approvedCount: user.approvedCount,
+    favoritesGiven: user.favoritesGiven,
+    favoritesReceived: user.favoritesReceived,
+    points: calculatePoints(user, settings),
     createdAt: user.createdAt,
   };
+}
+
+function toRules(settings: Settings): Rules {
+  const { moderation: _moderation, ...rules } = settings;
+  return rules;
 }
 
 function toTokenDto(token: TokenRecord, user?: UserRecord): TokenDto {

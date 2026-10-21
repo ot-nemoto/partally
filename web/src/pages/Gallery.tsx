@@ -1,7 +1,9 @@
 import type { PhotoDto, PhotosResponse } from "@partally/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../api";
+import { FavoriteButton } from "../components/FavoriteButton";
 import { Lightbox } from "../components/Lightbox";
+import { useParticipant } from "../components/ParticipantLayout";
 import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 const POLL_INTERVAL_MS = 20_000;
@@ -14,6 +16,7 @@ export function Gallery() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string>();
   const [selected, setSelected] = useState<PhotoDto>();
+  const { user, rules } = useParticipant();
   // 「もっと見る」の位置は初回の読み込み結果だけで決める（新着の取り込みでは動かさない）
   const cursorInitialized = useRef(false);
 
@@ -21,10 +24,12 @@ export function Gallery() {
     try {
       const res = await api<PhotosResponse>("GET", "/photos");
       setPhotos((prev) => {
-        // 初回は丸ごと、以降は手元に無い新着だけを先頭に足す（削除された写真は次回の読み込みで消える）
+        // 初回は丸ごと、以降は手元に無い新着を先頭に足し、手元にある写真はお気に入り数などを最新にする
+        // （削除された写真は次回の読み込みで消える）
         if (prev.length === 0) return res.photos;
+        const latest = new Map(res.photos.map((p) => [p.photoId, p]));
         const known = new Set(prev.map((p) => p.photoId));
-        return [...res.photos.filter((p) => !known.has(p.photoId)), ...prev];
+        return [...res.photos.filter((p) => !known.has(p.photoId)), ...prev.map((p) => latest.get(p.photoId) ?? p)];
       });
       if (!cursorInitialized.current) {
         cursorInitialized.current = true;
@@ -42,6 +47,12 @@ export function Gallery() {
     void fetchLatest();
   }, [fetchLatest]);
   useAutoRefresh(fetchLatest, POLL_INTERVAL_MS);
+
+  /** お気に入りの付け外しの結果を一覧と拡大表示に反映する */
+  function replacePhoto(photo: PhotoDto) {
+    setPhotos((prev) => prev.map((p) => (p.photoId === photo.photoId ? photo : p)));
+    setSelected((prev) => (prev?.photoId === photo.photoId ? photo : prev));
+  }
 
   async function loadMore() {
     if (!cursor) return;
@@ -63,13 +74,24 @@ export function Gallery() {
   return (
     <>
       <h1>みんなの写真</h1>
+      {rules.favoritesEnabled ? (
+        <p className="muted small">
+          ♡ を押すとお気に入りに選べます（{user.favoritesGiven} / {rules.favoriteLimit} 枚）。
+          {rules.favoritePoints > 0 && `選ばれた人に ${rules.favoritePoints} ポイント入ります。`}
+        </p>
+      ) : (
+        <p className="muted small">お気に入りの受付は終了しました。</p>
+      )}
       {error && <p className="error">{error}</p>}
       {loaded && photos.length === 0 && <p className="muted">まだ写真がありません。</p>}
       <div className="photo-grid">
         {photos.map((p) => (
-          <button key={p.photoId} type="button" className="photo-tile" onClick={() => setSelected(p)}>
-            <img src={p.thumbUrl} alt="" loading="lazy" />
-          </button>
+          <div key={p.photoId} className="photo-tile">
+            <button type="button" onClick={() => setSelected(p)}>
+              <img src={p.thumbUrl} alt="" loading="lazy" />
+            </button>
+            <FavoriteButton photo={p} onChange={replacePhoto} compact />
+          </div>
         ))}
       </div>
       {cursor && (
@@ -77,7 +99,11 @@ export function Gallery() {
           {loadingMore ? "読み込み中…" : "もっと見る"}
         </button>
       )}
-      {selected && <Lightbox photo={selected} onClose={() => setSelected(undefined)} />}
+      {selected && (
+        <Lightbox photo={selected} onClose={() => setSelected(undefined)}>
+          <FavoriteButton photo={selected} onChange={replacePhoto} />
+        </Lightbox>
+      )}
     </>
   );
 }
