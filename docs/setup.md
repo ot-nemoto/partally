@@ -161,7 +161,7 @@ aws cloudformation describe-stacks --stack-name partally-github-oidc \
 
 - 引き受けられるのは **`ot-nemoto/partally` リポジトリの `production` Environment で動くジョブだけ**（`sub` クレームで制限）。
 - GitHub の OIDC トークンの `sub` は、ユーザ名・リポジトリ名に数値 ID が付いた形式（`repo:ot-nemoto@<owner ID>/partally@<repo ID>:environment:production`）で発行される。ID を条件に含めることで、リポジトリやアカウントが削除され同じ名前で作り直された場合のなりすましも防ぐ。
-- `GitHubOwnerId` / `GitHubRepoId` を省略すると、ID なしの形式（`repo:ot-nemoto/partally:environment:production`）で照合する。トークンがどちらの形式かは、Deploy ワークフローの「Show OIDC claims」ステップのログで確認できる。
+- `GitHubOwnerId` / `GitHubRepoId` を省略すると、ID なしの形式（`repo:ot-nemoto/partally:environment:production`）で照合する。ロールの引き受けに失敗してトークンの形式を確かめたいときは、一時的に Deploy ワークフローへトークンのクレーム（`sub` など）を表示するステップを足す（以前の `deploy.yml` の「Show OIDC claims」ステップを git の履歴から戻せる）。
 - ロール自体の権限は CDK のブートストラップロール（`cdk-hnb659fds-*`）を引き受けることだけ。実際のリソース作成は、ブートストラップで作られた CloudFormation 実行ロールが行う。
 
 ### A-2. GitHub の Environment 設定
@@ -171,12 +171,14 @@ https://github.com/ot-nemoto/partally/settings/environments → **New environmen
 | 種類 | 名前 | 値 |
 |---|---|---|
 | Environment secrets | `PARTALLY_ADMIN_PASSWORD` | 管理者パスワード |
-| Environment variables | `AWS_ROLE_ARN` | A-1 で控えたロール ARN |
+| Environment secrets | `AWS_ROLE_ARN` | A-1 で控えたロール ARN（必ず Secret にする。Variables だとステップの見出しに ARN がそのまま出て、公開リポジトリの Actions ログにアカウント ID が残る。未登録ならワークフローは最初に止まる） |
 | Environment secrets | `PARTALLY_BUDGET_EMAIL` | 任意: 予算アラートの通知先（公開リポジトリの Actions ログに出ないよう Secret にする） |
 | Environment variables | `PARTALLY_BUDGET_USD` | 任意: 予算（USD、既定 5） |
 
 - Repository secrets（Settings → Secrets and variables → Actions）に登録しても動くが、Environment に登録すると **デプロイジョブ以外から参照できなくなる** ので、こちらを推奨する。
+- **Deployment branches and tags** を「Selected branches and tags」にして `master` だけを許可する。master 以外のブランチに置いたワークフローからは `production` に入れず、ロールも引き受けられなくなる（master への反映には PR のマージが必要になる）。
 - 「Required reviewers」に自分を入れると、デプロイ前に承認が必要になる。
+- ログに出るアカウント ID は、ロール ARN を Secret にすることと、ワークフローの `mask-aws-account-id` で `***` に伏せる。S3 バケット名・DynamoDB テーブル名・CloudFront の URL はログに出るが、それだけではアクセスできない（バケットは非公開、テーブルは IAM の権限が必要）。
 
 ### A-3. デプロイの実行
 
