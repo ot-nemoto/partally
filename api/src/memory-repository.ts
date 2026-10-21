@@ -199,6 +199,12 @@ export class MemoryRepository implements Repository {
     return [...this.favorites].filter((k) => k.endsWith(`#${photoId}`)).map((k) => k.split("#")[0]!);
   }
 
+  async clearFavorites(photoId: string) {
+    const photo = this.photos.get(photoId);
+    if (!photo) return;
+    for (const userId of await this.listFavoriteUserIds(photoId)) await this.removeFavorite(userId, photo);
+  }
+
   async getSettings() {
     return { ...this.settings };
   }

@@ -230,6 +230,49 @@ describe("DynamoRepository", () => {
       await expect(repo.addFavorite("u1", photo, 10, "x")).rejects.toBeInstanceOf(InvalidStateError);
     });
 
+    it("上限 0 なら（選択数の属性が無いユーザでも）選べない", async () => {
+      await expect(repo.addFavorite("u1", photo, 0, "x")).rejects.toBeInstanceOf(FavoriteLimitError);
+      expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(0);
+    });
+
+    it("アップロード者のユーザが無ければ選べない（ユーザのアイテムを作らない）", async () => {
+      ddb.on(TransactWriteCommand).rejects(canceled(["None", "None", "None", "ConditionalCheckFailed"]));
+      await expect(repo.addFavorite("u1", photo, 10, "x")).rejects.toBeInstanceOf(InvalidStateError);
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items[3]!.Update!.ConditionExpression).toBe("attribute_exists(PK)");
+    });
+
+    it("同時更新で取り消されたら再実行する", async () => {
+      ddb
+        .on(TransactWriteCommand)
+        .rejectsOnce(canceled(["None", "None", "TransactionConflict", "None"]))
+        .rejectsOnce(canceled(["None", "None", "None", "TransactionConflict"]))
+        .resolves({});
+      await repo.addFavorite("u1", photo, 10, "x");
+      expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(3);
+    });
+
+    it("写真のお気に入りをすべて外す。一覧に出ていない分があれば取り直す", async () => {
+      ddb
+        .on(GetCommand)
+        .resolvesOnce({ Item: { PK: "PHOTO#P1", SK: "META", ...photo, status: "deleted", favoriteCount: 2 } })
+        .resolvesOnce({ Item: { PK: "PHOTO#P1", SK: "META", ...photo, status: "deleted", favoriteCount: 1 } })
+        .resolves({ Item: { PK: "PHOTO#P1", SK: "META", ...photo, status: "deleted", favoriteCount: 0 } });
+      ddb
+        .on(QueryCommand)
+        .resolvesOnce({ Items: [{ userId: "u1" }] })
+        .resolves({ Items: [{ userId: "u3" }] });
+      ddb.on(TransactWriteCommand).resolves({});
+      await repo.clearFavorites("P1");
+      expect(ddb.commandCalls(GetCommand).every((c) => c.args[0].input.ConsistentRead)).toBe(true);
+      expect(ddb.commandCalls(TransactWriteCommand).map((c) => c.args[0].input.TransactItems![0]!.Delete!.Key)).toEqual(
+        [
+          { PK: "USER#u1", SK: "FAV#P1" },
+          { PK: "USER#u3", SK: "FAV#P1" },
+        ],
+      );
+    });
+
     it("自分の写真は選べない", async () => {
       await expect(repo.addFavorite("u2", photo, 10, "x")).rejects.toBeInstanceOf(InvalidStateError);
       expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(0);

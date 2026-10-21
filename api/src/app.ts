@@ -426,12 +426,17 @@ export function createApp(deps: AppDeps) {
 
   app.delete("/admin/photos/:photoId", async (c) => {
     const photoId = c.req.param("photoId");
-    const deleted = await photoAction(c, () => repo.deleteApprovedPhoto(photoId, now().toISOString()));
-    if (deleted instanceof Response) return deleted;
-    // 削除した写真へのお気に入りを外し、選んだ人の枠とアップロード者のポイントを戻す
-    for (const userId of await repo.listFavoriteUserIds(photoId)) await repo.removeFavorite(userId, deleted);
+    const photo = await repo.getPhoto(photoId);
+    if (!photo) return fail(c, 404, "not_found");
+    // 削除済みでも後片付けをやり直せるようにする（途中で失敗したときの再実行用）
+    if (photo.status !== "deleted") {
+      const deleted = await photoAction(c, () => repo.deleteApprovedPhoto(photoId, now().toISOString()));
+      if (deleted instanceof Response) return deleted;
+    }
+    // 画像を先に消して見えなくしてから、お気に入りを外す（選んだ人の枠とアップロード者のポイントを戻す）
     await storage.remove(photoId, "approved");
     await storage.invalidate(photoId);
+    await repo.clearFavorites(photoId);
     return c.json({});
   });
 

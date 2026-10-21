@@ -360,8 +360,10 @@ export class DynamoRepository implements Repository {
   async addFavorite(userId: string, photo: PhotoRecord, limit: number, createdAt: string) {
     // 自分の写真は選べない（同じユーザのアイテムを 1 トランザクションで 2 回更新することにもなる）
     if (userId === photo.uploaderId) throw new InvalidStateError();
+    // 選択数の属性が無い（機能追加前に登録した）ユーザは条件式で上限 0 を判定できないため、先に弾く
+    if (limit <= 0) throw new FavoriteLimitError();
     try {
-      await this.client.send(
+      await this.transactWithRetry(
         new TransactWriteCommand({
           TransactItems: [
             {
@@ -403,6 +405,7 @@ export class DynamoRepository implements Repository {
                 TableName: this.tableName,
                 Key: keys.user(photo.uploaderId),
                 UpdateExpression: "ADD favoritesReceived :one",
+                ConditionExpression: "attribute_exists(PK)",
                 ExpressionAttributeValues: { ":one": 1 },
               },
             },
@@ -413,14 +416,14 @@ export class DynamoRepository implements Repository {
       const failed = conditionFailures(e);
       if (failed?.[0]) return; // 既に選んでいる
       if (failed?.[1]) throw new FavoriteLimitError();
-      if (failed?.[2]) throw new InvalidStateError();
+      if (failed?.[2] || failed?.[3]) throw new InvalidStateError();
       throw e;
     }
   }
 
   async removeFavorite(userId: string, photo: PhotoRecord) {
     try {
-      await this.client.send(
+      await this.transactWithRetry(
         new TransactWriteCommand({
           TransactItems: [
             {
@@ -478,6 +481,34 @@ export class DynamoRepository implements Repository {
       ExpressionAttributeValues: { ":pk": `FAVS#${photoId}` },
     });
     return items.map((item) => item.userId as string);
+  }
+
+  async clearFavorites(photoId: string) {
+    // GSI は結果整合のため、直前に付いたお気に入りが一覧に出ないことがある。
+    // 写真の favoriteCount（強い整合性で読む）が 0 になるまで、少し待って取り直す
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { Item } = await this.client.send(
+        new GetCommand({ TableName: this.tableName, Key: keys.photo(photoId), ConsistentRead: true }),
+      );
+      if (!Item) return;
+      const photo = toPhotoRecord(Item);
+      if (photo.favoriteCount <= 0) return;
+      if (attempt > 0) await sleep(200 * attempt);
+      for (const userId of await this.listFavoriteUserIds(photoId)) await this.removeFavorite(userId, photo);
+    }
+    console.warn(`お気に入りを外しきれませんでした: ${photoId}`);
+  }
+
+  /** 人気の写真に同時にお気に入りが付くと TransactionConflict で取り消されるため、少し待って再実行する */
+  private async transactWithRetry(command: TransactWriteCommand) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.client.send(command);
+      } catch (e) {
+        if (attempt >= 4 || !isTransactionConflict(e)) throw e;
+        await sleep(20 * 2 ** attempt + Math.random() * 20);
+      }
+    }
   }
 
   async getSettings(): Promise<Settings> {
@@ -656,6 +687,15 @@ function toUserRecord(item: Record<string, unknown>): UserRecord {
     createdAt: item.createdAt as string,
     updatedAt: item.updatedAt as string,
   };
+}
+
+/** 他のトランザクションと同じアイテムを同時に更新して取り消されたか */
+function isTransactionConflict(e: unknown): boolean {
+  return (
+    e instanceof TransactionCanceledException &&
+    (e.CancellationReasons ?? []).some((r) => r.Code === "TransactionConflict") &&
+    !conditionFailures(e)
+  );
 }
 
 /**

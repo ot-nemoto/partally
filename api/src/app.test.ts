@@ -377,8 +377,11 @@ describe("API", () => {
       expect((await request("GET", "/api/photos")).body.photos).toEqual([]);
       expect((await request("GET", "/api/me")).body.user).toMatchObject({ uploadCount: 0, approvedCount: 0 });
       // 削除済みの記録は残り、自分の写真にも出ない
-      expect((await admin("DELETE", `/api/admin/photos/${photoId}`)).status).toBe(409);
       expect((await request("GET", "/api/photos/mine")).body.photos).toEqual([]);
+      // 削除済みの写真をもう一度削除すると、後片付けだけをやり直す（カウンタは二重に減らない）
+      expect((await admin("DELETE", `/api/admin/photos/${photoId}`)).status).toBe(200);
+      expect((await request("GET", "/api/me")).body.user).toMatchObject({ uploadCount: 0, approvedCount: 0 });
+      expect((await admin("DELETE", "/api/admin/photos/NOPE")).status).toBe(404);
     });
 
     it("即時公開モード: 取り込み時に公開される", async () => {

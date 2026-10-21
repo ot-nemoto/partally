@@ -181,6 +181,9 @@ export interface Repository {
   /** photoId を選んでいるユーザの ID */
   listFavoriteUserIds(photoId: string): Promise<string[]>;
 
+  /** photoId へのお気に入りをすべて外す（写真の削除時） */
+  clearFavorites(photoId: string): Promise<void>;
+
   // ---- 設定 ----
 
   getSettings(): Promise<Settings>;
