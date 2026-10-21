@@ -537,7 +537,13 @@ describe("API", () => {
       const { a, admin } = await setup();
       const before = await me(a.request);
       expect(before.user).toMatchObject({ approvedCount: 2, points: 2 });
-      expect(before.rules).toEqual({ uploadPoints: 1, favoritesEnabled: true, favoriteLimit: 10, favoritePoints: 1 });
+      expect(before.rules).toEqual({
+        uploadPoints: 1,
+        favoritesEnabled: true,
+        favoriteLimit: 10,
+        favoritePoints: 1,
+        showPoints: true,
+      });
 
       await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post", uploadPoints: 3 });
       expect((await me(a.request)).user.points).toBe(6);
@@ -546,6 +552,14 @@ describe("API", () => {
         ["田中", 6],
         ["鈴木", 3],
       ]);
+    });
+
+    it("ポイントの表示を切ると参加者のルールに反映される", async () => {
+      const { a, admin } = await setup();
+      expect((await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, showPoints: false })).status).toBe(200);
+      expect((await me(a.request)).rules.showPoints).toBe(false);
+      const { showPoints: _showPoints, ...withoutShowPoints } = DEFAULT_SETTINGS;
+      expect((await admin("PUT", "/api/admin/settings", withoutShowPoints)).status).toBe(400);
     });
 
     it("検閲待ちの写真はポイントにならない", async () => {

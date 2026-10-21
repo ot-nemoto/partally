@@ -52,6 +52,7 @@ export const DEFAULT_SETTINGS: Settings = {
   favoritesEnabled: true,
   favoriteLimit: 10,
   favoritePoints: 1,
+  showPoints: true,
 };
 
 export interface UserChanges {

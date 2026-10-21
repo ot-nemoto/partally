@@ -17,8 +17,7 @@ export function App() {
     <Routes>
       <Route element={<ParticipantLayout />}>
         <Route path="/" element={<Home />} />
-        <Route path="/gallery" element={<Gallery key="view" />} />
-        <Route path="/favorites" element={<Gallery mode="favorite" key="favorite" />} />
+        <Route path="/gallery" element={<Gallery />} />
         <Route path="/mine" element={<Mine />} />
       </Route>
       <Route path="/q/:token" element={<QrLanding />} />

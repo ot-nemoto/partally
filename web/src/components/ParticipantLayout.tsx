@@ -4,7 +4,7 @@ import { NavLink, Outlet, useOutletContext } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../api";
 import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
-/** お気に入りの受付の開始・終了をタブに反映するため、表示中はこの間隔で自分の情報とルールを取り直す */
+/** 管理画面での設定の変更（お気に入りの受付・ポイントの表示）を反映するため、表示中はこの間隔で自分の情報とルールを取り直す */
 const RULES_REFRESH_MS = 30_000;
 
 export interface ParticipantContext {
@@ -86,7 +86,6 @@ export function ParticipantLayout() {
           ホーム
         </NavLink>
         <NavLink to="/gallery">みんなの写真</NavLink>
-        {state.rules.favoritesEnabled && <NavLink to="/favorites">お気に入り</NavLink>}
         <NavLink to="/mine">自分の写真</NavLink>
       </nav>
     </div>

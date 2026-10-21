@@ -100,6 +100,19 @@ export function AdminSettings() {
               max={POINTS_MAX}
               onChange={(v) => update("favoritePoints", v)}
             />
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={settings.showPoints}
+                onChange={(e) => update("showPoints", e.target.checked)}
+              />
+              <span>
+                <strong>参加者のホーム画面にポイントを表示する</strong>
+                <span className="muted small">
+                  オフにすると、参加者には自分のポイントと内訳が見えなくなります（発表まで伏せたいとき）。集計は続き、管理画面のユーザ一覧では見られます。
+                </span>
+              </span>
+            </label>
             <p className="muted small">
               ポイントは現在の設定で毎回計算します。変更すると、これまでの分も含めて全員のポイントが変わります。
             </p>

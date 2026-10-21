@@ -123,6 +123,8 @@ export interface Settings {
   favoriteLimit: number;
   /** お気に入りに 1 件選ばれたときのポイント */
   favoritePoints: number;
+  /** 参加者のホーム画面にポイントを表示するか（発表まで伏せておきたいときに切る） */
+  showPoints: boolean;
 }
 
 /** 参加者に見せるポイントのルール（設定のうち公開してよい部分） */

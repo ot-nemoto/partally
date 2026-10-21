@@ -65,6 +65,7 @@ export const updateSettingsRequestSchema = z.object({
   favoritesEnabled: z.boolean(),
   favoriteLimit: z.number().int().min(0).max(FAVORITE_LIMIT_MAX),
   favoritePoints: points,
+  showPoints: z.boolean(),
 });
 
 export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
