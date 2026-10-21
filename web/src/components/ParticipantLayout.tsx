@@ -1,11 +1,13 @@
-import type { MeResponse, Rules, UserDto } from "@partally/shared";
-import { useCallback, useEffect, useState } from "react";
-import { NavLink, Outlet, useOutletContext } from "react-router-dom";
+import type { CurrentQuizDto, CurrentQuizResponse, MeResponse, Rules, UserDto } from "@partally/shared";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, NavLink, Outlet, useLocation, useOutletContext } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../api";
 import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 /** 管理画面での設定の変更（お気に入りの受付・ポイントの表示）を反映するため、表示中はこの間隔で自分の情報とルールを取り直す */
 const RULES_REFRESH_MS = 30_000;
+/** 出題に気づけるよう、表示中はこの間隔で出題中のクイズを確認する */
+const QUIZ_REFRESH_MS = 5_000;
 
 export interface ParticipantContext {
   user: UserDto;
@@ -15,6 +17,10 @@ export interface ParticipantContext {
   reloadUser: () => void;
   /** API の応答で受け取った最新のユーザ情報に差し替える */
   setUser: (user: UserDto) => void;
+  /** 出題中のクイズ（無ければ null、確認前は undefined） */
+  quiz: CurrentQuizDto | null | undefined;
+  /** 回答の応答で受け取った最新の状態に差し替える */
+  setQuiz: (quiz: CurrentQuizDto | null) => void;
 }
 
 export function useParticipant() {
@@ -57,6 +63,30 @@ export function ParticipantLayout() {
     [],
   );
 
+  const [quiz, setQuizState] = useState<CurrentQuizDto | null>();
+  const loggedIn = useRef(false);
+  loggedIn.current = state.kind === "user";
+  // 回答した回数。確認の途中で回答されたら、古い応答で回答を上書きしない
+  const answerCount = useRef(0);
+  const setQuiz = useCallback((next: CurrentQuizDto | null) => {
+    answerCount.current++;
+    setQuizState(next);
+  }, []);
+  const refreshQuiz = useCallback(() => {
+    if (!loggedIn.current) return;
+    const startedAt = answerCount.current;
+    api<CurrentQuizResponse>("GET", "/quiz/current")
+      .then((res) => {
+        if (answerCount.current === startedAt) setQuizState(res.quiz);
+      })
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (state.kind === "user") refreshQuiz();
+  }, [state.kind, refreshQuiz]);
+  useAutoRefresh(refreshQuiz, QUIZ_REFRESH_MS);
+  const location = useLocation();
+
   if (state.kind === "loading") return <main className="page muted">読み込み中…</main>;
   if (state.kind === "error") {
     return (
@@ -79,7 +109,19 @@ export function ParticipantLayout() {
   return (
     <div className="participant">
       <main className="page">
-        <Outlet context={{ user: state.user, rules: state.rules, reloadUser, setUser } satisfies ParticipantContext} />
+        {quiz && location.pathname !== "/quiz" && (
+          <Link to="/quiz" className="quiz-banner">
+            <strong>問題が出ています</strong>
+            <span className="quiz-banner-sub">
+              {quiz.myChoiceId ? "回答済み（締め切りまで選び直せます）" : "タップして回答する"}
+            </span>
+          </Link>
+        )}
+        <Outlet
+          context={
+            { user: state.user, rules: state.rules, reloadUser, setUser, quiz, setQuiz } satisfies ParticipantContext
+          }
+        />
       </main>
       <nav className="tabbar">
         <NavLink to="/" end>

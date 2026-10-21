@@ -70,3 +70,43 @@ export const updateSettingsRequestSchema = z.object({
 });
 
 export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
+
+export const QUIZ_TEXT_MAX_LENGTH = 500;
+export const QUIZ_CHOICE_TEXT_MAX_LENGTH = 100;
+export const QUIZ_CHOICES_MIN = 2;
+export const QUIZ_CHOICES_MAX = 10;
+
+/**
+ * 問題文は書いたとおりに残す（前後の空白だけ除き、改行や全角の記号はそのまま）。
+ * 選択肢は 1 行なので、連続する空白も 1 つにする
+ */
+const quizText = z
+  .string()
+  .transform((s) => s.trim())
+  .pipe(z.string().min(1).max(QUIZ_TEXT_MAX_LENGTH));
+const quizChoiceText = z
+  .string()
+  .transform((s) => s.trim().replace(/\s+/g, " "))
+  .pipe(z.string().min(1).max(QUIZ_CHOICE_TEXT_MAX_LENGTH));
+
+/** choiceId は既存の選択肢を直すときに指定する。新しい選択肢には付けない */
+export const quizRequestSchema = z.object({
+  text: quizText,
+  choices: z
+    .array(
+      z.object({
+        choiceId: z.string().min(1).max(40).optional(),
+        text: quizChoiceText,
+        points,
+      }),
+    )
+    .min(QUIZ_CHOICES_MIN)
+    .max(QUIZ_CHOICES_MAX),
+});
+
+export const quizAnswerRequestSchema = z.object({
+  choiceId: z.string().min(1).max(40),
+});
+
+export type QuizRequest = z.infer<typeof quizRequestSchema>;
+export type QuizAnswerRequest = z.infer<typeof quizAnswerRequestSchema>;
