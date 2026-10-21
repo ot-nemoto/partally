@@ -554,12 +554,36 @@ describe("API", () => {
       ]);
     });
 
-    it("ポイントの表示を切ると参加者のルールに反映される", async () => {
-      const { a, admin } = await setup();
+    it("ポイントを伏せると、参加者向けの応答からポイント・選ばれた数・♥ の数を除く（管理画面では見える）", async () => {
+      const { a, b, photoA1, admin } = await setup();
+      await b.request("PUT", `/api/photos/${photoA1}/favorite`);
       expect((await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, showPoints: false })).status).toBe(200);
-      expect((await me(a.request)).rules.showPoints).toBe(false);
+
+      const mine = await me(a.request);
+      expect(mine.rules.showPoints).toBe(false);
+      expect(mine.user).toMatchObject({ approvedCount: 2, favoritesGiven: 0 });
+      expect(mine.user).not.toHaveProperty("points");
+      expect(mine.user).not.toHaveProperty("favoritesReceived");
+      for (const p of (await b.request("GET", "/api/photos")).body.photos)
+        expect(p).not.toHaveProperty("favoriteCount");
+      for (const p of (await a.request("GET", "/api/photos/mine")).body.photos)
+        expect(p).not.toHaveProperty("favoriteCount");
+      const res = await b.request("DELETE", `/api/photos/${photoA1}/favorite`);
+      expect(res.body.photo).not.toHaveProperty("favoriteCount");
+      expect(res.body.user).not.toHaveProperty("points");
+
+      const users = (await admin("GET", "/api/admin/users")).body.users;
+      expect(users.find((u: any) => u.name === "田中")).toMatchObject({ points: 2, favoritesReceived: 0 });
+    });
+
+    it("showPoints を送らない（古い画面からの）保存では、今の値を残す", async () => {
+      const { admin } = await setup();
+      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, showPoints: false });
       const { showPoints: _showPoints, ...withoutShowPoints } = DEFAULT_SETTINGS;
-      expect((await admin("PUT", "/api/admin/settings", withoutShowPoints)).status).toBe(400);
+      const res = await admin("PUT", "/api/admin/settings", { ...withoutShowPoints, favoriteLimit: 5 });
+      expect(res.status).toBe(200);
+      expect(res.body.settings).toMatchObject({ showPoints: false, favoriteLimit: 5 });
+      expect((await admin("GET", "/api/admin/settings")).body.settings.showPoints).toBe(false);
     });
 
     it("検閲待ちの写真はポイントにならない", async () => {

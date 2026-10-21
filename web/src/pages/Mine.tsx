@@ -54,7 +54,9 @@ export function Mine() {
         <Lightbox photo={selected} onClose={() => setSelected(undefined)}>
           <span className="small">
             {STATUS_LABEL[selected.status]}
-            {selected.status === "approved" && ` ・ ♥ ${selected.favoriteCount}`}
+            {selected.status === "approved" &&
+              selected.favoriteCount !== undefined &&
+              ` ・ ♥ ${selected.favoriteCount}`}
           </span>
         </Lightbox>
       )}

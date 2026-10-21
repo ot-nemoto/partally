@@ -1,4 +1,4 @@
-import { Link, Route, Routes } from "react-router-dom";
+import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { ParticipantLayout } from "./components/ParticipantLayout";
 import { AdminLayout } from "./pages/admin/AdminLayout";
 import { AdminLogin } from "./pages/admin/AdminLogin";
@@ -19,6 +19,8 @@ export function App() {
         <Route path="/" element={<Home />} />
         <Route path="/gallery" element={<Gallery />} />
         <Route path="/mine" element={<Mine />} />
+        {/* 以前あった「お気に入り」タブ。開いたままの画面や履歴から来てもギャラリーへ */}
+        <Route path="/favorites" element={<Navigate to="/gallery" replace />} />
       </Route>
       <Route path="/q/:token" element={<QrLanding />} />
       <Route path="/admin/login" element={<AdminLogin />} />
