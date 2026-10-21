@@ -113,7 +113,7 @@ export class DynamoRepository implements Repository {
 
   async registerUser(user: UserRecord & { token: string }) {
     try {
-      // 同じ QR（や同じ二つ名）への同時登録は TransactionConflict で取り消されることがあるので再実行する。
+      // 同じ QR（や同じ二つ名）への同時登録は TransactionConflict で取り消されることがある（再実行は transactWithRetry）。
       // 再実行で先の登録が済んでいれば、トークンの条件チェックで TokenNotAvailableError（409）になる。
       // 再実行しても取り消され続けたら例外のまま（500）にする。どちらが登録できたか分からないまま
       // 「登録済み」とは返さず、利用者にもう一度読み込んでもらう
@@ -196,7 +196,7 @@ export class DynamoRepository implements Repository {
     }
 
     try {
-      await this.client.send(
+      await this.transactWithRetry(
         new TransactWriteCommand({
           TransactItems: [
             {
@@ -238,7 +238,7 @@ export class DynamoRepository implements Repository {
     if (current?.status !== "active" || !current.token) throw new NotFoundError();
 
     try {
-      await this.client.send(
+      await this.transactWithRetry(
         new TransactWriteCommand({
           TransactItems: [
             {
@@ -310,7 +310,7 @@ export class DynamoRepository implements Repository {
   async createPhoto(photo: PhotoRecord) {
     const approved = photo.status === "approved";
     try {
-      await this.client.send(
+      await this.transactWithRetry(
         new TransactWriteCommand({
           TransactItems: [
             {
@@ -568,7 +568,7 @@ export class DynamoRepository implements Repository {
 
   async openQuiz(quizId: string, openedAt: string) {
     try {
-      await this.client.send(
+      await this.transactWithRetry(
         new TransactWriteCommand({
           TransactItems: [
             {
@@ -603,7 +603,7 @@ export class DynamoRepository implements Repository {
 
   async closeQuiz(quizId: string, closedAt: string) {
     try {
-      await this.client.send(
+      await this.transactWithRetry(
         new TransactWriteCommand({
           TransactItems: [
             {
@@ -697,8 +697,10 @@ export class DynamoRepository implements Repository {
   }
 
   /**
-   * 同じアイテムを同時に書き換えるトランザクションは TransactionConflict で取り消されることがあるため、
-   * 少し待って再実行する（人気の写真へのお気に入り、同じ QR への同時登録など）
+   * トランザクションはすべてこれで送る。同じアイテムを同時に書き換えるトランザクションは TransactionConflict で
+   * 取り消されることがあるため、少し待って再実行する（人気の写真へのお気に入り、同じ QR への同時登録、
+   * 同じユーザのカウンタの更新など）。取り消されたトランザクションは何も書き込んでいないので、再実行しても二重にならない。
+   * 応答が失われたときの SDK 自身の再送は、SDK が自動で付ける ClientRequestToken で重複しない
    */
   private async transactWithRetry(command: TransactWriteCommand) {
     for (let attempt = 0; ; attempt++) {
@@ -738,7 +740,7 @@ export class DynamoRepository implements Repository {
     if (photo.status !== from) throw new InvalidStateError();
     const entries = Object.entries(counters);
     try {
-      await this.client.send(
+      await this.transactWithRetry(
         new TransactWriteCommand({
           TransactItems: [
             {

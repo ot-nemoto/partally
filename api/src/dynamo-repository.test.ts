@@ -90,6 +90,15 @@ describe("DynamoRepository", () => {
       expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(2);
     });
 
+    it("同じ二つ名の取り合いで取り消された後、再実行で二つ名の条件チェックに失敗すると EpithetTakenError", async () => {
+      ddb
+        .on(TransactWriteCommand)
+        .rejectsOnce(canceled(["None", "None", "TransactionConflict"]))
+        .rejects(canceled(["None", "None", "ConditionalCheckFailed"]));
+      await expect(repo.registerUser(user)).rejects.toBeInstanceOf(EpithetTakenError);
+      expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(2);
+    });
+
     it("取り消され続けたら回数を限って諦め、例外のまま投げる", async () => {
       ddb.on(TransactWriteCommand).rejects(canceled(["TransactionConflict", "None", "None"]));
       await expect(repo.registerUser(user)).rejects.toBeInstanceOf(TransactionCanceledException);
@@ -162,6 +171,15 @@ describe("DynamoRepository", () => {
       expect(items[1]!.Update!.UpdateExpression).toBe("ADD uploadCount :one");
 
       expect(await repo.createPhoto(photo)).toBe(false);
+    });
+
+    it("同じユーザのカウンタへの同時更新で取り消されても再実行する（どのトランザクションも同じ）", async () => {
+      ddb
+        .on(TransactWriteCommand)
+        .rejectsOnce(canceled(["None", "TransactionConflict"]))
+        .resolves({});
+      expect(await repo.createPhoto(photo)).toBe(true);
+      expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(2);
     });
 
     it("即時公開の写真は approvedCount も加算する", async () => {
