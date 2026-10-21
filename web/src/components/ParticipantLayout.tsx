@@ -72,6 +72,7 @@ export function ParticipantLayout() {
           ホーム
         </NavLink>
         <NavLink to="/gallery">みんなの写真</NavLink>
+        {state.rules.favoritesEnabled && <NavLink to="/favorites">お気に入り</NavLink>}
         <NavLink to="/mine">自分の写真</NavLink>
       </nav>
     </div>
