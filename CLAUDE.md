@@ -6,14 +6,14 @@
 
 すべての作業は Issue から始める。
 
-1. **Issue を作る**。本文には次の 3 つを必ず書く（テンプレート: `.github/ISSUE_TEMPLATE/task.md`）。
+1. **Issue を作る**。本文には次の 3 つを必ず書く（GitHub の画面では「作業」テンプレート `.github/ISSUE_TEMPLATE/task.yml` で必須にしている。API などで作るときも同じ見出しで書く）。
    - **概要**: 何のために、何をするか
    - **作業内容**: 変更する内容と方針
    - **確認内容**: 何を、どうやって確かめるか（テスト・lint・型チェック・ブラウザでの動作確認など）
 2. **ブランチで作業する**。`master` へ直接 push しない。
-3. **`master` 宛ての PR を作る**。本文に `Closes #<Issue 番号>` を書き、実際に行った確認とその結果を記載する。
+3. **`master` 宛ての PR を作る**。`.github/pull_request_template.md` に沿って、`Closes #<Issue 番号>` と実際に行った確認とその結果を書く。
 4. **CI とレビューの指摘に対応する**。CI（`.github/workflows/ci.yml`）が通るまで直す。
-5. **マージはユーザが行う**。デプロイはユーザから指示があったときだけ、Actions の Deploy ワークフロー（`deploy.yml`）を `master` で実行する。
+5. **マージはユーザが行う**。デプロイはユーザから指示があったときだけ、Actions の Deploy ワークフロー（`deploy.yml`）を `master` で実行する（GitHub の `production` Environment でデプロイできるブランチを `master` に限っている）。
 
 作業の途中で範囲が変わったら、Issue の作業内容・確認内容も更新する。
 
@@ -26,17 +26,6 @@
 ## リポジトリの基本
 
 - メインブランチは `master`。
-- npm workspaces のモノレポ（`packages/shared`・`api`・`web`・`infra`）。npm 11 以上を使う（`npx npm@11 install`）。
-- よく使うコマンド:
-
-  ```sh
-  npm run lint       # Biome による lint と整形のチェック（CI と同じ）
-  npm run format     # 整形と安全な自動修正
-  npm run typecheck
-  npm test
-  npm run build      # 画面のビルド
-  npm run dev:api    # ローカル API（http://localhost:8787）
-  npm run dev:web    # ローカル画面（http://localhost:5173）
-  ```
-
-- 画面に関わる変更は、ローカルで API と画面を起動してブラウザで動きを確かめる。
+- npm workspaces のモノレポ（`packages/shared`・`api`・`web`・`infra`）。Node.js 22 と npm 11 以上を使う。
+- PR を出す前に、CI（`.github/workflows/ci.yml`）と同じ確認を手元で通す: `npx biome ci .`・`npm run typecheck`・`npm test`・`npm run build`。整形の自動修正は `npm run format`。
+- 画面に関わる変更は、ローカルで API と画面を起動してブラウザで動きを確かめる（起動方法は README の「ローカル開発」）。

@@ -1,0 +1,26 @@
+name: 作業
+description: 機能追加・修正などの作業。概要・作業内容・確認内容を必ず書く
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: 概要
+      description: 何のために、何をするか
+    validations:
+      required: true
+  - type: textarea
+    id: work
+    attributes:
+      label: 作業内容
+      description: 変更する内容と方針
+      placeholder: "- "
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: 確認内容
+      description: 何を、どうやって確かめるか（テスト・lint・型チェック・ブラウザでの動作確認など）
+      placeholder: "- "
+    validations:
+      required: true
