@@ -141,16 +141,16 @@ export function createApp(deps: AppDeps) {
   const toPhotoDto = (
     photo: VisiblePhoto,
     users: Map<string, UserRecord>,
-    options: { signAll?: boolean; favorites?: Set<string> } = {},
+    options: { signAll?: boolean; favorites?: Set<string>; hideCounts?: boolean } = {},
   ): PhotoDto => {
-    const { signAll = false, favorites } = options;
+    const { signAll = false, favorites, hideCounts = false } = options;
     const uploader = users.get(photo.uploaderId);
     const dto: PhotoDto = {
       photoId: photo.photoId,
       uploaderId: photo.uploaderId,
       uploaderName: uploader ? formatDisplayName(uploader.epithet, uploader.name) : undefined,
       status: photo.status,
-      favoriteCount: photo.favoriteCount,
+      favoriteCount: hideCounts ? undefined : photo.favoriteCount,
       favorited: favorites ? favorites.has(photo.photoId) : undefined,
       createdAt: photo.createdAt,
       reviewedAt: photo.reviewedAt,
@@ -183,7 +183,7 @@ export function createApp(deps: AppDeps) {
       return fail(c, 404, "invalid_token");
     }
     setUserSession(c, { ...user, token: token.token });
-    return c.json({ status: "bound" as const, user: toUserDto(user, await repo.getSettings()) });
+    return c.json({ status: "bound" as const, user: toParticipantUserDto(user, await repo.getSettings()) });
   });
 
   app.post("/auth/register", async (c) => {
@@ -219,7 +219,7 @@ export function createApp(deps: AppDeps) {
         throw e;
       }
       setUserSession(c, user);
-      return c.json({ user: toUserDto(user, await repo.getSettings()) }, 201);
+      return c.json({ user: toParticipantUserDto(user, await repo.getSettings()) }, 201);
     }
     throw new Error(`二つ名を ${EPITHET_ATTEMPTS} 回抽選しても空きが見つかりませんでした`);
   });
@@ -244,7 +244,7 @@ export function createApp(deps: AppDeps) {
     // 写真用の署名付き Cookie は有効期間が短いので、アプリを開くたびに更新する
     setPhotoCookies(c);
     const settings = await repo.getSettings();
-    return c.json({ user: toUserDto(c.get("user"), settings), rules: toRules(settings) });
+    return c.json({ user: toParticipantUserDto(c.get("user"), settings), rules: toRules(settings) });
   });
 
   app.post("/photos/upload-url", requireUser, async (c) => {
@@ -255,25 +255,30 @@ export function createApp(deps: AppDeps) {
 
   // 一覧を開いたままの画面でも写真が見え続けるよう、一覧の取得時にも写真用 Cookie を更新する
   app.get("/photos", requireUser, async (c) => {
-    const [page, favoriteIds] = await Promise.all([
+    const [page, favoriteIds, settings] = await Promise.all([
       repo.listPhotosByStatus("approved", PHOTO_PAGE_SIZE, c.req.query("cursor")),
       repo.listFavoritePhotoIds(c.get("user").userId),
+      repo.getSettings(),
     ]);
     const users = await uploadersOf(page.items);
     const favorites = new Set(favoriteIds);
     setPhotoCookies(c);
     return c.json({
-      photos: page.items.filter(isVisible).map((p) => toPhotoDto(p, users, { favorites })),
+      photos: page.items
+        .filter(isVisible)
+        .map((p) => toPhotoDto(p, users, { favorites, hideCounts: !settings.showPoints })),
       cursor: page.cursor,
     });
   });
 
   app.get("/photos/mine", requireUser, async (c) => {
     const user = c.get("user");
-    const photos = await repo.listPhotosByUploader(user.userId);
+    const [photos, settings] = await Promise.all([repo.listPhotosByUploader(user.userId), repo.getSettings()]);
     const users = new Map([[user.userId, user]]);
     setPhotoCookies(c);
-    return c.json({ photos: photos.filter(isVisible).map((p) => toPhotoDto(p, users)) });
+    return c.json({
+      photos: photos.filter(isVisible).map((p) => toPhotoDto(p, users, { hideCounts: !settings.showPoints })),
+    });
   });
 
   /** お気に入りの追加・解除。無効にされている間は締め切りとして、どちらも受け付けない */
@@ -299,8 +304,11 @@ export function createApp(deps: AppDeps) {
     ]);
     if (!updatedPhoto || !isVisible(updatedPhoto) || !updatedUser) return fail(c, 404, "not_found");
     return c.json({
-      photo: toPhotoDto(updatedPhoto, uploaders, { favorites: new Set(action === "add" ? [photo.photoId] : []) }),
-      user: toUserDto(updatedUser, settings),
+      photo: toPhotoDto(updatedPhoto, uploaders, {
+        favorites: new Set(action === "add" ? [photo.photoId] : []),
+        hideCounts: !settings.showPoints,
+      }),
+      user: toParticipantUserDto(updatedUser, settings),
     });
   };
 
@@ -445,8 +453,9 @@ export function createApp(deps: AppDeps) {
   app.put("/admin/settings", async (c) => {
     const body = await parseBody(c, updateSettingsRequestSchema);
     if (!body.ok) return body.response;
-    await repo.putSettings(body.data);
-    return c.json({ settings: body.data });
+    const settings = { ...(await repo.getSettings()), ...body.data };
+    await repo.putSettings(settings);
+    return c.json({ settings });
   });
 
   return app;
@@ -489,6 +498,14 @@ function toUserDto(user: UserRecord, settings: Settings): UserDto {
     points: calculatePoints(user, settings),
     createdAt: user.createdAt,
   };
+}
+
+/** 参加者本人に返すユーザ情報。ポイントを伏せている間は、ポイントとその元になる選ばれた数を含めない */
+function toParticipantUserDto(user: UserRecord, settings: Settings): UserDto {
+  const dto = toUserDto(user, settings);
+  if (settings.showPoints) return dto;
+  const { points: _points, favoritesReceived: _favoritesReceived, ...rest } = dto;
+  return rest;
 }
 
 function toRules(settings: Settings): Rules {

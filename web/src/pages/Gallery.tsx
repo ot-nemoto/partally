@@ -8,12 +8,8 @@ import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 const POLL_INTERVAL_MS = 20_000;
 
-/**
- * 公開済みの写真を新しい順に表示する。新着は定期的に取り込む。
- * mode="favorite" は「お気に入り」タブ用で、他の人の写真だけを並べて ♡ で選べるようにする
- */
-export function Gallery(props: { mode?: "view" | "favorite" }) {
-  const choosing = props.mode === "favorite";
+/** 公開済みの写真を新しい順に表示する。新着は定期的に取り込む。他の人の写真は ♡ でお気に入りに選べる */
+export function Gallery() {
   const [photos, setPhotos] = useState<PhotoDto[]>([]);
   const [cursor, setCursor] = useState<string>();
   const [loaded, setLoaded] = useState(false);
@@ -80,46 +76,27 @@ export function Gallery(props: { mode?: "view" | "favorite" }) {
     }
   }
 
-  if (choosing && !rules.favoritesEnabled) {
-    return (
-      <>
-        <h1>お気に入り</h1>
-        <p className="muted">お気に入りの受付は終了しました。</p>
-      </>
-    );
-  }
-
-  const shown = choosing ? photos.filter((p) => p.uploaderId !== user.userId) : photos;
-
   return (
     <>
-      <h1>{choosing ? "お気に入り" : "みんなの写真"}</h1>
-      {choosing && (
+      <h1>みんなの写真</h1>
+      {rules.favoritesEnabled ? (
         <p className="muted small">
-          気に入った写真の ♡ を押して選んでください（{user.favoritesGiven} / {rules.favoriteLimit} 枚選択中）。
-          {rules.favoritePoints > 0 && `選ばれた人に ${rules.favoritePoints} ポイント入ります。`}
+          気に入った写真の ♡ を押すとお気に入りに選べます（{user.favoritesGiven} / {rules.favoriteLimit} 枚選択中）。
+          {rules.showPoints && rules.favoritePoints > 0 && `選ばれた人に ${rules.favoritePoints} ポイント入ります。`}
         </p>
+      ) : (
+        user.favoritesGiven > 0 && <p className="muted small">お気に入りの受付は終了しました（♥ が選んだ写真）。</p>
       )}
       {error && <p className="error">{error}</p>}
-      {loaded && !error && !cursor && shown.length === 0 && (
-        <p className="muted">{choosing ? "選べる写真がまだありません。" : "まだ写真がありません。"}</p>
-      )}
+      {loaded && !error && !cursor && photos.length === 0 && <p className="muted">まだ写真がありません。</p>}
       <div className="photo-grid">
-        {shown.map((p) => (
+        {photos.map((p) => (
           <div key={p.photoId} className="photo-tile">
             <button type="button" onClick={() => setSelected(p)}>
               <img src={p.thumbUrl} alt="" loading="lazy" />
             </button>
-            {choosing ? (
-              <FavoriteButton photo={p} onChange={replacePhoto} compact />
-            ) : (
-              // 受付が終わった後も、自分が選んだ写真はわかるようにする
-              p.favorited && (
-                <span className="favorite-mark" role="img" aria-label="お気に入りに選んだ写真">
-                  ♥
-                </span>
-              )
-            )}
+            {/* 自分の写真には出ない。受付終了後は押せないが、選んだ写真は ♥ のまま見える */}
+            <FavoriteButton photo={p} onChange={replacePhoto} compact />
           </div>
         ))}
       </div>
@@ -130,7 +107,7 @@ export function Gallery(props: { mode?: "view" | "favorite" }) {
       )}
       {selected && (
         <Lightbox photo={selected} onClose={() => setSelected(undefined)}>
-          {choosing && <FavoriteButton photo={selected} onChange={replacePhoto} />}
+          <FavoriteButton photo={selected} onChange={replacePhoto} />
         </Lightbox>
       )}
     </>

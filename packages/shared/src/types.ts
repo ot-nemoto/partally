@@ -12,10 +12,10 @@ export interface UserDto {
   approvedCount: number;
   /** 自分が選んだお気に入りの数 */
   favoritesGiven: number;
-  /** 自分の写真が他の人にお気に入りに選ばれた数 */
-  favoritesReceived: number;
-  /** 現在の設定で計算したポイント（公開枚数 × 1 枚あたり + 選ばれた数 × 1 件あたり） */
-  points: number;
+  /** 自分の写真が他の人にお気に入りに選ばれた数。ポイントを伏せている間、参加者向けの応答には無い */
+  favoritesReceived?: number;
+  /** 現在の設定で計算したポイント（公開枚数 × 1 枚あたり + 選ばれた数 × 1 件あたり）。ポイントを伏せている間、参加者向けの応答には無い */
+  points?: number;
   createdAt: string;
 }
 
@@ -83,8 +83,8 @@ export interface PhotoDto {
   thumbUrl?: string;
   /** 本体画像の URL */
   fullUrl?: string;
-  /** 他の人にお気に入りに選ばれた数 */
-  favoriteCount: number;
+  /** 他の人にお気に入りに選ばれた数。ポイントを伏せている間、参加者向けの応答には無い */
+  favoriteCount?: number;
   /** 自分がお気に入りに選んでいるか（参加者の一覧のみ） */
   favorited?: boolean;
   createdAt: string;
@@ -123,6 +123,8 @@ export interface Settings {
   favoriteLimit: number;
   /** お気に入りに 1 件選ばれたときのポイント */
   favoritePoints: number;
+  /** 参加者のホーム画面にポイントを表示するか（発表まで伏せておきたいときに切る） */
+  showPoints: boolean;
 }
 
 /** 参加者に見せるポイントのルール（設定のうち公開してよい部分） */

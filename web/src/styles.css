@@ -192,7 +192,8 @@ input {
 
 .stats {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
   gap: 0.75rem;
   margin: 0;
   text-align: center;
@@ -221,7 +222,6 @@ input {
   bottom: 0;
   left: 0;
   display: grid;
-  /* お気に入りの受付中はタブが 1 つ増えるので、数に合わせて等分する */
   grid-auto-columns: 1fr;
   grid-auto-flow: column;
   padding-bottom: env(safe-area-inset-bottom);
@@ -670,23 +670,13 @@ button.more {
   background: #f43f5e;
 }
 
-.favorite-mark {
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  display: grid;
-  place-items: center;
-  width: 1.6rem;
-  height: 1.6rem;
-  border-radius: 50%;
-  background: #f43f5e;
-  color: #fff;
-  font-size: 0.85rem;
-  pointer-events: none;
-}
-
 .favorite:disabled {
   opacity: 0.6;
+}
+
+/* 押せない間はサムネイルのタップ（拡大表示）を妨げない */
+.favorite.compact:disabled {
+  pointer-events: none;
 }
 
 /* ---- 管理画面の設定 ---- */

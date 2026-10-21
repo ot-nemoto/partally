@@ -5,7 +5,7 @@ import { useParticipant } from "./ParticipantLayout";
 
 /**
  * お気に入りの付け外しボタン。自分の写真には出さない。
- * 受付が終わっている・上限に達しているときは押せない（選んだ状態は見える）。
+ * 上限に達しているときは押せない。受付が終わった後は、選んだ写真にだけ押せない ♥ を出す。
  */
 export function FavoriteButton(props: {
   photo: PhotoDto;
@@ -20,6 +20,7 @@ export function FavoriteButton(props: {
   if (photo.uploaderId === user.userId) return null;
 
   const favorited = photo.favorited === true;
+  if (!rules.favoritesEnabled && !favorited) return null;
   const full = !favorited && user.favoritesGiven >= rules.favoriteLimit;
   const disabled = busy || !rules.favoritesEnabled || full;
   const title = !rules.favoritesEnabled
