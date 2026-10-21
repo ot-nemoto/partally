@@ -148,7 +148,7 @@ export function AdminSettings() {
 
 /**
  * 0 以上の整数の入力欄。入力中は空欄にでき（このとき onChange には NaN を渡す）、
- * 先頭の 0 は取り除く（0 の後に 1 を押すと 1 になる）。全角数字は半角にし、それ以外の文字は受け付けず、上限を超えたら上限にする
+ * 先頭の 0 は取り除く（0 の後に 1 を押すと 1 になる）。全角数字は半角にし、数字以外が混ざった入力は受け付けず、上限を超えたら上限にする
  */
 function NumberField(props: { label: string; value: number; max: number; onChange: (value: number) => void }) {
   const hintId = useId();
@@ -163,7 +163,9 @@ function NumberField(props: { label: string; value: number; max: number; onChang
         autoComplete="off"
         value={text}
         onChange={(e) => {
-          const digits = e.target.value.normalize("NFKC").replace(/[^0-9]/g, "");
+          const digits = e.target.value.normalize("NFKC").trim();
+          // 「2.5」「-3」などを数字だけ拾って別の数にしないよう、数字以外が混ざった入力は無視する
+          if (!/^[0-9]*$/.test(digits)) return;
           props.onChange(digits === "" ? Number.NaN : Math.min(props.max, Number(digits)));
         }}
         aria-describedby={hintId}

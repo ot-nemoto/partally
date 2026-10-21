@@ -670,6 +670,21 @@ button.more {
   background: #f43f5e;
 }
 
+.favorite-mark {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  background: #f43f5e;
+  color: #fff;
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
 .favorite:disabled {
   opacity: 0.6;
 }

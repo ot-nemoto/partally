@@ -1,6 +1,6 @@
 import type { FavoriteResponse, PhotoDto } from "@partally/shared";
 import { useState } from "react";
-import { api, errorMessage } from "../api";
+import { ApiError, api, errorMessage } from "../api";
 import { useParticipant } from "./ParticipantLayout";
 
 /**
@@ -14,7 +14,7 @@ export function FavoriteButton(props: {
   compact?: boolean;
 }) {
   const { photo, onChange, compact = false } = props;
-  const { user, rules, setUser } = useParticipant();
+  const { user, rules, setUser, reloadUser } = useParticipant();
   const [busy, setBusy] = useState(false);
 
   if (photo.uploaderId === user.userId) return null;
@@ -38,6 +38,8 @@ export function FavoriteButton(props: {
       setUser(res.user);
     } catch (e) {
       alert(errorMessage(e));
+      // 受付が終わった・上限が変わったなど、手元のルールが古いので取り直す
+      if (e instanceof ApiError && (e.code === "favorites_disabled" || e.code === "favorite_limit")) reloadUser();
     } finally {
       setBusy(false);
     }

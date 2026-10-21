@@ -101,7 +101,7 @@ export function Gallery(props: { mode?: "view" | "favorite" }) {
         </p>
       )}
       {error && <p className="error">{error}</p>}
-      {loaded && shown.length === 0 && (
+      {loaded && !error && !cursor && shown.length === 0 && (
         <p className="muted">{choosing ? "選べる写真がまだありません。" : "まだ写真がありません。"}</p>
       )}
       <div className="photo-grid">
@@ -110,7 +110,16 @@ export function Gallery(props: { mode?: "view" | "favorite" }) {
             <button type="button" onClick={() => setSelected(p)}>
               <img src={p.thumbUrl} alt="" loading="lazy" />
             </button>
-            {choosing && <FavoriteButton photo={p} onChange={replacePhoto} compact />}
+            {choosing ? (
+              <FavoriteButton photo={p} onChange={replacePhoto} compact />
+            ) : (
+              // 受付が終わった後も、自分が選んだ写真はわかるようにする
+              p.favorited && (
+                <span className="favorite-mark" role="img" aria-label="お気に入りに選んだ写真">
+                  ♥
+                </span>
+              )
+            )}
           </div>
         ))}
       </div>
