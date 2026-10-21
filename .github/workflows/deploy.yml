@@ -22,6 +22,16 @@ jobs:
       PARTALLY_BUDGET_EMAIL: ${{ secrets.PARTALLY_BUDGET_EMAIL }}
       PARTALLY_BUDGET_USD: ${{ vars.PARTALLY_BUDGET_USD }}
     steps:
+      # 設定漏れは時間のかかるインストール・テストの前に止める
+      - name: Check AWS_ROLE_ARN secret
+        env:
+          HAS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN != '' }}
+        run: |
+          if [ "$HAS_ROLE_ARN" != "true" ]; then
+            echo "::error::production の Environment secrets に AWS_ROLE_ARN を登録してください（Variables ではログにアカウント ID が出るため使いません）"
+            exit 1
+          fi
+
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
@@ -42,10 +52,11 @@ jobs:
         run: npm run build
 
       # 公開リポジトリの Actions ログにアカウント ID を出さない。
-      # ロール ARN は Secret にして伏せ（変数のままでも動く）、認証後はアカウント ID 自体を伏せる（アセット名やスタック ARN に含まれる）
+      # ロール ARN は Secret から読んで伏せ（変数だとステップの見出しにそのまま出る）、
+      # 認証後はアカウント ID 自体を伏せる（アセット名やスタック ARN に含まれる）
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN || vars.AWS_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           mask-aws-account-id: true
 

@@ -171,14 +171,14 @@ https://github.com/ot-nemoto/partally/settings/environments → **New environmen
 | 種類 | 名前 | 値 |
 |---|---|---|
 | Environment secrets | `PARTALLY_ADMIN_PASSWORD` | 管理者パスワード |
-| Environment secrets | `AWS_ROLE_ARN` | A-1 で控えたロール ARN（公開リポジトリの Actions ログにアカウント ID が出ないよう Secret にする。Variables に登録しても動く） |
+| Environment secrets | `AWS_ROLE_ARN` | A-1 で控えたロール ARN（必ず Secret にする。Variables だとステップの見出しに ARN がそのまま出て、公開リポジトリの Actions ログにアカウント ID が残る。未登録ならワークフローは最初に止まる） |
 | Environment secrets | `PARTALLY_BUDGET_EMAIL` | 任意: 予算アラートの通知先（公開リポジトリの Actions ログに出ないよう Secret にする） |
 | Environment variables | `PARTALLY_BUDGET_USD` | 任意: 予算（USD、既定 5） |
 
 - Repository secrets（Settings → Secrets and variables → Actions）に登録しても動くが、Environment に登録すると **デプロイジョブ以外から参照できなくなる** ので、こちらを推奨する。
 - **Deployment branches and tags** を「Selected branches and tags」にして `master` だけを許可する。master 以外のブランチに置いたワークフローからは `production` に入れず、ロールも引き受けられなくなる（master への反映には PR のマージが必要になる）。
 - 「Required reviewers」に自分を入れると、デプロイ前に承認が必要になる。
-- ログに出るアカウント ID は、ワークフローの `mask-aws-account-id` で `***` に伏せる。S3 バケット名・DynamoDB テーブル名・CloudFront の URL はログに出るが、それだけではアクセスできない（バケットは非公開、テーブルは IAM の権限が必要）。
+- ログに出るアカウント ID は、ロール ARN を Secret にすることと、ワークフローの `mask-aws-account-id` で `***` に伏せる。S3 バケット名・DynamoDB テーブル名・CloudFront の URL はログに出るが、それだけではアクセスできない（バケットは非公開、テーブルは IAM の権限が必要）。
 
 ### A-3. デプロイの実行
 
