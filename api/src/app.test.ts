@@ -4,6 +4,7 @@ import { ingestUpload } from "./ingest.js";
 import { MemoryRepository } from "./memory-repository.js";
 import { MemoryPhotoStorage } from "./memory-storage.js";
 import { photoKey } from "./photo-storage.js";
+import { DEFAULT_SETTINGS } from "./repository.js";
 import type { UrlSigner } from "./url-signer.js";
 
 const ADMIN_PASSWORD = "secret-password";
@@ -376,15 +377,19 @@ describe("API", () => {
       expect((await request("GET", "/api/photos")).body.photos).toEqual([]);
       expect((await request("GET", "/api/me")).body.user).toMatchObject({ uploadCount: 0, approvedCount: 0 });
       // 削除済みの記録は残り、自分の写真にも出ない
-      expect((await admin("DELETE", `/api/admin/photos/${photoId}`)).status).toBe(409);
       expect((await request("GET", "/api/photos/mine")).body.photos).toEqual([]);
+      // 削除済みの写真をもう一度削除すると、後片付けだけをやり直す（カウンタは二重に減らない）
+      expect((await admin("DELETE", `/api/admin/photos/${photoId}`)).status).toBe(200);
+      expect((await request("GET", "/api/me")).body.user).toMatchObject({ uploadCount: 0, approvedCount: 0 });
+      expect((await admin("DELETE", "/api/admin/photos/NOPE")).status).toBe(404);
     });
 
     it("即時公開モード: 取り込み時に公開される", async () => {
       const admin = await adminClient();
-      expect((await admin("GET", "/api/admin/settings")).body.settings).toEqual({ moderation: "pre" });
-      expect((await admin("PUT", "/api/admin/settings", { moderation: "post" })).status).toBe(200);
-      expect((await admin("PUT", "/api/admin/settings", { moderation: "x" })).status).toBe(400);
+      expect((await admin("GET", "/api/admin/settings")).body.settings).toEqual(DEFAULT_SETTINGS);
+      expect((await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post" })).status).toBe(200);
+      expect((await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "x" })).status).toBe(400);
+      expect((await admin("PUT", "/api/admin/settings", { moderation: "post" })).status).toBe(400);
 
       const { request } = await registerUser();
       const { photoId } = await upload(request);
@@ -395,7 +400,7 @@ describe("API", () => {
 
     it("ギャラリーは新しい順にページングする", async () => {
       const { request } = await registerUser();
-      await repo.putSettings({ moderation: "post" });
+      await repo.putSettings({ ...DEFAULT_SETTINGS, moderation: "post" });
       const ids: string[] = [];
       for (let i = 0; i < 31; i++) ids.push((await upload(request)).photoId);
 
@@ -411,7 +416,9 @@ describe("API", () => {
     it("管理 API は管理者のみ", async () => {
       const { request } = await registerUser();
       expect((await request("GET", "/api/admin/photos")).status).toBe(401);
-      expect((await request("PUT", "/api/admin/settings", { moderation: "post" })).status).toBe(401);
+      expect((await request("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post" })).status).toBe(
+        401,
+      );
     });
   });
 
@@ -455,7 +462,7 @@ describe("API", () => {
 
     it("削除した写真は同じ署名付き POST で再アップロードしても復活しない", async () => {
       const { request, admin } = await setup();
-      await repo.putSettings({ moderation: "post" });
+      await repo.putSettings({ ...DEFAULT_SETTINGS, moderation: "post" });
       const { photoId, forms } = await uploadWith(request, [1]);
       await admin("DELETE", `/api/admin/photos/${photoId}`);
 
@@ -484,6 +491,144 @@ describe("API", () => {
         const res = await request("GET", path);
         expect(res.headers.getSetCookie().some((c) => c.startsWith("CloudFront-Policy="))).toBe(true);
       }
+    });
+  });
+
+  describe("ポイントとお気に入り", () => {
+    let participantSeq = 0;
+    async function participant(name: string) {
+      const token = await issueToken();
+      // 二つ名が重ならないよう、参加者ごとに称号を変える
+      epithetSeq = [0, participantSeq++];
+      const request = createClient(app);
+      const reg = await request("POST", "/api/auth/register", { token, name });
+      return { request, userId: reg.body.user.userId as string };
+    }
+
+    async function adminClient() {
+      const request = createClient(app);
+      await request("POST", "/api/admin/login", { password: ADMIN_PASSWORD });
+      return request;
+    }
+
+    async function uploadAs(request: ReturnType<typeof createClient>) {
+      const res = await request("POST", "/api/photos/upload-url");
+      for (const kind of ["thumb", "full"] as const) {
+        const { fields } = res.body[kind];
+        storage.put(fields.key, new Uint8Array([1]), fields["x-amz-meta-uploader"]);
+      }
+      await ingestUpload({ repo, storage }, res.body.full.fields.key);
+      return res.body.photoId as string;
+    }
+
+    async function setup() {
+      await repo.putSettings({ ...DEFAULT_SETTINGS, moderation: "post" });
+      const a = await participant("田中");
+      const b = await participant("鈴木");
+      const photoA1 = await uploadAs(a.request);
+      const photoA2 = await uploadAs(a.request);
+      const photoB = await uploadAs(b.request);
+      return { a, b, photoA1, photoA2, photoB, admin: await adminClient() };
+    }
+
+    const me = async (request: ReturnType<typeof createClient>) => (await request("GET", "/api/me")).body;
+
+    it("公開された写真 1 枚ごとにポイントが付き、設定を変えると現在の設定で数え直す", async () => {
+      const { a, admin } = await setup();
+      const before = await me(a.request);
+      expect(before.user).toMatchObject({ approvedCount: 2, points: 2 });
+      expect(before.rules).toEqual({ uploadPoints: 1, favoritesEnabled: true, favoriteLimit: 10, favoritePoints: 1 });
+
+      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post", uploadPoints: 3 });
+      expect((await me(a.request)).user.points).toBe(6);
+      const users = (await admin("GET", "/api/admin/users")).body.users;
+      expect(users.map((u: any) => [u.name, u.points])).toEqual([
+        ["田中", 6],
+        ["鈴木", 3],
+      ]);
+    });
+
+    it("検閲待ちの写真はポイントにならない", async () => {
+      await repo.putSettings({ ...DEFAULT_SETTINGS, moderation: "pre" });
+      const a = await participant("田中");
+      await uploadAs(a.request);
+      expect((await me(a.request)).user).toMatchObject({ uploadCount: 1, approvedCount: 0, points: 0 });
+    });
+
+    it("他人の写真をお気に入りにすると、選ばれた人にポイントが付く。二重には数えない", async () => {
+      const { a, b, photoA1 } = await setup();
+      const res = await b.request("PUT", `/api/photos/${photoA1}/favorite`);
+      expect(res.status).toBe(200);
+      expect(res.body.photo).toMatchObject({ photoId: photoA1, favorited: true, favoriteCount: 1 });
+      expect(res.body.user).toMatchObject({ favoritesGiven: 1 });
+      expect((await b.request("PUT", `/api/photos/${photoA1}/favorite`)).status).toBe(200);
+
+      expect((await me(a.request)).user).toMatchObject({ favoritesReceived: 1, points: 3 });
+      expect((await me(b.request)).user).toMatchObject({ favoritesGiven: 1, points: 1 });
+
+      const gallery = (await b.request("GET", "/api/photos")).body.photos;
+      expect(gallery.find((p: any) => p.photoId === photoA1)).toMatchObject({ favorited: true, favoriteCount: 1 });
+      expect(gallery.filter((p: any) => p.favorited)).toHaveLength(1);
+    });
+
+    it("自分の写真・検閲待ちの写真・存在しない写真は選べない", async () => {
+      const { b, photoB, admin } = await setup();
+      const self = await b.request("PUT", `/api/photos/${photoB}/favorite`);
+      expect(self.status).toBe(409);
+      expect(self.body.error).toBe("invalid_state");
+
+      await admin("PUT", "/api/admin/settings", DEFAULT_SETTINGS);
+      const c = await participant("佐藤");
+      const pending = await uploadAs(c.request);
+      expect((await b.request("PUT", `/api/photos/${pending}/favorite`)).body.error).toBe("invalid_state");
+      expect((await b.request("PUT", "/api/photos/NOPE/favorite")).status).toBe(404);
+    });
+
+    it("選べる数には上限があり、外せば別の写真を選べる。外すと相手のポイントも減る", async () => {
+      const { a, b, photoA1, photoA2, admin } = await setup();
+      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post", favoriteLimit: 1 });
+
+      await b.request("PUT", `/api/photos/${photoA1}/favorite`);
+      const over = await b.request("PUT", `/api/photos/${photoA2}/favorite`);
+      expect(over.status).toBe(409);
+      expect(over.body.error).toBe("favorite_limit");
+
+      const removed = await b.request("DELETE", `/api/photos/${photoA1}/favorite`);
+      expect(removed.body.photo).toMatchObject({ favorited: false, favoriteCount: 0 });
+      expect((await b.request("PUT", `/api/photos/${photoA2}/favorite`)).status).toBe(200);
+      expect((await me(a.request)).user.favoritesReceived).toBe(1);
+      // 選んでいない写真を外しても何も起きない
+      expect((await b.request("DELETE", `/api/photos/${photoA1}/favorite`)).status).toBe(200);
+      expect((await me(b.request)).user.favoritesGiven).toBe(1);
+    });
+
+    it("お気に入りを無効にすると追加も解除もできなくなるが、付いたポイントは残る", async () => {
+      const { a, b, photoA1, photoA2, admin } = await setup();
+      await b.request("PUT", `/api/photos/${photoA1}/favorite`);
+      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post", favoritesEnabled: false });
+
+      expect((await b.request("PUT", `/api/photos/${photoA2}/favorite`)).body.error).toBe("favorites_disabled");
+      expect((await b.request("DELETE", `/api/photos/${photoA1}/favorite`)).body.error).toBe("favorites_disabled");
+      expect((await me(a.request)).user).toMatchObject({ favoritesReceived: 1, points: 3 });
+      expect((await me(b.request)).rules.favoritesEnabled).toBe(false);
+    });
+
+    it("お気に入りに選ばれた写真を削除すると、お気に入りが外れてポイントと選んだ人の枠が戻る", async () => {
+      const { a, b, photoA1, admin } = await setup();
+      const c = await participant("佐藤");
+      await b.request("PUT", `/api/photos/${photoA1}/favorite`);
+      await c.request("PUT", `/api/photos/${photoA1}/favorite`);
+      expect((await me(a.request)).user).toMatchObject({ favoritesReceived: 2, points: 4 });
+
+      expect((await admin("DELETE", `/api/admin/photos/${photoA1}`)).status).toBe(200);
+      expect((await me(a.request)).user).toMatchObject({ approvedCount: 1, favoritesReceived: 0, points: 1 });
+      expect((await me(b.request)).user.favoritesGiven).toBe(0);
+      expect((await me(c.request)).user.favoritesGiven).toBe(0);
+    });
+
+    it("お気に入りの操作は参加者のログインが必要", async () => {
+      const { photoA1 } = await setup();
+      expect((await createClient(app)("PUT", `/api/photos/${photoA1}/favorite`)).status).toBe(401);
     });
   });
 

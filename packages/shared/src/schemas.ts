@@ -54,8 +54,17 @@ export const PHOTO_THUMB_MAX_EDGE = 400;
 
 export const photoStatusSchema = z.enum(["pending", "approved", "rejected"]);
 
+export const POINTS_MAX = 100;
+export const FAVORITE_LIMIT_MAX = 100;
+
+const points = z.number().int().min(0).max(POINTS_MAX);
+
 export const updateSettingsRequestSchema = z.object({
   moderation: z.enum(["pre", "post"]),
+  uploadPoints: points,
+  favoritesEnabled: z.boolean(),
+  favoriteLimit: z.number().int().min(0).max(FAVORITE_LIMIT_MAX),
+  favoritePoints: points,
 });
 
 export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;

@@ -35,7 +35,17 @@
 | P-5 | 公開前に管理者が検閲（承認）する。設定で「即時公開」に切り替え可能 |
 | P-6 | iPhone の HEIC 形式は変換ライブラリでブラウザ側変換する |
 
-### 1.3 今回は扱わないもの
+### 1.3 ポイント・お気に入り
+
+| # | 要件 |
+|---|---|
+| F-1 | 写真が公開されるとアップロードした人にポイントが入る（1 枚あたり既定 1 ポイント、管理画面で変更可能） |
+| F-2 | 参加者は公開済み写真からお気に入りを選べる。自分の写真は選べない |
+| F-3 | 1 人が選べるお気に入りの数は既定 10 枚（管理画面で変更可能）。上限内で自由に付け外しできる |
+| F-4 | お気に入りに選ばれた人にポイントが入る（1 回あたり既定 1 ポイント、管理画面で変更可能） |
+| F-5 | お気に入りの受付は管理画面でオン／オフできる。オフの間は追加・解除とも不可（締め切り）で、付いたポイントは残る |
+
+### 1.4 今回は扱わないもの
 
 - 写真の保存期間・ダウンロード可否・肖像権の同意取得（別途検討）
 - QR の紛失・盗み見対策（紐づけ後も QR で再ログイン可能なままとする）
@@ -136,10 +146,11 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | ユーザ | `USER#<userId>` | `PROFILE` | `USERS` | `<createdAt>` |
 | 二つ名ロック | `EPITHET#<epithet>` | `LOCK` | – | – |
 | 写真 | `PHOTO#<photoId>` | `META` | `PHOTOS#<status>` | `<createdAt>#<photoId>` |
+| お気に入り | `USER#<userId>` | `FAV#<photoId>` | `FAVS#<photoId>` | `<userId>` |
 | 設定 | `SETTINGS` | `GLOBAL` | – | – |
 | 通し番号カウンタ | `COUNTER` | `TOKEN_LABEL` | – | – |
 
-- **GSI1**: 一覧取得用（トークン一覧・ユーザ一覧・状態別の写真一覧を時系列で）。
+- **GSI1**: 一覧取得用（トークン一覧・ユーザ一覧・状態別の写真一覧を時系列で、写真ごとのお気に入りした人の一覧）。
 - **GSI2**: ユーザ別の写真一覧。写真のみ `GSI2PK = USER#<uploaderId>`, `GSI2SK = <createdAt>#<photoId>` を持つ。
 - QR トークンの GSI1SK は通し番号を 6 桁ゼロ埋めした値（表示用 `label` は 3 桁）。通し番号はカウンタへのアトミック加算で採番する。
 - ID は ULID（時系列ソート可能）。トークンは 128bit の暗号論的乱数を base64url（22 文字）にしたもの。
@@ -167,6 +178,8 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `status` | `active` \| `unbound` | 紐づけ解除されたら `unbound`（セッション無効化） |
 | `uploadCount` | number | アップロード数（検閲待ち＋公開済み。却下・削除で減算） |
 | `approvedCount` | number | 公開済み写真数 |
+| `favoritesGiven` | number | 自分が選んでいるお気に入りの数 |
+| `favoritesReceived` | number | 自分の写真がお気に入りに選ばれている数（全写真の合計） |
 | `createdAt` / `updatedAt` | string | |
 
 表示名は `〈二つ名〉名前`（例 `〈疾風の魔術師〉田中`）。
@@ -178,6 +191,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `photoId` | string | ULID |
 | `uploaderId` | string | アップロードしたユーザ |
 | `status` | `pending` \| `approved` \| `rejected` \| `deleted` | 状態。`deleted` は管理者が削除した写真の記録 |
+| `favoriteCount` | number | お気に入りに選ばれている数 |
 | `createdAt` / `reviewedAt` | string | |
 
 - 却下時は S3 のオブジェクトを削除し、レコードは `rejected` で残す（監査用）。
@@ -188,11 +202,32 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | 属性 | 型 | 説明 |
 |---|---|---|
 | `moderation` | `pre` \| `post` | `pre`: 管理者承認後に公開（既定） / `post`: 即時公開・事後削除 |
+| `uploadPoints` | number | 写真 1 枚が公開されたときのポイント（既定 1、0〜100） |
+| `favoritesEnabled` | boolean | お気に入りの受付（既定 オン） |
+| `favoriteLimit` | number | 1 人が選べるお気に入りの数（既定 10、0〜100） |
+| `favoritePoints` | number | お気に入りに 1 回選ばれたときのポイント（既定 1、0〜100） |
 
-### 3.3 整合性
+保存されていない項目は既定値で補う（項目を追加しても既存の設定レコードをそのまま使える）。
+
+**お気に入り**: 「誰がどの写真を選んだか」の記録。属性は `userId`・`photoId`・`createdAt`。
+
+### 3.3 ポイントの計算
+
+ポイントは台帳を持たず、表示のたびにユーザのカウンタと現在の設定から計算する。
+
+```
+ポイント = approvedCount × uploadPoints + favoritesReceived × favoritePoints
+```
+
+- 公開された写真だけが数えられる（検閲待ち・却下・削除された写真は 0 ポイント）。
+- 設定を変えると、これまでの分も含めて全員のポイントが変わる。
+
+### 3.4 整合性
 
 - 初回登録は `TransactWriteItems` で「トークン `unbound → bound`（条件付き）」「ユーザ作成」「二つ名ロック作成（存在しないこと）」を同時に行う。二重登録・二つ名重複を防ぐ。
 - 写真の状態遷移とカウンタ増減も同一トランザクションで行い、数のずれを防ぐ。
+- お気に入りの追加は 1 トランザクションで「お気に入りレコード作成（存在しないこと）」「選んだ人の `favoritesGiven` 加算（上限未満であること）」「写真の `favoriteCount` 加算（公開済みであること）」「アップロードした人の `favoritesReceived` 加算」を行う。解除はその逆（レコードが存在すること）。同時に押されても上限を超えず、二重に数えない。
+- 公開済み写真を削除するときは、その写真のお気に入りをすべて解除する（選んだ人は枠が戻り、アップロードした人のポイントも減る）。
 
 ---
 
@@ -340,9 +375,11 @@ sequenceDiagram
 | POST | `/api/auth/qr` | トークンでログイン。未紐づけなら `unbound` を返す |
 | POST | `/api/auth/register` | 未紐づけトークンに名前を登録（二つ名自動付与） |
 | POST | `/api/auth/logout` | Cookie 削除 |
-| GET | `/api/me` | 自分の情報（表示名・アップロード数）。CloudFront Cookie の再発行 |
+| GET | `/api/me` | 自分の情報（表示名・アップロード数・ポイント・お気に入りの数）とポイントのルール。CloudFront Cookie の再発行 |
 | POST | `/api/photos/upload-url` | アップロード用署名付き POST を発行 |
-| GET | `/api/photos` | 公開済み写真一覧（アップロード者の表示名付き） |
+| GET | `/api/photos` | 公開済み写真一覧（アップロード者の表示名・お気に入り数・自分が選んでいるか付き） |
+| PUT | `/api/photos/{photoId}/favorite` | お気に入りに選ぶ（選択済みなら何もしない）。受付終了は 409 `favorites_disabled`、上限超過は 409 `favorite_limit`、自分の写真・未公開は 409 `invalid_state` |
+| DELETE | `/api/photos/{photoId}/favorite` | お気に入りを外す（未選択なら何もしない） |
 | GET | `/api/photos/mine` | 自分の写真一覧（検閲待ちは署名付き URL 付き） |
 
 ### 6.2 管理者
@@ -353,14 +390,14 @@ sequenceDiagram
 | POST | `/api/admin/logout` | Cookie 削除 |
 | POST | `/api/admin/tokens` | QR トークンを N 件発行 `{count}` |
 | GET | `/api/admin/tokens` | トークン一覧（印刷・配布管理用） |
-| GET | `/api/admin/users` | ユーザ一覧（アップロード数付き） |
+| GET | `/api/admin/users` | ユーザ一覧（アップロード数・ポイント・お気に入りの数付き） |
 | PATCH | `/api/admin/users/{userId}` | 名前・二つ名の変更 |
 | POST | `/api/admin/users/{userId}/unbind` | QR との紐づけ解除 |
 | GET | `/api/admin/photos?status=` | 状態別写真一覧（検閲待ちは署名付き URL 付き） |
 | POST | `/api/admin/photos/{photoId}/approve` | 承認 |
 | POST | `/api/admin/photos/{photoId}/reject` | 却下 |
 | DELETE | `/api/admin/photos/{photoId}` | 削除 |
-| GET / PUT | `/api/admin/settings` | 設定（`moderation`）の取得・更新 |
+| GET / PUT | `/api/admin/settings` | 設定（公開方法・ポイント・お気に入り）の取得・更新。PUT は全項目を送る |
 
 ### 6.3 紐づけ解除の挙動
 
@@ -378,8 +415,8 @@ sequenceDiagram
 | パス | 画面 | 内容 |
 |---|---|---|
 | `/q/:token` | QR 着地 | ログイン処理 → 未紐づけなら名前入力、紐づけ済みならホームへ |
-| `/` | ホーム | 表示名・アップロード数・撮影ボタン・ギャラリーへの導線。未ログイン時は「QR を読み込んでください」 |
-| `/gallery` | ギャラリー | 公開済み写真のグリッド表示、タップで拡大（アップロード者表示） |
+| `/` | ホーム | 表示名・ポイント（公開中の写真数・選ばれた数）・ポイントのルール・お気に入りの選択数・撮影ボタン。未ログイン時は「QR を読み込んでください」 |
+| `/gallery` | ギャラリー | 公開済み写真のグリッド表示、タップで拡大（アップロード者表示）。♡ でお気に入りの付け外し |
 | `/mine` | 自分の写真 | 自分のアップロード一覧と状態（検閲待ち／公開／却下）、送信待ちキュー |
 
 ### 7.2 管理者
@@ -387,11 +424,11 @@ sequenceDiagram
 | パス | 画面 | 内容 |
 |---|---|---|
 | `/admin/login` | ログイン | パスワード入力 |
-| `/admin/users` | ユーザ管理 | 一覧（表示名・アップロード数・公開数）、名前／二つ名の編集、紐づけ解除 |
+| `/admin/users` | ユーザ管理 | 一覧（表示名・ポイント・アップロード数・公開数・選ばれた数・選んだ数）、名前／二つ名の編集、紐づけ解除 |
 | `/admin/tokens` | QR 管理 | トークン発行、紐づけ状況、印刷用ページ |
 | `/admin/tokens/print` | QR 印刷 | QR と通し番号を並べたページ。ブラウザの印刷機能で PDF 化 |
 | `/admin/photos` | 検閲・写真管理 | 検閲待ちの承認／却下、公開済みの削除 |
-| `/admin/settings` | 設定 | 検閲モード（事前承認／即時公開）の切り替え |
+| `/admin/settings` | 設定 | 検閲モード（事前承認／即時公開）、ポイント、お気に入りの受付・上限 |
 
 ---
 
@@ -421,7 +458,7 @@ sequenceDiagram
 
 ## 9. 今後の拡張
 
-- **ポイント・余興イベント集計**: `EVENT#<eventId>`・ポイント台帳（`USER#<userId>` / `POINT#<timestamp>`）を同テーブルに追加する想定。ランキングはユーザレコード上の合計値カウンタ＋GSI で取得。
+- **余興イベント（クイズなど）のポイント**: `EVENT#<eventId>`・ポイント台帳（`USER#<userId>` / `POINT#<timestamp>`）を同テーブルに追加し、写真・お気に入りのポイントと合算する想定。ランキングは全ユーザを読んで計算する（80 名程度なら十分）。
 - **自前カメラ UI**: `getUserMedia` でフレーム・スタンプ合成撮影。
 - **写真の保存期間**: S3 ライフサイクルルールで自動削除。
 - **会場スクリーン表示**: 公開写真のスライドショー、ランキング表示。

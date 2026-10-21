@@ -17,6 +17,8 @@ export interface UserRecord {
   status: UserStatus;
   uploadCount: number;
   approvedCount: number;
+  favoritesGiven: number;
+  favoritesReceived: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -33,6 +35,7 @@ export interface PhotoRecord {
   photoId: string;
   uploaderId: string;
   status: PhotoRecordStatus;
+  favoriteCount: number;
   createdAt: string;
   reviewedAt?: string;
 }
@@ -43,7 +46,13 @@ export interface Page<T> {
   cursor?: string;
 }
 
-export const DEFAULT_SETTINGS: Settings = { moderation: "pre" };
+export const DEFAULT_SETTINGS: Settings = {
+  moderation: "pre",
+  uploadPoints: 1,
+  favoritesEnabled: true,
+  favoriteLimit: 10,
+  favoritePoints: 1,
+};
 
 export interface UserChanges {
   name?: string;
@@ -71,6 +80,14 @@ export class InvalidStateError extends Error {
   constructor() {
     super("invalid state");
     this.name = "InvalidStateError";
+  }
+}
+
+/** お気に入りの上限に達している */
+export class FavoriteLimitError extends Error {
+  constructor() {
+    super("favorite limit reached");
+    this.name = "FavoriteLimitError";
   }
 }
 
@@ -144,6 +161,28 @@ export interface Repository {
    * @throws NotFoundError / InvalidStateError
    */
   deleteApprovedPhoto(photoId: string, deletedAt: string): Promise<PhotoRecord>;
+
+  // ---- お気に入り ----
+
+  /**
+   * userId が photo をお気に入りに加える。選んだ人の favoritesGiven、写真の favoriteCount、
+   * アップロード者の favoritesReceived を同時に加算する。既に選んでいれば何もしない。
+   * @throws FavoriteLimitError 選んだ数が limit に達している
+   * @throws InvalidStateError 写真が公開中でない
+   */
+  addFavorite(userId: string, photo: PhotoRecord, limit: number, createdAt: string): Promise<void>;
+
+  /** お気に入りを外し、各カウンタを減算する。選んでいなければ何もしない */
+  removeFavorite(userId: string, photo: PhotoRecord): Promise<void>;
+
+  /** userId が選んでいる写真の ID */
+  listFavoritePhotoIds(userId: string): Promise<string[]>;
+
+  /** photoId を選んでいるユーザの ID */
+  listFavoriteUserIds(photoId: string): Promise<string[]>;
+
+  /** photoId へのお気に入りをすべて外す（写真の削除時） */
+  clearFavorites(photoId: string): Promise<void>;
 
   // ---- 設定 ----
 

@@ -17,6 +17,7 @@ import type { PhotoStatus, Settings } from "@partally/shared";
 import {
   DEFAULT_SETTINGS,
   EpithetTakenError,
+  FavoriteLimitError,
   formatLabel,
   InvalidStateError,
   NotFoundError,
@@ -36,6 +37,7 @@ export const keys = {
   user: (userId: string) => ({ PK: `USER#${userId}`, SK: "PROFILE" }),
   epithet: (epithet: string) => ({ PK: `EPITHET#${epithet}`, SK: "LOCK" }),
   photo: (photoId: string) => ({ PK: `PHOTO#${photoId}`, SK: "META" }),
+  favorite: (userId: string, photoId: string) => ({ PK: `USER#${userId}`, SK: `FAV#${photoId}` }),
   settings: { PK: "SETTINGS", SK: "GLOBAL" },
   tokenLabelCounter: { PK: "COUNTER", SK: "TOKEN_LABEL" },
 };
@@ -300,22 +302,12 @@ export class DynamoRepository implements Repository {
   }
 
   async listPhotosByUploader(uploaderId: string) {
-    const items: Record<string, unknown>[] = [];
-    let ExclusiveStartKey: QueryCommandInput["ExclusiveStartKey"];
-    do {
-      const page = await this.client.send(
-        new QueryCommand({
-          TableName: this.tableName,
-          IndexName: GSI2,
-          KeyConditionExpression: "GSI2PK = :pk",
-          ExpressionAttributeValues: { ":pk": `USER#${uploaderId}` },
-          ScanIndexForward: false,
-          ExclusiveStartKey,
-        }),
-      );
-      items.push(...(page.Items ?? []));
-      ExclusiveStartKey = page.LastEvaluatedKey;
-    } while (ExclusiveStartKey);
+    const items = await this.queryAll({
+      IndexName: GSI2,
+      KeyConditionExpression: "GSI2PK = :pk",
+      ExpressionAttributeValues: { ":pk": `USER#${uploaderId}` },
+      ScanIndexForward: false,
+    });
     return items.map(toPhotoRecord);
   }
 
@@ -365,15 +357,172 @@ export class DynamoRepository implements Repository {
     return this.transition(photoId, "approved", "deleted", deletedAt, { uploadCount: -1, approvedCount: -1 });
   }
 
+  async addFavorite(userId: string, photo: PhotoRecord, limit: number, createdAt: string) {
+    // 自分の写真は選べない（同じユーザのアイテムを 1 トランザクションで 2 回更新することにもなる）
+    if (userId === photo.uploaderId) throw new InvalidStateError();
+    // 選択数の属性が無い（機能追加前に登録した）ユーザは条件式で上限 0 を判定できないため、先に弾く
+    if (limit <= 0) throw new FavoriteLimitError();
+    try {
+      await this.transactWithRetry(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Put: {
+                TableName: this.tableName,
+                Item: {
+                  ...keys.favorite(userId, photo.photoId),
+                  GSI1PK: `FAVS#${photo.photoId}`,
+                  GSI1SK: `${createdAt}#${userId}`,
+                  userId,
+                  photoId: photo.photoId,
+                  createdAt,
+                },
+                ConditionExpression: "attribute_not_exists(PK)",
+              },
+            },
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: keys.user(userId),
+                UpdateExpression: "ADD favoritesGiven :one",
+                ConditionExpression:
+                  "attribute_exists(PK) AND (attribute_not_exists(favoritesGiven) OR favoritesGiven < :limit)",
+                ExpressionAttributeValues: { ":one": 1, ":limit": limit },
+              },
+            },
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: keys.photo(photo.photoId),
+                UpdateExpression: "ADD favoriteCount :one",
+                ConditionExpression: "#status = :approved",
+                ExpressionAttributeNames: { "#status": "status" },
+                ExpressionAttributeValues: { ":one": 1, ":approved": "approved" },
+              },
+            },
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: keys.user(photo.uploaderId),
+                UpdateExpression: "ADD favoritesReceived :one",
+                ConditionExpression: "attribute_exists(PK)",
+                ExpressionAttributeValues: { ":one": 1 },
+              },
+            },
+          ],
+        }),
+      );
+    } catch (e) {
+      const failed = conditionFailures(e);
+      if (failed?.[0]) return; // 既に選んでいる
+      if (failed?.[1]) throw new FavoriteLimitError();
+      if (failed?.[2] || failed?.[3]) throw new InvalidStateError();
+      throw e;
+    }
+  }
+
+  async removeFavorite(userId: string, photo: PhotoRecord) {
+    try {
+      await this.transactWithRetry(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Delete: {
+                TableName: this.tableName,
+                Key: keys.favorite(userId, photo.photoId),
+                ConditionExpression: "attribute_exists(PK)",
+              },
+            },
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: keys.user(userId),
+                UpdateExpression: "ADD favoritesGiven :minus",
+                ExpressionAttributeValues: { ":minus": -1 },
+              },
+            },
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: keys.photo(photo.photoId),
+                UpdateExpression: "ADD favoriteCount :minus",
+                ExpressionAttributeValues: { ":minus": -1 },
+              },
+            },
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: keys.user(photo.uploaderId),
+                UpdateExpression: "ADD favoritesReceived :minus",
+                ExpressionAttributeValues: { ":minus": -1 },
+              },
+            },
+          ],
+        }),
+      );
+    } catch (e) {
+      if (conditionFailures(e)?.[0]) return; // 選んでいない
+      throw e;
+    }
+  }
+
+  async listFavoritePhotoIds(userId: string) {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :fav)",
+      ExpressionAttributeValues: { ":pk": `USER#${userId}`, ":fav": "FAV#" },
+    });
+    return items.map((item) => item.photoId as string);
+  }
+
+  async listFavoriteUserIds(photoId: string) {
+    const items = await this.queryAll({
+      IndexName: GSI1,
+      KeyConditionExpression: "GSI1PK = :pk",
+      ExpressionAttributeValues: { ":pk": `FAVS#${photoId}` },
+    });
+    return items.map((item) => item.userId as string);
+  }
+
+  async clearFavorites(photoId: string) {
+    // GSI は結果整合のため、直前に付いたお気に入りが一覧に出ないことがある。
+    // 写真の favoriteCount（強い整合性で読む）が 0 になるまで、少し待って取り直す
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { Item } = await this.client.send(
+        new GetCommand({ TableName: this.tableName, Key: keys.photo(photoId), ConsistentRead: true }),
+      );
+      if (!Item) return;
+      const photo = toPhotoRecord(Item);
+      if (photo.favoriteCount <= 0) return;
+      if (attempt > 0) await sleep(200 * attempt);
+      for (const userId of await this.listFavoriteUserIds(photoId)) await this.removeFavorite(userId, photo);
+    }
+    console.warn(`お気に入りを外しきれませんでした: ${photoId}`);
+  }
+
+  /** 人気の写真に同時にお気に入りが付くと TransactionConflict で取り消されるため、少し待って再実行する */
+  private async transactWithRetry(command: TransactWriteCommand) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.client.send(command);
+      } catch (e) {
+        if (attempt >= 4 || !isTransactionConflict(e)) throw e;
+        await sleep(20 * 2 ** attempt + Math.random() * 20);
+      }
+    }
+  }
+
   async getSettings(): Promise<Settings> {
     const { Item } = await this.client.send(new GetCommand({ TableName: this.tableName, Key: keys.settings }));
-    return { ...DEFAULT_SETTINGS, ...(Item ? { moderation: Item.moderation } : {}) };
+    const stored = Object.fromEntries(
+      Object.keys(DEFAULT_SETTINGS)
+        .filter((key) => Item?.[key] !== undefined)
+        .map((key) => [key, Item![key]]),
+    );
+    return { ...DEFAULT_SETTINGS, ...stored };
   }
 
   async putSettings(settings: Settings) {
-    await this.client.send(
-      new PutCommand({ TableName: this.tableName, Item: { ...keys.settings, moderation: settings.moderation } }),
-    );
+    await this.client.send(new PutCommand({ TableName: this.tableName, Item: { ...keys.settings, ...settings } }));
   }
 
   /** 写真の状態を from → to に変え、同じトランザクションでアップロード者のカウンタを更新する */
@@ -441,18 +590,21 @@ export class DynamoRepository implements Repository {
   }
 
   private async queryGsi1(pk: string): Promise<Record<string, unknown>[]> {
+    return this.queryAll({
+      IndexName: GSI1,
+      KeyConditionExpression: "GSI1PK = :pk",
+      ExpressionAttributeValues: { ":pk": pk },
+    });
+  }
+
+  /** ページングをたどって条件に合うアイテムをすべて返す */
+  private async queryAll(
+    input: Omit<QueryCommandInput, "TableName" | "ExclusiveStartKey">,
+  ): Promise<Record<string, unknown>[]> {
     const items: Record<string, unknown>[] = [];
     let ExclusiveStartKey: QueryCommandInput["ExclusiveStartKey"];
     do {
-      const page = await this.client.send(
-        new QueryCommand({
-          TableName: this.tableName,
-          IndexName: GSI1,
-          KeyConditionExpression: "GSI1PK = :pk",
-          ExpressionAttributeValues: { ":pk": pk },
-          ExclusiveStartKey,
-        }),
-      );
+      const page = await this.client.send(new QueryCommand({ ...input, TableName: this.tableName, ExclusiveStartKey }));
       items.push(...(page.Items ?? []));
       ExclusiveStartKey = page.LastEvaluatedKey;
     } while (ExclusiveStartKey);
@@ -487,6 +639,7 @@ function toPhotoRecord(item: Record<string, unknown>): PhotoRecord {
     photoId: item.photoId as string,
     uploaderId: item.uploaderId as string,
     status: item.status as PhotoRecordStatus,
+    favoriteCount: Number(item.favoriteCount ?? 0),
     createdAt: item.createdAt as string,
     reviewedAt: item.reviewedAt as string | undefined,
   };
@@ -529,9 +682,20 @@ function toUserRecord(item: Record<string, unknown>): UserRecord {
     status: item.status as UserRecord["status"],
     uploadCount: Number(item.uploadCount ?? 0),
     approvedCount: Number(item.approvedCount ?? 0),
+    favoritesGiven: Number(item.favoritesGiven ?? 0),
+    favoritesReceived: Number(item.favoritesReceived ?? 0),
     createdAt: item.createdAt as string,
     updatedAt: item.updatedAt as string,
   };
+}
+
+/** 他のトランザクションと同じアイテムを同時に更新して取り消されたか */
+function isTransactionConflict(e: unknown): boolean {
+  return (
+    e instanceof TransactionCanceledException &&
+    (e.CancellationReasons ?? []).some((r) => r.Code === "TransactionConflict") &&
+    !conditionFailures(e)
+  );
 }
 
 /**
