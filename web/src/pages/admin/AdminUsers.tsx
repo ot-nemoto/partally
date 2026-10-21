@@ -57,6 +57,8 @@ export function AdminUsers() {
               <th className="num">公開</th>
               <th className="num">選ばれた</th>
               <th className="num">選んだ</th>
+              <th className="num">クイズ回答</th>
+              <th className="num">クイズ点</th>
               <th>状態</th>
               <th />
             </tr>
@@ -72,6 +74,8 @@ export function AdminUsers() {
                 <td className="num">{u.approvedCount}</td>
                 <td className="num">{u.favoritesReceived}</td>
                 <td className="num">{u.favoritesGiven}</td>
+                <td className="num">{u.quizAnswered}</td>
+                <td className="num">{u.quizPoints}</td>
                 <td>{u.status === "active" ? "登録済み" : "解除済み"}</td>
                 <td>
                   <div className="actions">

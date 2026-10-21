@@ -3,6 +3,7 @@ import { ParticipantLayout } from "./components/ParticipantLayout";
 import { AdminLayout } from "./pages/admin/AdminLayout";
 import { AdminLogin } from "./pages/admin/AdminLogin";
 import { AdminPhotos } from "./pages/admin/AdminPhotos";
+import { AdminQuizzes } from "./pages/admin/AdminQuizzes";
 import { AdminSettings } from "./pages/admin/AdminSettings";
 import { AdminTokens } from "./pages/admin/AdminTokens";
 import { AdminTokensPrint } from "./pages/admin/AdminTokensPrint";
@@ -11,6 +12,7 @@ import { Gallery } from "./pages/Gallery";
 import { Home } from "./pages/Home";
 import { Mine } from "./pages/Mine";
 import { QrLanding } from "./pages/QrLanding";
+import { Quiz } from "./pages/Quiz";
 
 export function App() {
   return (
@@ -19,6 +21,7 @@ export function App() {
         <Route path="/" element={<Home />} />
         <Route path="/gallery" element={<Gallery />} />
         <Route path="/mine" element={<Mine />} />
+        <Route path="/quiz" element={<Quiz />} />
         {/* 以前あった「お気に入り」タブ。開いたままの画面や履歴から来てもギャラリーへ */}
         <Route path="/favorites" element={<Navigate to="/gallery" replace />} />
       </Route>
@@ -30,6 +33,7 @@ export function App() {
         <Route path="users" element={<AdminUsers />} />
         <Route path="tokens" element={<AdminTokens />} />
         <Route path="photos" element={<AdminPhotos />} />
+        <Route path="quizzes" element={<AdminQuizzes />} />
         <Route path="settings" element={<AdminSettings />} />
       </Route>
       <Route path="*" element={<NotFound />} />

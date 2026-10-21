@@ -44,11 +44,22 @@ export function Home() {
               <dd>{user.favoritesReceived}</dd>
             </div>
           )}
+          <div>
+            <dt>回答した問題</dt>
+            <dd>{user.quizAnswered}</dd>
+          </div>
+          {rules.showPoints && (
+            <div>
+              <dt>クイズの点数</dt>
+              <dd>{user.quizPoints}</dd>
+            </div>
+          )}
         </dl>
         {rules.showPoints && (
           <p className="muted small">
             写真 1 枚公開で {rules.uploadPoints} ポイント
             {rules.favoritePoints > 0 && `・お気に入りに 1 回選ばれると ${rules.favoritePoints} ポイント`}
+            ・クイズは締め切り後に、選んだ答えの点数が入ります
           </p>
         )}
         {rules.favoritesEnabled && (

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createApp } from "./app.js";
+import { createApp, scoreQuizAnswers } from "./app.js";
 import { ingestUpload } from "./ingest.js";
 import { MemoryRepository } from "./memory-repository.js";
 import { MemoryPhotoStorage } from "./memory-storage.js";
@@ -670,6 +670,229 @@ describe("API", () => {
     });
   });
 
+  describe("クイズ", () => {
+    let participantSeq = 0;
+    async function participant(name: string) {
+      const token = await issueToken();
+      epithetSeq = [1, participantSeq++];
+      const request = createClient(app);
+      const reg = await request("POST", "/api/auth/register", { token, name });
+      return { request, userId: reg.body.user.userId as string };
+    }
+
+    async function adminClient() {
+      const request = createClient(app);
+      await request("POST", "/api/admin/login", { password: ADMIN_PASSWORD });
+      return request;
+    }
+
+    const me = async (request: ReturnType<typeof createClient>) => (await request("GET", "/api/me")).body;
+
+    async function createQuiz(admin: ReturnType<typeof createClient>, points = [10, 0, 5]) {
+      const res = await admin("POST", "/api/admin/quizzes", {
+        text: "  幹事の出身地は？\n（ヒント: 海がある）  ",
+        choices: points.map((p, i) => ({ text: `選択肢${i + 1}`, points: p })),
+      });
+      expect(res.status).toBe(201);
+      return res.body.quiz;
+    }
+
+    it("出題 → 回答（選び直し可）→ 締め切りで、選んだ選択肢の点数がポイントに加わる", async () => {
+      const admin = await adminClient();
+      const a = await participant("田中");
+      const b = await participant("鈴木");
+      const quiz = await createQuiz(admin);
+      expect(quiz).toMatchObject({ status: "draft", text: "幹事の出身地は？\n（ヒント: 海がある）", answerCount: 0 });
+      const [c1, c2, c3] = quiz.choices.map((ch: any) => ch.choiceId);
+
+      // 下書きは参加者に見えず、答えられない
+      expect((await a.request("GET", "/api/quiz/current")).body.quiz).toBeNull();
+      expect((await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: c1 })).body.error).toBe(
+        "quiz_closed",
+      );
+
+      expect((await admin("POST", `/api/admin/quizzes/${quiz.quizId}/open`)).body.quiz.status).toBe("open");
+      const current = (await a.request("GET", "/api/quiz/current")).body.quiz;
+      expect(current).toEqual({
+        quizId: quiz.quizId,
+        text: quiz.text,
+        // 正解がわからないよう、点数は返さない
+        choices: quiz.choices.map((ch: any) => ({ choiceId: ch.choiceId, text: ch.text })),
+      });
+
+      expect((await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: c1 })).status).toBe(200);
+      const changed = await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: c3 });
+      expect(changed.body.quiz.myChoiceId).toBe(c3);
+      await b.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: c2 });
+      expect((await a.request("GET", "/api/quiz/current")).body.quiz.myChoiceId).toBe(c3);
+      expect((await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: "nope" })).status).toBe(400);
+
+      // 出題中は点数に数えない（選び直して正解を探れないように）
+      expect((await me(a.request)).user).toMatchObject({ quizAnswered: 1, quizPoints: 0, points: 0 });
+
+      expect((await admin("POST", `/api/admin/quizzes/${quiz.quizId}/close`)).status).toBe(200);
+      expect((await a.request("GET", "/api/quiz/current")).body.quiz).toBeNull();
+      expect((await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: c1 })).body.error).toBe(
+        "quiz_closed",
+      );
+      expect((await me(a.request)).user).toMatchObject({ quizAnswered: 1, quizPoints: 5, points: 5 });
+      expect((await me(b.request)).user).toMatchObject({ quizAnswered: 1, quizPoints: 0, points: 0 });
+
+      const results = (await admin("GET", `/api/admin/quizzes/${quiz.quizId}`)).body;
+      expect(results.quiz.answerCount).toBe(2);
+      expect(results.quiz.choices.map((ch: any) => [ch.points, ch.answerCount])).toEqual([
+        [10, 0],
+        [0, 1],
+        [5, 1],
+      ]);
+      expect(results.answers.map((x: any) => [x.displayName.endsWith("田中"), x.choiceId])).toEqual([
+        [true, c3],
+        [false, c2],
+      ]);
+      const users = (await admin("GET", "/api/admin/users")).body.users;
+      expect(users.map((u: any) => [u.name, u.quizAnswered, u.quizPoints, u.points])).toEqual([
+        ["田中", 1, 5, 5],
+        ["鈴木", 1, 0, 0],
+      ]);
+    });
+
+    it("出題中にできるのは 1 問だけで、締め切った問題は出し直せない", async () => {
+      const admin = await adminClient();
+      const q1 = await createQuiz(admin);
+      const q2 = await createQuiz(admin);
+      await admin("POST", `/api/admin/quizzes/${q1.quizId}/open`);
+      expect((await admin("POST", `/api/admin/quizzes/${q2.quizId}/open`)).status).toBe(409);
+      expect((await admin("POST", `/api/admin/quizzes/${q2.quizId}/close`)).status).toBe(409);
+      await admin("POST", `/api/admin/quizzes/${q1.quizId}/close`);
+      expect((await admin("POST", `/api/admin/quizzes/${q1.quizId}/open`)).status).toBe(409);
+      expect((await admin("POST", `/api/admin/quizzes/${q2.quizId}/open`)).status).toBe(200);
+      expect((await admin("POST", "/api/admin/quizzes/NOPE/open")).status).toBe(404);
+      const list = (await admin("GET", "/api/admin/quizzes")).body.quizzes;
+      expect(list.map((q: any) => q.status)).toEqual(["closed", "open"]);
+    });
+
+    it("出題後も文言と点数は直せて、点数を直すと数え直す。選択肢の増減は下書きの間だけ", async () => {
+      const admin = await adminClient();
+      const a = await participant("田中");
+      const quiz = await createQuiz(admin);
+      const [c1, c2, c3] = quiz.choices.map((ch: any) => ch.choiceId);
+
+      // 下書きなら選択肢を増やせる
+      const added = await admin("PUT", `/api/admin/quizzes/${quiz.quizId}`, {
+        text: quiz.text,
+        choices: [
+          ...quiz.choices.map((ch: any) => ({ choiceId: ch.choiceId, text: ch.text, points: ch.points })),
+          { text: "選択肢4", points: 1 },
+        ],
+      });
+      expect(added.body.quiz.choices).toHaveLength(4);
+
+      await admin("POST", `/api/admin/quizzes/${quiz.quizId}/open`);
+      await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: c1 });
+      await admin("POST", `/api/admin/quizzes/${quiz.quizId}/close`);
+      expect((await me(a.request)).user.points).toBe(10);
+
+      const kept = added.body.quiz.choices.map((ch: any) => ({
+        choiceId: ch.choiceId,
+        text: ch.text,
+        points: ch.points,
+      }));
+      const removed = await admin("PUT", `/api/admin/quizzes/${quiz.quizId}`, {
+        text: quiz.text,
+        choices: kept.slice(0, 3),
+      });
+      expect(removed.status).toBe(409);
+      const unknown = await admin("PUT", `/api/admin/quizzes/${quiz.quizId}`, {
+        text: quiz.text,
+        choices: [...kept.slice(0, 3), { choiceId: "NOPE", text: "x", points: 0 }],
+      });
+      expect(unknown.status).toBe(400);
+
+      const rescored = await admin("PUT", `/api/admin/quizzes/${quiz.quizId}`, {
+        text: "直した問題文",
+        choices: kept.map((ch: any) => (ch.choiceId === c1 ? { ...ch, text: "直した選択肢", points: 3 } : ch)),
+      });
+      expect(rescored.status).toBe(200);
+      expect(rescored.body.quiz).toMatchObject({ text: "直した問題文", status: "closed" });
+      expect((await me(a.request)).user).toMatchObject({ quizPoints: 3, points: 3 });
+      expect([c2, c3]).toHaveLength(2);
+    });
+
+    it("出題中は削除できず、締め切った問題を削除すると回答と点数も消える", async () => {
+      const admin = await adminClient();
+      const a = await participant("田中");
+      const quiz = await createQuiz(admin);
+      await admin("POST", `/api/admin/quizzes/${quiz.quizId}/open`);
+      await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: quiz.choices[0].choiceId });
+      expect((await admin("DELETE", `/api/admin/quizzes/${quiz.quizId}`)).status).toBe(409);
+      await admin("POST", `/api/admin/quizzes/${quiz.quizId}/close`);
+      expect((await me(a.request)).user).toMatchObject({ quizAnswered: 1, points: 10 });
+
+      expect((await admin("DELETE", `/api/admin/quizzes/${quiz.quizId}`)).status).toBe(200);
+      expect((await me(a.request)).user).toMatchObject({ quizAnswered: 0, quizPoints: 0, points: 0 });
+      expect((await admin("GET", "/api/admin/quizzes")).body.quizzes).toEqual([]);
+      expect((await admin("DELETE", `/api/admin/quizzes/${quiz.quizId}`)).status).toBe(404);
+    });
+
+    it("ポイントを伏せている間は、参加者にクイズの点数を返さない", async () => {
+      const admin = await adminClient();
+      const a = await participant("田中");
+      const quiz = await createQuiz(admin);
+      await admin("POST", `/api/admin/quizzes/${quiz.quizId}/open`);
+      await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: quiz.choices[0].choiceId });
+      await admin("POST", `/api/admin/quizzes/${quiz.quizId}/close`);
+      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, showPoints: false });
+
+      const user = (await me(a.request)).user;
+      expect(user.quizAnswered).toBe(1);
+      expect(user).not.toHaveProperty("quizPoints");
+      expect(user).not.toHaveProperty("points");
+      const users = (await admin("GET", "/api/admin/users")).body.users;
+      expect(users[0]).toMatchObject({ quizPoints: 10, points: 10 });
+    });
+
+    it("入力の検証とログインの確認", async () => {
+      const admin = await adminClient();
+      const bad = (body: unknown) => admin("POST", "/api/admin/quizzes", body);
+      expect((await bad({ text: "問題", choices: [{ text: "1つだけ", points: 1 }] })).status).toBe(400);
+      expect(
+        (
+          await bad({
+            text: " ",
+            choices: [
+              { text: "a", points: 1 },
+              { text: "b", points: 0 },
+            ],
+          })
+        ).status,
+      ).toBe(400);
+      expect(
+        (
+          await bad({
+            text: "問題",
+            choices: [
+              { text: "a", points: 101 },
+              { text: "b", points: 0 },
+            ],
+          })
+        ).status,
+      ).toBe(400);
+      expect(
+        (
+          await bad({
+            text: "問題",
+            choices: [
+              { choiceId: "X", text: "a", points: 1 },
+              { text: "b", points: 0 },
+            ],
+          })
+        ).status,
+      ).toBe(400);
+      expect((await createClient(app)("GET", "/api/quiz/current")).status).toBe(401);
+      expect((await createClient(app)("GET", "/api/admin/quizzes")).status).toBe(401);
+    });
+  });
+
   describe("取り込み（ingestUpload）", () => {
     async function activeUser() {
       const token = await issueToken();
@@ -705,5 +928,27 @@ describe("API", () => {
       expect(await ingestUpload({ repo, storage }, photoKey("uploads", "P1", "full"))).toBe("duplicate");
       expect((await repo.getUser(userId))!.uploadCount).toBe(1);
     });
+  });
+});
+
+describe("scoreQuizAnswers", () => {
+  const quiz = {
+    quizId: "Q1",
+    text: "問題",
+    choices: [
+      { choiceId: "A", text: "a", points: 10 },
+      { choiceId: "B", text: "b", points: 0 },
+    ],
+    status: "closed" as const,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    closedAt: "2026-01-01T00:10:00.000Z",
+  };
+
+  it("締め切り後に保存された回答と、削除されたクイズへの回答は数えない", () => {
+    const answer = (quizId: string, answeredAt: string) => ({ quizId, userId: "u1", choiceId: "A", answeredAt });
+    expect(scoreQuizAnswers([answer("Q1", "2026-01-01T00:09:59.999Z")], [quiz])).toEqual({ answered: 1, points: 10 });
+    expect(scoreQuizAnswers([answer("Q1", "2026-01-01T00:10:00.001Z")], [quiz])).toEqual({ answered: 1, points: 0 });
+    expect(scoreQuizAnswers([answer("GONE", "2026-01-01T00:01:00.000Z")], [quiz])).toEqual({ answered: 0, points: 0 });
   });
 });

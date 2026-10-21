@@ -1,4 +1,4 @@
-import type { PhotoStatus, Settings, TokenStatus, UserStatus } from "@partally/shared";
+import type { PhotoStatus, QuizStatus, Settings, TokenStatus, UserStatus } from "@partally/shared";
 
 export interface TokenRecord {
   token: string;
@@ -38,6 +38,31 @@ export interface PhotoRecord {
   favoriteCount: number;
   createdAt: string;
   reviewedAt?: string;
+}
+
+export interface QuizChoice {
+  choiceId: string;
+  text: string;
+  points: number;
+}
+
+export interface QuizRecord {
+  quizId: string;
+  text: string;
+  choices: QuizChoice[];
+  status: QuizStatus;
+  createdAt: string;
+  updatedAt: string;
+  openedAt?: string;
+  closedAt?: string;
+}
+
+/** クイズへの回答。1 人 1 問につき 1 件で、選び直すと上書きする */
+export interface QuizAnswerRecord {
+  quizId: string;
+  userId: string;
+  choiceId: string;
+  answeredAt: string;
 }
 
 export interface Page<T> {
@@ -89,6 +114,14 @@ export class FavoriteLimitError extends Error {
   constructor() {
     super("favorite limit reached");
     this.name = "FavoriteLimitError";
+  }
+}
+
+/** 別のクイズが出題中 */
+export class QuizAlreadyOpenError extends Error {
+  constructor() {
+    super("another quiz is open");
+    this.name = "QuizAlreadyOpenError";
   }
 }
 
@@ -184,6 +217,54 @@ export interface Repository {
 
   /** photoId へのお気に入りをすべて外す（写真の削除時） */
   clearFavorites(photoId: string): Promise<void>;
+
+  // ---- クイズ ----
+
+  createQuiz(quiz: QuizRecord): Promise<void>;
+  getQuiz(quizId: string): Promise<QuizRecord | undefined>;
+  /** 作成順（古い順）で返す */
+  listQuizzes(): Promise<QuizRecord[]>;
+
+  /**
+   * 問題文と選択肢を差し替える。onlyIfDraft なら下書きのときだけ（選択肢の追加・削除は下書きの間だけにするため）。
+   * @throws NotFoundError / InvalidStateError
+   */
+  updateQuiz(
+    quizId: string,
+    changes: Pick<QuizRecord, "text" | "choices">,
+    updatedAt: string,
+    onlyIfDraft: boolean,
+  ): Promise<QuizRecord>;
+
+  /**
+   * 下書きか締め切り済みのクイズと、その回答を削除する。
+   * @throws NotFoundError / InvalidStateError 出題中
+   */
+  deleteQuiz(quizId: string): Promise<void>;
+
+  /**
+   * draft → open。出題中は同時に 1 問だけ。
+   * @throws NotFoundError / InvalidStateError 下書きでない / QuizAlreadyOpenError 別のクイズが出題中
+   */
+  openQuiz(quizId: string, openedAt: string): Promise<QuizRecord>;
+
+  /**
+   * open → closed。
+   * @throws NotFoundError / InvalidStateError 出題中でない
+   */
+  closeQuiz(quizId: string, closedAt: string): Promise<QuizRecord>;
+
+  /** 出題中のクイズの ID */
+  getOpenQuizId(): Promise<string | undefined>;
+
+  /**
+   * 回答を保存する（選び直しは上書き）。
+   * @throws InvalidStateError クイズが出題中でない
+   */
+  putQuizAnswer(answer: QuizAnswerRecord): Promise<void>;
+  getQuizAnswer(userId: string, quizId: string): Promise<QuizAnswerRecord | undefined>;
+  listQuizAnswersByUser(userId: string): Promise<QuizAnswerRecord[]>;
+  listQuizAnswersByQuiz(quizId: string): Promise<QuizAnswerRecord[]>;
 
   // ---- 設定 ----
 

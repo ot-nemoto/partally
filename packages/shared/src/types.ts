@@ -14,7 +14,14 @@ export interface UserDto {
   favoritesGiven: number;
   /** 自分の写真が他の人にお気に入りに選ばれた数。ポイントを伏せている間、参加者向けの応答には無い */
   favoritesReceived?: number;
-  /** 現在の設定で計算したポイント（公開枚数 × 1 枚あたり + 選ばれた数 × 1 件あたり）。ポイントを伏せている間、参加者向けの応答には無い */
+  /** 回答したクイズの数 */
+  quizAnswered: number;
+  /** 締め切ったクイズで選んだ選択肢の点数の合計。ポイントを伏せている間、参加者向けの応答には無い */
+  quizPoints?: number;
+  /**
+   * 現在の設定で計算したポイント（公開枚数 × 1 枚あたり + 選ばれた数 × 1 件あたり + クイズの点数）。
+   * ポイントを伏せている間、参加者向けの応答には無い
+   */
   points?: number;
   createdAt: string;
 }
@@ -61,6 +68,7 @@ export type ApiErrorCode =
   | "invalid_state"
   | "favorites_disabled"
   | "favorite_limit"
+  | "quiz_closed"
   | "not_found"
   | "internal_error";
 
@@ -137,4 +145,62 @@ export interface FavoriteResponse {
 
 export interface SettingsResponse {
   settings: Settings;
+}
+
+/** draft: 下書き / open: 出題中（同時に 1 問だけ） / closed: 締め切り */
+export type QuizStatus = "draft" | "open" | "closed";
+
+export interface QuizChoiceDto {
+  choiceId: string;
+  text: string;
+  /** 選んだ人に入る点数（管理画面のみ） */
+  points?: number;
+  /** この選択肢を選んだ人数（管理画面のみ） */
+  answerCount?: number;
+}
+
+/** 管理画面に返すクイズ */
+export interface QuizDto {
+  quizId: string;
+  text: string;
+  status: QuizStatus;
+  choices: QuizChoiceDto[];
+  /** 回答した人数 */
+  answerCount: number;
+  createdAt: string;
+  openedAt?: string;
+  closedAt?: string;
+}
+
+export interface QuizzesResponse {
+  quizzes: QuizDto[];
+}
+
+export interface QuizResponse {
+  quiz: QuizDto;
+}
+
+export interface QuizAnswerDto {
+  userId: string;
+  displayName?: string;
+  choiceId: string;
+  answeredAt: string;
+}
+
+export interface QuizResultsResponse {
+  quiz: QuizDto;
+  answers: QuizAnswerDto[];
+}
+
+/** 参加者に返す出題中のクイズ。正解がわからないよう、選択肢の点数は含めない */
+export interface CurrentQuizDto {
+  quizId: string;
+  text: string;
+  choices: { choiceId: string; text: string }[];
+  /** 自分が選んでいる選択肢 */
+  myChoiceId?: string;
+}
+
+export interface CurrentQuizResponse {
+  quiz: CurrentQuizDto | null;
 }

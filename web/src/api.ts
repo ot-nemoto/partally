@@ -48,6 +48,8 @@ export function errorMessage(e: unknown): string {
         return "お気に入りは上限まで選んでいます。他の写真を外してから選んでください。";
       case "favorites_disabled":
         return "お気に入りの受付は終了しました。";
+      case "quiz_closed":
+        return "この問題の受付は締め切られました。";
       case "unauthorized":
         return "ログインが必要です。";
       case "bad_request":

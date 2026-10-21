@@ -1,8 +1,10 @@
 import { DynamoDBClient, TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import {
   BatchWriteCommand,
+  DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
+  PutCommand,
   QueryCommand,
   TransactWriteCommand,
   UpdateCommand,
@@ -15,7 +17,10 @@ import {
   EpithetTakenError,
   FavoriteLimitError,
   InvalidStateError,
+  NotFoundError,
   type PhotoRecord,
+  QuizAlreadyOpenError,
+  type QuizRecord,
   TokenNotAvailableError,
   type UserRecord,
 } from "./repository.js";
@@ -292,6 +297,123 @@ describe("DynamoRepository", () => {
         "ADD favoritesReceived :minus",
       ]);
       await expect(repo.removeFavorite("u1", photo)).resolves.toBeUndefined();
+    });
+  });
+
+  describe("クイズ", () => {
+    const quiz: QuizRecord = {
+      quizId: "Q1",
+      text: "問題",
+      choices: [
+        { choiceId: "A", text: "a", points: 10 },
+        { choiceId: "B", text: "b", points: 0 },
+      ],
+      status: "draft",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const quizItem = (status: QuizRecord["status"]) => ({ PK: "QUIZ#Q1", SK: "META", ...quiz, status });
+
+    it("出題は「出題中」の印と状態の変更を 1 トランザクションで行い、別の問題が出題中なら断る", async () => {
+      ddb
+        .on(TransactWriteCommand)
+        .resolvesOnce({})
+        .rejectsOnce(canceled(["ConditionalCheckFailed", "None"]))
+        .rejectsOnce(canceled(["None", "ConditionalCheckFailed"]))
+        .rejectsOnce(canceled(["None", "ConditionalCheckFailed"]));
+      ddb
+        .on(GetCommand)
+        .resolvesOnce({ Item: quizItem("open") })
+        .resolvesOnce({ Item: quizItem("closed") })
+        .resolvesOnce({});
+
+      expect((await repo.openQuiz("Q1", "2026-01-01T00:01:00.000Z")).status).toBe("open");
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items[0]!.Put).toMatchObject({
+        Item: { PK: "QUIZ_STATE", SK: "OPEN", quizId: "Q1" },
+        ConditionExpression: "attribute_not_exists(PK)",
+      });
+      expect(items[1]!.Update).toMatchObject({
+        Key: { PK: "QUIZ#Q1", SK: "META" },
+        ConditionExpression: "#status = :draft",
+      });
+
+      await expect(repo.openQuiz("Q1", "x")).rejects.toBeInstanceOf(QuizAlreadyOpenError);
+      await expect(repo.openQuiz("Q1", "x")).rejects.toBeInstanceOf(InvalidStateError);
+      await expect(repo.openQuiz("Q1", "x")).rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    it("締め切りは、その問題が出題中のときだけ印を消して状態を変える", async () => {
+      ddb
+        .on(TransactWriteCommand)
+        .resolvesOnce({})
+        .rejectsOnce(canceled(["ConditionalCheckFailed", "None"]));
+      ddb
+        .on(GetCommand)
+        .resolvesOnce({ Item: quizItem("closed") })
+        .resolvesOnce({ Item: quizItem("draft") });
+      expect((await repo.closeQuiz("Q1", "2026-01-01T00:02:00.000Z")).status).toBe("closed");
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items[0]!.Delete).toMatchObject({
+        Key: { PK: "QUIZ_STATE", SK: "OPEN" },
+        ConditionExpression: "quizId = :quizId",
+        ExpressionAttributeValues: { ":quizId": "Q1" },
+      });
+      await expect(repo.closeQuiz("Q1", "x")).rejects.toBeInstanceOf(InvalidStateError);
+    });
+
+    it("回答は出題中のときだけ、ユーザの下に保存する（クイズを含むトランザクションにはしない）", async () => {
+      ddb
+        .on(GetCommand)
+        .resolvesOnce({ Item: quizItem("open") })
+        .resolvesOnce({ Item: quizItem("closed") });
+      ddb.on(PutCommand).resolves({});
+      const answer = { quizId: "Q1", userId: "u1", choiceId: "A", answeredAt: "2026-01-01T00:01:30.000Z" };
+      await repo.putQuizAnswer(answer);
+      expect(ddb.commandCalls(GetCommand)[0]!.args[0].input.ConsistentRead).toBe(true);
+      expect(ddb.commandCalls(PutCommand)[0]!.args[0].input.Item).toMatchObject({
+        PK: "USER#u1",
+        SK: "ANSWER#Q1",
+        GSI1PK: "ANSWERS#Q1",
+        choiceId: "A",
+      });
+      expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(0);
+      await expect(repo.putQuizAnswer(answer)).rejects.toBeInstanceOf(InvalidStateError);
+      expect(ddb.commandCalls(PutCommand)).toHaveLength(1);
+    });
+
+    it("削除は出題中でなければクイズを消し、その回答もまとめて消す", async () => {
+      ddb.on(DeleteCommand).resolves({});
+      ddb.on(QueryCommand).resolves({
+        Items: [
+          { quizId: "Q1", userId: "u1", choiceId: "A", answeredAt: "x" },
+          { quizId: "Q1", userId: "u2", choiceId: "B", answeredAt: "x" },
+        ],
+      });
+      ddb.on(BatchWriteCommand).resolves({});
+      await repo.deleteQuiz("Q1");
+      expect(ddb.commandCalls(DeleteCommand)[0]!.args[0].input).toMatchObject({
+        Key: { PK: "QUIZ#Q1", SK: "META" },
+        ConditionExpression: "attribute_exists(PK) AND #status <> :open",
+      });
+      expect(ddb.commandCalls(QueryCommand)[0]!.args[0].input).toMatchObject({
+        IndexName: "GSI1",
+        ExpressionAttributeValues: { ":pk": "ANSWERS#Q1" },
+      });
+      const deletes = ddb.commandCalls(BatchWriteCommand)[0]!.args[0].input.RequestItems!.table!;
+      expect(deletes.map((d) => d.DeleteRequest!.Key)).toEqual([
+        { PK: "USER#u1", SK: "ANSWER#Q1" },
+        { PK: "USER#u2", SK: "ANSWER#Q1" },
+      ]);
+    });
+
+    it("選択肢の増減を伴う更新は、下書きのときだけ", async () => {
+      ddb.on(UpdateCommand).resolves({ Attributes: quizItem("draft") });
+      await repo.updateQuiz("Q1", { text: "問題", choices: quiz.choices }, "x", true);
+      await repo.updateQuiz("Q1", { text: "問題", choices: quiz.choices }, "x", false);
+      const [draftOnly, any] = ddb.commandCalls(UpdateCommand).map((c) => c.args[0].input.ConditionExpression);
+      expect(draftOnly).toBe("attribute_exists(PK) AND #status = :draft");
+      expect(any).toBe("attribute_exists(PK)");
     });
   });
 
