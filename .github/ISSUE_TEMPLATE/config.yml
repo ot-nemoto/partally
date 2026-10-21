@@ -1,0 +1,2 @@
+# 空の Issue は作らせず、「作業」テンプレート（概要・作業内容・確認内容が必須）を使う
+blank_issues_enabled: false
