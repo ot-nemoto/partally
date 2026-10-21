@@ -84,5 +84,5 @@ Resources:
 
 Outputs:
   DeployRoleArn:
-    Description: GitHub の Environment 変数 AWS_ROLE_ARN に設定する
+    Description: GitHub の Environment シークレット AWS_ROLE_ARN に設定する
     Value: !GetAtt DeployRole.Arn
