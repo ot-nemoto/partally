@@ -114,6 +114,44 @@ describe("PartallyStack", () => {
     });
   });
 
+  it("初期化 Lambda は決まった関数名で、テーブル・写真バケットの削除と CloudFront の無効化だけを許可する", () => {
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      FunctionName: "partally-reset",
+      Timeout: 300,
+      Environment: {
+        Variables: Match.objectLike({
+          TABLE_NAME: Match.anyValue(),
+          PHOTO_BUCKET: Match.anyValue(),
+          DISTRIBUTION_ID: Match.anyValue(),
+        }),
+      },
+    });
+    const policies = Object.values(template.findResources("AWS::IAM::Policy")).filter((p) =>
+      JSON.stringify(p.Properties.Roles).includes("ResetFunctionServiceRole"),
+    );
+    expect(policies).toHaveLength(1);
+    const actions = (policies[0]!.Properties.PolicyDocument.Statement as { Action: string | string[] }[]).flatMap(
+      (st) => st.Action,
+    );
+    expect(actions).toEqual(
+      expect.arrayContaining([
+        "dynamodb:BatchWriteItem",
+        "dynamodb:Scan",
+        "s3:List*",
+        "s3:DeleteObject*",
+        "cloudfront:CreateInvalidation",
+      ]),
+    );
+    // 呼び出せるのは GitHub Actions のロールだけ（関数側にリソースベースの許可は付けない）
+    expect(
+      Object.keys(
+        template.findResources("AWS::Lambda::Permission", {
+          Properties: { FunctionName: Match.objectLike({ Ref: Match.stringLikeRegexp("ResetFunction") }) },
+        }),
+      ),
+    ).toHaveLength(0);
+  });
+
   it("予算アラートを作成する", () => {
     template.hasResourceProperties("AWS::Budgets::Budget", {
       Budget: Match.objectLike({ BudgetLimit: { Amount: 5, Unit: "USD" } }),

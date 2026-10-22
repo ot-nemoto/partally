@@ -40,6 +40,9 @@ export interface PartallyStackProps extends StackProps {
 
 const path = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
+/** 初期化 Lambda の関数名。GitHub Actions のロールの権限（infra/github-oidc.yaml）と Reset ワークフローで同じ名前を使う */
+export const RESET_FUNCTION_NAME = "partally-reset";
+
 export class PartallyStack extends Stack {
   constructor(scope: Construct, id: string, props: PartallyStackProps) {
     super(scope, id, props);
@@ -253,6 +256,32 @@ function handler(event) {
       prefix: "uploads/",
       suffix: "/full.jpg",
     });
+
+    // 本番データの初期化。GitHub Actions の Reset ワークフローが関数名で呼ぶ（infra/github-oidc.yaml で呼び出しを許可）
+    const resetFunction = new nodejs.NodejsFunction(this, "ResetFunction", {
+      functionName: RESET_FUNCTION_NAME,
+      entry: path("../../api/src/reset-lambda.ts"),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_22_X,
+      architecture: lambda.Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.minutes(5),
+      environment: commonEnv,
+      bundling,
+      logGroup: new logs.LogGroup(this, "ResetLogs", {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: RemovalPolicy.DESTROY,
+      }),
+    });
+    table.grantReadWriteData(resetFunction);
+    photoBucket.grantRead(resetFunction);
+    photoBucket.grantDelete(resetFunction);
+    resetFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["cloudfront:CreateInvalidation"],
+        resources: [`arn:aws:cloudfront::${this.account}:distribution/${distribution.distributionId}`],
+      }),
+    );
 
     // web/dist が無い場合（npm run build 前の synth やテスト）はアップロードを省く
     const webDist = path("../../web/dist");

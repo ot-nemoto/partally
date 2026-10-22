@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   partally: GitHub Actions から OIDC でデプロイするための IAM ロール。
-  ロール自体は CDK のブートストラップロール（cdk-hnb659fds-*）を引き受ける権限だけを持つ。
+  ロール自体は CDK のブートストラップロール（cdk-hnb659fds-*）を引き受ける権限と、
+  本番データの初期化 Lambda（partally-reset）を呼ぶ権限だけを持つ。
 
 Parameters:
   GitHubOwner:
@@ -78,6 +79,14 @@ Resources:
               - Effect: Allow
                 Action: sts:AssumeRole
                 Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/cdk-hnb659fds-*
+        # Reset ワークフロー（.github/workflows/reset.yml）が初期化 Lambda を呼ぶ。関数名は infra/lib/partally-stack.ts と同じ
+        - PolicyName: invoke-reset-function
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub arn:aws:lambda:*:${AWS::AccountId}:function:partally-reset
       Tags:
         - Key: Project
           Value: partally

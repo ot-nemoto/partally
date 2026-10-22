@@ -162,7 +162,7 @@ aws cloudformation describe-stacks --stack-name partally-github-oidc \
 - 引き受けられるのは **`ot-nemoto/partally` リポジトリの `production` Environment で動くジョブだけ**（`sub` クレームで制限）。
 - GitHub の OIDC トークンの `sub` は、ユーザ名・リポジトリ名に数値 ID が付いた形式（`repo:ot-nemoto@<owner ID>/partally@<repo ID>:environment:production`）で発行される。ID を条件に含めることで、リポジトリやアカウントが削除され同じ名前で作り直された場合のなりすましも防ぐ。
 - `GitHubOwnerId` / `GitHubRepoId` を省略すると、ID なしの形式（`repo:ot-nemoto/partally:environment:production`）で照合する。ロールの引き受けに失敗してトークンの形式を確かめたいときは、一時的に Deploy ワークフローへトークンのクレーム（`sub` など）を表示するステップを足す（以前の `deploy.yml` の「Show OIDC claims」ステップを git の履歴から戻せる）。
-- ロール自体の権限は CDK のブートストラップロール（`cdk-hnb659fds-*`）を引き受けることだけ。実際のリソース作成は、ブートストラップで作られた CloudFormation 実行ロールが行う。
+- ロール自体の権限は、CDK のブートストラップロール（`cdk-hnb659fds-*`）を引き受けることと、本番データの初期化 Lambda（`partally-reset`）を呼ぶことだけ。実際のリソース作成は、ブートストラップで作られた CloudFormation 実行ロールが行う。
 
 ### A-2. GitHub の Environment 設定
 
@@ -267,6 +267,35 @@ aws ce update-cost-allocation-tags-status --region us-east-1 \
 - この手順を CDK で自動化していないのは、請求データにタグが出る前は有効化できず、初回のデプロイでは必ず失敗するため（成功するのは後日の再デプロイになり、手作業で 1 回行うのと手間が変わらない）。また Organizations 配下では管理アカウントでしか実行できない。
 
 ---
+
+## 本番データの初期化
+
+リハーサルの後や次のイベントの前に、本番のデータをすべて消してデプロイ直後の状態に戻す。
+
+- **消えるもの**: 参加者・QR（通し番号も 001 から）・写真（S3 のファイルも）・お気に入り・クイズと回答・設定（既定値に戻る）
+- **残るもの**: セッション署名鍵・CloudFront の鍵（SSM）、インフラ自体、画面
+- 元に戻せない。QR は印刷し直しになる。参加者のログインも切れる。
+
+### 準備（1 回だけ）
+
+初期化はデプロイ用ロールから初期化 Lambda を呼んで行う。この機能より前に `partally-github-oidc` スタックを作った場合は、ロールに呼び出し権限を足すため、最新のテンプレートでスタックを更新する（パラメータは前回の値が引き継がれる）。
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/ot-nemoto/partally/master/infra/github-oidc.yaml
+aws cloudformation deploy --stack-name partally-github-oidc \
+  --template-file github-oidc.yaml --capabilities CAPABILITY_NAMED_IAM
+```
+
+初期化 Lambda は Deploy ワークフローで作られるので、この機能を含むバージョンを一度デプロイしておく。
+
+### 実行
+
+https://github.com/ot-nemoto/partally/actions/workflows/reset.yml → **Run workflow**（ブランチは `master`）→ 確認欄に `初期化` と入力して実行する。
+
+- 実行できるのは、リポジトリへの書き込み権限があり、`production` Environment に入れる人だけ（Environment のブランチ制限で `master` からのみ）。誰がいつ実行したかは Actions の履歴に残る。
+- 確認欄が `初期化` でなければ、何も消さずに止まる。
+- 「Reset」ステップのログに、消したアイテム数と写真の数が出る（例: `結果: {"items":420,"objects":180}`）。
+- 初期化の後は、管理画面で QR を発行し直して印刷する。
 
 ## セッション署名鍵とは
 
