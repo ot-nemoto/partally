@@ -1,0 +1,63 @@
+name: Reset
+
+# 本番データ（参加者・QR・写真・お気に入り・クイズ・設定）をすべて消して、デプロイ直後の状態に戻す。
+# 手動実行のみ。production Environment（master だけ）で動き、確認欄に「初期化」と入力しないと止まる
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 本番のデータをすべて消します（元に戻せません）。実行するなら「初期化」と入力
+        required: true
+        type: string
+
+# 二重に動かさない。デプロイとは別のグループにする（同じグループだと、待っている方が後から来た実行に取り消される）
+concurrency:
+  group: reset
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # OIDC で AWS のロールを引き受けるため
+  contents: read
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_REGION: ap-northeast-1
+    steps:
+      - name: Check confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          HAS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN != '' }}
+        run: |
+          if [ "$CONFIRM" != "初期化" ]; then
+            echo "::error::確認欄に「初期化」と入力されていないため、何も消さずに終了しました"
+            exit 1
+          fi
+          if [ "$HAS_ROLE_ARN" != "true" ]; then
+            echo "::error::production の Environment secrets に AWS_ROLE_ARN を登録してください"
+            exit 1
+          fi
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      # 関数名は infra/lib/partally-stack.ts、合言葉は api/src/reset.ts の RESET_CONFIRMATION と同じ
+      - name: Reset
+        run: |
+          aws lambda invoke \
+            --function-name partally-reset \
+            --cli-binary-format raw-in-base64-out \
+            --payload '{"confirm":"delete-all-partally-data"}' \
+            --cli-read-timeout 360 \
+            result.json > response.json
+          # 失敗時のエラーの詳細（写真のキーや ARN を含みうる）は公開ログに出さず、CloudWatch Logs で確かめる
+          if jq -e '.FunctionError' response.json > /dev/null; then
+            echo "::error::初期化に失敗しました（$(jq -r '.errorType // "Error"' result.json)）。もう一度実行すると残りを消せます。詳細は CloudWatch Logs の ResetLogs"
+            exit 1
+          fi
+          echo "結果: $(jq -c '{items, objects}' result.json)"
