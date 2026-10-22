@@ -10,9 +10,9 @@ on:
         required: true
         type: string
 
-# デプロイと同時に動かさない
+# 二重に動かさない。デプロイとは別のグループにする（同じグループだと、待っている方が後から来た実行に取り消される）
 concurrency:
-  group: deploy
+  group: reset
   cancel-in-progress: false
 
 permissions:
@@ -55,8 +55,9 @@ jobs:
             --payload '{"confirm":"delete-all-partally-data"}' \
             --cli-read-timeout 360 \
             result.json > response.json
-          echo "結果: $(cat result.json)"
+          # 失敗時のエラーの詳細（写真のキーや ARN を含みうる）は公開ログに出さず、CloudWatch Logs で確かめる
           if jq -e '.FunctionError' response.json > /dev/null; then
-            echo "::error::初期化に失敗しました。CloudWatch Logs の ResetLogs を確認してください"
+            echo "::error::初期化に失敗しました（$(jq -r '.errorType // "Error"' result.json)）。もう一度実行すると残りを消せます。詳細は CloudWatch Logs の ResetLogs"
             exit 1
           fi
+          echo "結果: $(jq -c '{items, objects}' result.json)"

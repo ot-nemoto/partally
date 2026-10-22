@@ -274,7 +274,10 @@ function handler(event) {
       }),
     });
     table.grantReadWriteData(resetFunction);
-    photoBucket.grantRead(resetFunction);
+    // 写真の中身は読まず、一覧と削除だけを許可する
+    resetFunction.addToRolePolicy(
+      new iam.PolicyStatement({ actions: ["s3:ListBucket"], resources: [photoBucket.bucketArn] }),
+    );
     photoBucket.grantDelete(resetFunction);
     resetFunction.addToRolePolicy(
       new iam.PolicyStatement({

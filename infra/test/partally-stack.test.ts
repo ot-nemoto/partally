@@ -1,7 +1,8 @@
+import { readFileSync } from "node:fs";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
-import { PartallyStack } from "../lib/partally-stack.js";
+import { PartallyStack, RESET_FUNCTION_NAME } from "../lib/partally-stack.js";
 
 describe("PartallyStack", () => {
   let template: Template;
@@ -137,11 +138,13 @@ describe("PartallyStack", () => {
       expect.arrayContaining([
         "dynamodb:BatchWriteItem",
         "dynamodb:Scan",
-        "s3:List*",
+        "s3:ListBucket",
         "s3:DeleteObject*",
         "cloudfront:CreateInvalidation",
       ]),
     );
+    // 写真の中身は読めない
+    expect(actions.some((a) => a.startsWith("s3:Get"))).toBe(false);
     // 呼び出せるのは GitHub Actions のロールだけ（関数側にリソースベースの許可は付けない）
     expect(
       Object.keys(
@@ -150,6 +153,12 @@ describe("PartallyStack", () => {
         }),
       ),
     ).toHaveLength(0);
+  });
+
+  it("初期化 Lambda の関数名は、Reset ワークフローと GitHub Actions のロールの権限と同じ", () => {
+    const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+    expect(read("../../.github/workflows/reset.yml")).toContain(`--function-name ${RESET_FUNCTION_NAME}`);
+    expect(read("../github-oidc.yaml")).toContain(`:function:${RESET_FUNCTION_NAME}`);
   });
 
   it("予算アラートを作成する", () => {

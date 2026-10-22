@@ -29,6 +29,8 @@ export interface ResetResult {
 }
 
 const BATCH_WRITE_MAX = 25;
+/** 消している間に API や取り込みが書いたアイテムも消すため、空になるまで数回スキャンし直す */
+const MAX_PASSES = 3;
 
 /**
  * 本番データをすべて消して、デプロイ直後の状態に戻す（参加者・QR・写真・お気に入り・クイズ・設定）。
@@ -36,19 +38,28 @@ const BATCH_WRITE_MAX = 25;
  */
 export async function resetAll(deps: ResetDeps, confirmation: unknown): Promise<ResetResult> {
   if (confirmation !== RESET_CONFIRMATION) throw new Error("確認用の値が違うため、初期化しませんでした");
-  const items = await deleteAllItems(deps);
-  const objects = await deleteAllObjects(deps);
-  // 署名付き Cookie を持つ人が、消した写真をキャッシュから見られないようにする
-  await deps.cloudfront.send(
-    new CreateInvalidationCommand({
-      DistributionId: deps.distributionId,
-      InvalidationBatch: {
-        CallerReference: `reset-${Date.now()}`,
-        Paths: { Quantity: 1, Items: ["/photos/*"] },
-      },
-    }),
-  );
-  return { items, objects };
+  try {
+    // 写真を先に消す。途中で失敗しても、もう一度実行すれば残りを消せる（何度実行しても同じ結果になる）
+    const objects = await deleteAllObjects(deps);
+    let items = 0;
+    for (let pass = 0; pass < MAX_PASSES; pass++) {
+      const deleted = await deleteAllItems(deps);
+      items += deleted;
+      if (deleted === 0) break;
+    }
+    return { items, objects };
+  } finally {
+    // 途中で失敗しても、署名付き Cookie を持つ人が消した写真をキャッシュから見られないようにする
+    await deps.cloudfront.send(
+      new CreateInvalidationCommand({
+        DistributionId: deps.distributionId,
+        InvalidationBatch: {
+          CallerReference: `reset-${Date.now()}`,
+          Paths: { Quantity: 1, Items: ["/photos/*"] },
+        },
+      }),
+    );
+  }
 }
 
 async function deleteAllItems(deps: ResetDeps): Promise<number> {

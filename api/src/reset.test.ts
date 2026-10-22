@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { CloudFrontClient, CreateInvalidationCommand } from "@aws-sdk/client-cloudfront";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DeleteObjectsCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
@@ -34,7 +35,8 @@ describe("resetAll", () => {
     ddb
       .on(ScanCommand)
       .resolvesOnce({ Items: Array.from({ length: 30 }, (_, i) => item(i)), LastEvaluatedKey: item(29) })
-      .resolvesOnce({ Items: [item(30)] });
+      .resolvesOnce({ Items: [item(30)] })
+      .resolves({ Items: [] });
     s3.on(ListObjectsV2Command)
       .resolvesOnce({
         Contents: [{ Key: "photos/approved/P1/full.jpg" }, { Key: "photos/approved/P1/thumb.jpg" }],
@@ -63,8 +65,28 @@ describe("resetAll", () => {
     });
   });
 
+  it("消している間に書き込まれたアイテムも、スキャンし直して消す（空になるまで、最大 3 回）", async () => {
+    ddb
+      .on(ScanCommand)
+      .resolvesOnce({ Items: [item(1)] })
+      .resolvesOnce({ Items: [item(2)] })
+      .resolves({ Items: [] });
+    s3.on(ListObjectsV2Command).resolves({ Contents: [] });
+    expect(await resetAll(deps, RESET_CONFIRMATION)).toEqual({ items: 2, objects: 0 });
+    expect(ddb.commandCalls(ScanCommand)).toHaveLength(3);
+
+    ddb.reset();
+    ddb.on(BatchWriteCommand).resolves({});
+    ddb.on(ScanCommand).resolves({ Items: [item(9)] });
+    await resetAll(deps, RESET_CONFIRMATION);
+    expect(ddb.commandCalls(ScanCommand)).toHaveLength(3);
+  });
+
   it("未処理で返ってきたアイテムは再送する", async () => {
-    ddb.on(ScanCommand).resolves({ Items: [item(1), item(2)] });
+    ddb
+      .on(ScanCommand)
+      .resolvesOnce({ Items: [item(1), item(2)] })
+      .resolves({ Items: [] });
     ddb
       .on(BatchWriteCommand)
       .resolvesOnce({ UnprocessedItems: { table: [{ DeleteRequest: { Key: item(2) } }] } })
@@ -75,11 +97,17 @@ describe("resetAll", () => {
     expect(batches).toEqual([2, 1]);
   });
 
-  it("写真の削除に失敗したオブジェクトがあればエラーにする", async () => {
-    ddb.on(ScanCommand).resolves({ Items: [] });
+  it("写真の削除に失敗したらエラーにする。テーブルには触れず、写真のキャッシュは無効化する", async () => {
     s3.on(ListObjectsV2Command).resolves({ Contents: [{ Key: "photos/approved/P1/full.jpg" }] });
     s3.on(DeleteObjectsCommand).resolves({ Errors: [{ Key: "photos/approved/P1/full.jpg", Code: "AccessDenied" }] });
     await expect(resetAll(deps, RESET_CONFIRMATION)).rejects.toThrow("写真の削除に失敗しました");
+    expect(ddb.calls()).toHaveLength(0);
+    expect(cloudfront.commandCalls(CreateInvalidationCommand)).toHaveLength(1);
+  });
+
+  it("Reset ワークフローが送る合言葉はこのモジュールと同じ", () => {
+    const workflow = readFileSync(new URL("../../.github/workflows/reset.yml", import.meta.url), "utf8");
+    expect(workflow).toContain(`"confirm":"${RESET_CONFIRMATION}"`);
   });
 
   it("確認用の値が無い・違う呼び出しでは何も消さない", async () => {
