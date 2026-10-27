@@ -10,10 +10,11 @@
    - **概要**: 何のために、何をするか
    - **作業内容**: 変更する内容と方針
    - **確認内容**: 何を、どうやって確かめるか（テスト・lint・型チェック・ブラウザでの動作確認など）
-2. **ブランチで作業する**。`master` へ直接 push しない。
-3. **`master` 宛ての PR を作る**。`.github/pull_request_template.md` に沿って、`Closes #<Issue 番号>` と実際に行った確認とその結果を書く。
+2. **ブランチで作業する**。`develop`・`master` へ直接 push しない。
+3. **`develop` 宛ての PR を作る**。`.github/pull_request_template.md` に沿って、`Closes #<Issue 番号>` と実際に行った確認とその結果を書く。
 4. **CI とレビューの指摘に対応する**。CI（`.github/workflows/ci.yml`）が通るまで直す。
-5. **マージはユーザが行う**。デプロイはユーザから指示があったときだけ、Actions の Deploy ワークフロー（`deploy.yml`）を `master` で実行する（GitHub の `production` Environment でデプロイできるブランチを `master` に限っている）。
+5. **マージはユーザが行う**。develop へマージすると、CI（`ci.yml`）がテストの後に本番へ自動でデプロイする（GitHub の `production` Environment でデプロイできるブランチを `develop` に限っている）。デプロイし直すときは、ユーザから指示があったときだけ CI ワークフローを `develop` で手動実行する。
+6. **リリースは自動 PR で行う**。毎朝 develop → master の PR が自動で作られ（`auto-pr-to-master.yml`）、付いた `bump:patch` / `bump:minor` ラベルでバージョンが上がる（`bump-version.yml`）。ユーザがマージすると、master でタグと GitHub Release が作られる（`release.yml`）。Issue に `enhancement` ラベルがあると minor、なければ patch になる。
 
 作業の途中で範囲が変わったら、Issue の作業内容・確認内容も更新する。
 
@@ -25,7 +26,7 @@
 
 ## リポジトリの基本
 
-- メインブランチは `master`。
+- 開発のメインブランチ（デフォルトブランチ）は `develop`。`master` はリリース済みの版を置く。
 - npm workspaces のモノレポ（`packages/shared`・`api`・`web`・`infra`）。Node.js 22 と npm 11 以上を使う。
 - PR を出す前に、CI（`.github/workflows/ci.yml`）と同じ確認を手元で通す: `npx biome ci .`・`npm run typecheck`・`npm test`・`npm run build`。整形の自動修正は `npm run format`。
 - 画面に関わる変更は、ローカルで API と画面を起動してブラウザで動きを確かめる（起動方法は README の「ローカル開発」）。
