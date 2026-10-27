@@ -44,5 +44,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json
-          git commit -m "chore: bump version to ${{ steps.bump.outputs.version }} [skip ci]"
-          git push
+          # GITHUB_TOKEN の push ではワークフローが動かないので [skip ci] は付けない
+          # （付けると squash・rebase でマージしたときに master の先頭コミットに残り、release.yml が動かなくなる）
+          git commit -m "chore: bump version to ${{ steps.bump.outputs.version }}"
+          # 実行中に develop へ別の PR がマージされても取り込んで push し直す
+          for i in 1 2 3; do
+            git push && exit 0
+            git pull --rebase
+          done
+          exit 1

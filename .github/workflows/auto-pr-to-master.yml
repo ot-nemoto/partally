@@ -77,11 +77,6 @@ jobs:
             fi
           done
 
-          # Dependabot コミットが含まれる場合はログに記録（patch のまま）
-          if git log origin/master..origin/develop --format="%s" | grep -q "^chore(deps"; then
-            echo "Dependabot コミットを検出 → bump:patch"
-          fi
-
           # PR 本文を生成
           {
             echo "## 概要"

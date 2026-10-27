@@ -186,7 +186,7 @@ develop へ PR をマージする（develop へ push される）と、CI ワー
 
 初回や、コードを変えずにデプロイし直したいときは、https://github.com/ot-nemoto/partally/actions/workflows/ci.yml → **Run workflow**（ブランチは `develop`）で手動実行する。
 
-deploy ジョブは「インストール → 画面ビルド → CDK デプロイ」を行う。続けて push されたときは、取り消さずに順番にデプロイする。初回は CloudFront の作成があるため 10 分前後かかる。完了後、deploy ジョブの `Deploy` ステップのログ末尾に URL が出る。
+deploy ジョブは「インストール → 画面ビルド → CDK デプロイ」を行う。デプロイは 1 つずつ行い、続けて push されたときは最新のコミットだけをデプロイする（develop の先頭でなくなったコミットは省略する。新しいコミットが古い変更も含むため）。初回は CloudFront の作成があるため 10 分前後かかる。完了後、deploy ジョブの `Deploy` ステップのログ末尾に URL が出る。
 
 ```
 Partally.Url = https://xxxxxxxx.cloudfront.net
@@ -200,10 +200,12 @@ master にはリリースした版を置く。次のワークフローで自動�
 | ワークフロー | 動くとき | すること |
 |---|---|---|
 | `auto-pr-to-master.yml` | 毎朝 6 時（JST）と手動実行 | develop に master にないコミットがあれば develop → master の PR を作る（あれば本文を更新）。含まれる Issue に `enhancement` ラベルがあれば `bump:minor`、なければ `bump:patch` のラベルを付ける |
-| `bump-version.yml` | master 宛ての PR に `bump:*` ラベルが付いたとき | ルートの `package.json` のバージョンを上げて、PR のブランチ（develop）に push する（`[skip ci]` 付きのため CI・デプロイは動かない） |
+| `bump-version.yml` | master 宛ての PR に `bump:*` ラベルが付いたとき | ルートの `package.json` のバージョンを上げて、PR のブランチ（develop）に push する（`GITHUB_TOKEN` での push のため CI・デプロイは動かない） |
 | `release.yml` | master への push（PR のマージ） | `package.json` のバージョンで `v<バージョン>` のタグと GitHub Release を作る（同じタグがあれば何もしない） |
 
 master へのマージはデプロイしない（本番には develop へのマージで反映済み）。
+
+develop → master の PR は **「Create a merge commit」でマージする**。Squash や Rebase でマージすると develop のコミットが master に入らず、翌日以降も同じコミットが差分として残り、毎回過去の変更を含む PR が作られる。
 
 使うには、PR を作るための個人アクセストークンを登録する（`GITHUB_TOKEN` で作った PR やラベルではほかのワークフローが動かず、`bump-version.yml` が動かないため）。
 
