@@ -1,15 +1,18 @@
 name: CI
 
-# master 宛ての PR と master への push で、lint・型チェック・テスト・ビルドを行う（デプロイはしない）
+# develop 宛ての PR と develop への push で、lint・型チェック・テスト・ビルドを行う。
+# develop への push（PR のマージ）と手動実行（develop を選んだとき）は、続けて本番へデプロイする
 on:
   pull_request:
-    branches: [master]
+    branches: [develop]
   push:
-    branches: [master]
+    branches: [develop]
+  workflow_dispatch:
 
-# PR は新しい push で古い実行を取り消す。master は取り消さず、どのコミットで壊れたかを残す
+# PR は PR ごとのグループで、新しい push が来たら古い実行を取り消す。
+# push と手動実行の確認は取り消さず、コミットごとに結果を残す（デプロイの順番は deploy ジョブで制御する）
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.event.pull_request.number) || format('ci-run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -40,3 +43,78 @@ jobs:
 
       - name: Build web
         run: npm run build
+
+  deploy:
+    needs: check
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    environment: production
+    # デプロイは 1 つずつ行う（CloudFormation は同時の更新を待たずに失敗させる）。
+    # 待っているデプロイは新しいものに置き換わるが、新しい方は古いコミットも含むので問題ない
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    permissions:
+      id-token: write # OIDC で AWS のロールを引き受けるため（デプロイのジョブだけに与える）
+      contents: read
+    env:
+      AWS_REGION: ap-northeast-1
+      PARTALLY_ADMIN_PASSWORD: ${{ secrets.PARTALLY_ADMIN_PASSWORD }}
+      PARTALLY_BUDGET_EMAIL: ${{ secrets.PARTALLY_BUDGET_EMAIL }}
+      PARTALLY_BUDGET_USD: ${{ vars.PARTALLY_BUDGET_USD }}
+    steps:
+      # 設定漏れは時間のかかるインストールの前に止める
+      - name: Check AWS_ROLE_ARN secret
+        env:
+          HAS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN != '' }}
+        run: |
+          if [ "$HAS_ROLE_ARN" != "true" ]; then
+            echo "::error::production の Environment secrets に AWS_ROLE_ARN を登録してください（Variables ではログにアカウント ID が出るため使いません）"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+
+      # テストの終わる順でデプロイが前後すると、古いコードが後から反映される。
+      # develop に後から入ったコミットがあれば、その実行に任せてデプロイしない。
+      # ただし bump-version.yml のコミット（github-actions[bot]）は CI が動かないので数えない
+      - name: Check latest commit
+        id: latest
+        run: |
+          git fetch --quiet origin develop
+          NEWER=$(git log "$GITHUB_SHA..FETCH_HEAD" --format=%an | grep -cvx 'github-actions\[bot\]' || true)
+          if [ "$NEWER" = "0" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::develop に新しいコミットがあるため、このコミットのデプロイは省略しました（新しい実行がデプロイします）"
+          fi
+
+      - uses: actions/setup-node@v7
+        if: steps.latest.outputs.deploy == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        if: steps.latest.outputs.deploy == 'true'
+        run: npx -y npm@11 ci
+
+      # lint・型チェック・テストは check ジョブで済んでいるので、ここでは画面のビルドだけを行う
+      - name: Build web
+        if: steps.latest.outputs.deploy == 'true'
+        run: npm run build
+
+      # 公開リポジトリの Actions ログにアカウント ID を出さない。
+      # ロール ARN は Secret から読んで伏せ（変数だとステップの見出しにそのまま出る）、
+      # 認証後はアカウント ID 自体を伏せる（アセット名やスタック ARN に含まれる）
+      - uses: aws-actions/configure-aws-credentials@v6
+        if: steps.latest.outputs.deploy == 'true'
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Deploy
+        if: steps.latest.outputs.deploy == 'true'
+        run: npm run cdk -w infra -- deploy --require-approval never

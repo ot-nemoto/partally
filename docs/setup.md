@@ -16,7 +16,7 @@ partally を AWS にデプロイするまでの手順。デプロイ方法は 2 
 ```mermaid
 flowchart LR
   subgraph GitHub
-    WF[Deploy ワークフロー<br/>environment: production]
+    WF[CI ワークフローの deploy ジョブ<br/>environment: production]
   end
   subgraph AWS[AWS アカウント（ap-northeast-1）]
     OIDC[OIDC プロバイダ<br/>token.actions.githubusercontent.com]
@@ -134,7 +134,7 @@ aws iam list-open-id-connect-providers --query "OpenIDConnectProviderList[].Arn"
 ロールを作成する（OIDC プロバイダの有無と GitHub の数値 ID を自動で取得する版）。
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/ot-nemoto/partally/master/infra/github-oidc.yaml
+curl -fsSLO https://raw.githubusercontent.com/ot-nemoto/partally/develop/infra/github-oidc.yaml
 
 if aws iam list-open-id-connect-providers --output text | grep -q token.actions.githubusercontent.com; then
   CREATE=false
@@ -161,7 +161,7 @@ aws cloudformation describe-stacks --stack-name partally-github-oidc \
 
 - 引き受けられるのは **`ot-nemoto/partally` リポジトリの `production` Environment で動くジョブだけ**（`sub` クレームで制限）。
 - GitHub の OIDC トークンの `sub` は、ユーザ名・リポジトリ名に数値 ID が付いた形式（`repo:ot-nemoto@<owner ID>/partally@<repo ID>:environment:production`）で発行される。ID を条件に含めることで、リポジトリやアカウントが削除され同じ名前で作り直された場合のなりすましも防ぐ。
-- `GitHubOwnerId` / `GitHubRepoId` を省略すると、ID なしの形式（`repo:ot-nemoto/partally:environment:production`）で照合する。ロールの引き受けに失敗してトークンの形式を確かめたいときは、一時的に Deploy ワークフローへトークンのクレーム（`sub` など）を表示するステップを足す（以前の `deploy.yml` の「Show OIDC claims」ステップを git の履歴から戻せる）。
+- `GitHubOwnerId` / `GitHubRepoId` を省略すると、ID なしの形式（`repo:ot-nemoto/partally:environment:production`）で照合する。ロールの引き受けに失敗してトークンの形式を確かめたいときは、一時的に CI ワークフローの deploy ジョブへトークンのクレーム（`sub` など）を表示するステップを足す（以前の `deploy.yml` の「Show OIDC claims」ステップを git の履歴から戻せる）。
 - ロール自体の権限は、CDK のブートストラップロール（`cdk-hnb659fds-*`）を引き受けることと、本番データの初期化 Lambda（`partally-reset`）を呼ぶことだけ。実際のリソース作成は、ブートストラップで作られた CloudFormation 実行ロールが行う。
 
 ### A-2. GitHub の Environment 設定
@@ -176,20 +176,48 @@ https://github.com/ot-nemoto/partally/settings/environments → **New environmen
 | Environment variables | `PARTALLY_BUDGET_USD` | 任意: 予算（USD、既定 5） |
 
 - Repository secrets（Settings → Secrets and variables → Actions）に登録しても動くが、Environment に登録すると **デプロイジョブ以外から参照できなくなる** ので、こちらを推奨する。
-- **Deployment branches and tags** を「Selected branches and tags」にして `master` だけを許可する。master 以外のブランチに置いたワークフローからは `production` に入れず、ロールも引き受けられなくなる（master への反映には PR のマージが必要になる）。
+- **Deployment branches and tags** を「Selected branches and tags」にして `develop` だけを許可する。develop 以外のブランチに置いたワークフローからは `production` に入れず、ロールも引き受けられなくなる（develop への反映には PR のマージが必要になる）。
 - 「Required reviewers」に自分を入れると、デプロイ前に承認が必要になる。
 - ログに出るアカウント ID は、ロール ARN を Secret にすることと、ワークフローの `mask-aws-account-id` で `***` に伏せる。S3 バケット名・DynamoDB テーブル名・CloudFront の URL はログに出るが、それだけではアクセスできない（バケットは非公開、テーブルは IAM の権限が必要）。
 
 ### A-3. デプロイの実行
 
-https://github.com/ot-nemoto/partally/actions/workflows/deploy.yml → **Run workflow**（ブランチは `master`）。
+develop へ PR をマージする（develop へ push される）と、CI ワークフロー（`.github/workflows/ci.yml`）が lint・型チェック・テスト・ビルドの後に、deploy ジョブで本番へデプロイする。テストが失敗したらデプロイしない。
 
-ワークフローは「インストール → 型チェック・テスト → 画面ビルド → CDK デプロイ」を行う。初回は CloudFront の作成があるため 10 分前後かかる。完了後、`Deploy` ステップのログ末尾に URL が出る。
+初回や、コードを変えずにデプロイし直したいときは、https://github.com/ot-nemoto/partally/actions/workflows/ci.yml → **Run workflow**（ブランチは `develop`）で手動実行する。
+
+deploy ジョブは「インストール → 画面ビルド → CDK デプロイ」を行う。デプロイは 1 つずつ行い、続けて push されたときは最新のコミットだけをデプロイする（develop の先頭でなくなったコミットは省略する。新しいコミットが古い変更も含むため）。初回は CloudFront の作成があるため 10 分前後かかる。完了後、deploy ジョブの `Deploy` ステップのログ末尾に URL が出る。
 
 ```
 Partally.Url = https://xxxxxxxx.cloudfront.net
 Partally.AdminUrl = https://xxxxxxxx.cloudfront.net/admin
 ```
+
+### A-4. リリース（develop → master）の設定
+
+master にはリリースした版を置く。次のワークフローで自動化している。
+
+| ワークフロー | 動くとき | すること |
+|---|---|---|
+| `auto-pr-to-master.yml` | 毎朝 6 時（JST）と手動実行 | develop に master にないコミットがあれば develop → master の PR を作る（あれば本文を更新）。含まれる Issue に `enhancement` ラベルがあれば `bump:minor`、なければ `bump:patch` のラベルを付ける |
+| `bump-version.yml` | master 宛ての PR に `bump:*` ラベルが付いたとき | ルートの `package.json` のバージョンを上げて、PR のブランチ（develop）に push する（`GITHUB_TOKEN` での push のため CI・デプロイは動かない） |
+| `release.yml` | master への push（PR のマージ） | `package.json` のバージョンで `v<バージョン>` のタグと GitHub Release を作る（同じタグがあれば何もしない） |
+
+master へのマージはデプロイしない（本番には develop へのマージで反映済み）。
+
+develop → master の PR は **「Create a merge commit」でマージする**。Squash や Rebase でマージすると develop のコミットが master に入らず、翌日以降も同じコミットが差分として残り、毎回過去の変更を含む PR が作られる。
+
+使うには、PR を作るための個人アクセストークンを登録する（`GITHUB_TOKEN` で作った PR やラベルではほかのワークフローが動かず、`bump-version.yml` が動かないため）。
+
+1. https://github.com/settings/personal-access-tokens/new で Fine-grained token を作る。
+   - **Repository access**: Only select repositories → `ot-nemoto/partally`
+   - **Permissions**: Pull requests（Read and write）、Issues（Read and write）、Contents（Read-only）
+   - 有効期限が切れたら作り直して登録し直す
+2. https://github.com/ot-nemoto/partally/settings/secrets/actions → **New repository secret** で `AUTO_PR_TOKEN` に登録する（Environment ではなく Repository secrets。production に入れると、develop 以外で動くこのワークフローから読めない）。
+
+`bump-version.yml` は `GITHUB_TOKEN` で develop に push する。develop にブランチ保護（直接 push の禁止など）を設定する場合は、`github-actions[bot]` の push を許可しないとバージョンを上げられない。
+
+依存パッケージ（npm）と Actions の更新は、Dependabot（`.github/dependabot.yml`）が毎週月曜に develop 宛ての PR を作る。CI が通ったものをマージすると、ほかの PR と同じくデプロイされる。
 
 ---
 
@@ -282,18 +310,18 @@ aws ce update-cost-allocation-tags-status --region us-east-1 \
 初期化はデプロイ用ロールから初期化 Lambda を呼んで行う。この機能より前に `partally-github-oidc` スタックを作った場合は、ロールに呼び出し権限を足すため、最新のテンプレートでスタックを更新する（パラメータは前回の値が引き継がれる）。
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/ot-nemoto/partally/master/infra/github-oidc.yaml
+curl -fsSLO https://raw.githubusercontent.com/ot-nemoto/partally/develop/infra/github-oidc.yaml
 aws cloudformation deploy --stack-name partally-github-oidc \
   --template-file github-oidc.yaml --capabilities CAPABILITY_NAMED_IAM
 ```
 
-初期化 Lambda は Deploy ワークフローで作られるので、この機能を含むバージョンを一度デプロイしておく。
+初期化 Lambda はデプロイで作られるので、この機能を含むバージョンを一度デプロイしておく。
 
 ### 実行
 
-https://github.com/ot-nemoto/partally/actions/workflows/reset.yml → **Run workflow**（ブランチは `master`）→ 確認欄に `初期化` と入力して実行する。
+https://github.com/ot-nemoto/partally/actions/workflows/reset.yml → **Run workflow**（ブランチは `develop`）→ 確認欄に `初期化` と入力して実行する。
 
-- 実行できるのは、リポジトリへの書き込み権限があり、`production` Environment に入れる人だけ（Environment のブランチ制限で `master` からのみ）。誰がいつ実行したかは Actions の履歴に残る。
+- 実行できるのは、リポジトリへの書き込み権限があり、`production` Environment に入れる人だけ（Environment のブランチ制限で `develop` からのみ）。誰がいつ実行したかは Actions の履歴に残る。
 - 確認欄が `初期化` でなければ、何も消さずに止まる。
 - 「Reset」ステップのログに、消したアイテム数と写真の数が出る（例: `結果: {"items":420,"objects":180}`）。
 - 失敗したら、もう一度実行すれば残りを消せる（何度実行しても同じ結果になる）。エラーの詳細は公開ログには出さず、CloudWatch Logs の `ResetLogs` に残る。
