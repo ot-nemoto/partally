@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/cdk.out", "!package-lock.json"]
+    "includes": ["**", "!**/dist", "!**/cdk.out", "!package-lock.json", "!**/*.md", "!**/*.yml", "!**/*.yaml"]
   },
   "formatter": {
     "indentStyle": "space",
