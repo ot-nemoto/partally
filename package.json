@@ -24,9 +24,9 @@
     "deploy": "npm run build && npm run deploy -w infra"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.15",
-    "@types/node": "^22.19.0",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.12"
+    "@biomejs/biome": "2.6.2",
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
   }
 }
