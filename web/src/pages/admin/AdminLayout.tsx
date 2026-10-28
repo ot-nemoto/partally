@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+// ADMIN と見出し（PageTitle）の英字の書体。同じオリジンから配信し（外部への通信で表示を待たせない）、
+// 管理画面を開いたときだけ読み込む。読み込むまでは system-ui で表示する
 import "@fontsource/righteous/latin-400.css";
 import { api } from "../../api";
 import { ReloadProvider } from "../../hooks/useReload";
@@ -28,8 +30,10 @@ export function AdminLayout() {
   return (
     <div className="admin">
       <header className="admin-header">
-        <strong className="admin-brand">ADMIN</strong>
-        <nav>
+        <strong className="admin-brand gradient-title" lang="en">
+          ADMIN
+        </strong>
+        <nav lang="en">
           <NavLink to="/admin/users">User</NavLink>
           <NavLink to="/admin/ranking">Ranking</NavLink>
           <NavLink to="/admin/tokens">QR</NavLink>
