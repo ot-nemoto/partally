@@ -73,16 +73,20 @@ h1 {
   margin: 0 0 1rem;
 }
 
-.page-title-en {
-  position: relative;
-  padding-bottom: 0.3rem;
+/* 英字の装飾（見出しとヘッダーの ADMIN で共通）。赤から金のグラデーションの文字 */
+.gradient-title {
   background: linear-gradient(120deg, var(--accent) 15%, var(--gold) 85%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   font-family: "Righteous", system-ui, sans-serif;
-  font-size: 2.4rem;
   font-weight: 400;
+}
+
+.page-title-en {
+  position: relative;
+  padding-bottom: 0.3rem;
+  font-size: 2.4rem;
   line-height: 1;
   letter-spacing: 0.04em;
 }
@@ -329,11 +333,34 @@ input {
   background: var(--surface);
 }
 
+/* ヘッダーの「ADMIN」（装飾は .gradient-title） */
+.admin-brand {
+  font-size: 1.25rem;
+  letter-spacing: 0.08em;
+}
+
 .admin-header nav {
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem 1rem;
   flex: 1;
+}
+
+/* スマホ幅では、ADMIN と更新・ログアウトを 1 段目、メニューを 2 段目にする */
+@media (max-width: 640px) {
+  .admin-header {
+    gap: 0.5rem 1rem;
+  }
+
+  .admin-header nav {
+    order: 3;
+    flex: 1 1 100%;
+  }
+
+  /* ボタンの数や並びに関係なく、ADMIN が残りの幅を取ってボタンを右に寄せる */
+  .admin-brand {
+    flex: 1;
+  }
 }
 
 .admin-header nav a {
