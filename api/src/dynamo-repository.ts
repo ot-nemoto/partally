@@ -470,13 +470,17 @@ export class DynamoRepository implements Repository {
     return items.map((item) => item.photoId as string);
   }
 
-  async listFavoriteUserIds(photoId: string) {
+  async listFavoritesOfPhoto(photoId: string) {
     const items = await this.queryAll({
       IndexName: GSI1,
       KeyConditionExpression: "GSI1PK = :pk",
       ExpressionAttributeValues: { ":pk": `FAVS#${photoId}` },
     });
-    return items.map((item) => item.userId as string);
+    return items.map((item) => ({
+      userId: item.userId as string,
+      photoId: item.photoId as string,
+      createdAt: item.createdAt as string,
+    }));
   }
 
   async clearFavorites(photoId: string) {
@@ -490,7 +494,7 @@ export class DynamoRepository implements Repository {
       const photo = toPhotoRecord(Item);
       if (photo.favoriteCount <= 0) return;
       if (attempt > 0) await sleep(200 * attempt);
-      for (const userId of await this.listFavoriteUserIds(photoId)) await this.removeFavorite(userId, photo);
+      for (const { userId } of await this.listFavoritesOfPhoto(photoId)) await this.removeFavorite(userId, photo);
     }
     console.warn(`お気に入りを外しきれませんでした: ${photoId}`);
   }

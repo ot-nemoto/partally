@@ -13,6 +13,9 @@ import {
   quizAnswerRequestSchema,
   quizRequestSchema,
   type RandomInt,
+  type RankingEntryDto,
+  type RankingPointDto,
+  type RankingResponse,
   type Rules,
   randomEpithet,
   registerRequestSchema,
@@ -31,6 +34,7 @@ import { type PhotoStorage, photoPath } from "./photo-storage.js";
 import {
   EpithetTakenError,
   FavoriteLimitError,
+  type FavoriteRecord,
   InvalidStateError,
   NotFoundError,
   type PhotoRecord,
@@ -80,6 +84,10 @@ const PHOTO_COOKIE_TTL_MS = 12 * 60 * 60 * 1000;
 /** 検閲待ち写真・管理画面の署名付き URL の有効期間。画面は一覧の取り直しで URL を更新する */
 const SIGNED_URL_TTL_MS = 60 * 60 * 1000;
 const PHOTO_PAGE_SIZE = 30;
+/** ランキングで公開中の写真をまとめて読むときの 1 回の件数 */
+const RANKING_PHOTO_PAGE_SIZE = 100;
+/** ランキングで写真ごとのお気に入りを同時に読む数 */
+const RANKING_FAVORITE_CONCURRENCY = 10;
 
 export function createApp(deps: AppDeps) {
   const {
@@ -190,15 +198,19 @@ export function createApp(deps: AppDeps) {
     return quizzes.map((quiz, i) => ({ quiz, answers: answers[i]! }));
   };
 
-  /** 全員分のクイズの回答数と点数（管理画面のユーザ一覧用） */
-  const quizStatsOfAll = async (): Promise<Map<string, QuizStats>> => {
-    const entries = await quizzesWithAnswers();
-    const quizzes = entries.map((e) => e.quiz);
-    const answers = entries.flatMap((e) => e.answers);
-    const byUser = new Map<string, QuizAnswerRecord[]>();
-    for (const a of answers) byUser.set(a.userId, [...(byUser.get(a.userId) ?? []), a]);
-    return new Map([...byUser].map(([userId, list]) => [userId, scoreQuizAnswers(list, quizzes)]));
+  const listAllApprovedPhotos = async () => {
+    const photos: PhotoRecord[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await repo.listPhotosByStatus("approved", RANKING_PHOTO_PAGE_SIZE, cursor);
+      photos.push(...page.items);
+      cursor = page.cursor;
+    } while (cursor);
+    return photos;
   };
+
+  /** 全員分のクイズの回答数と点数（管理画面のユーザ一覧用） */
+  const quizStatsOfAll = async () => quizStatsByUser(await quizzesWithAnswers());
 
   /** ユーザ情報を、設定とクイズの成績を添えて参加者向けに返す */
   const participantUser = async (user: UserRecord, settings?: Settings) => {
@@ -440,6 +452,25 @@ export function createApp(deps: AppDeps) {
   app.get("/admin/users", async (c) => {
     const [users, settings, quizStats] = await Promise.all([repo.listUsers(), repo.getSettings(), quizStatsOfAll()]);
     return c.json({ users: users.map((u) => toUserDto(u, settings, quizStats.get(u.userId) ?? NO_QUIZ_STATS)) });
+  });
+
+  app.get("/admin/ranking", async (c) => {
+    const [users, settings, quizzes, photos] = await Promise.all([
+      repo.listUsers(),
+      repo.getSettings(),
+      quizzesWithAnswers(),
+      listAllApprovedPhotos(),
+    ]);
+    // 選ばれていない写真は読まない
+    const chosen = photos.filter((p) => p.favoriteCount > 0);
+    const favorites: FavoriteRecord[] = [];
+    for (let i = 0; i < chosen.length; i += RANKING_FAVORITE_CONCURRENCY) {
+      const batch = chosen.slice(i, i + RANKING_FAVORITE_CONCURRENCY);
+      for (const list of await Promise.all(batch.map((p) => repo.listFavoritesOfPhoto(p.photoId)))) {
+        favorites.push(...list);
+      }
+    }
+    return c.json(buildRanking({ users, settings, quizzes, photos, favorites, now: now().toISOString() }));
   });
 
   app.patch("/admin/users/:userId", async (c) => {
@@ -687,15 +718,104 @@ export function scoreQuizAnswers(answers: QuizAnswerRecord[], quizzes: QuizRecor
     const quiz = byId.get(answer.quizId);
     if (!quiz) continue;
     answered++;
-    if (quiz.status !== "closed" || !quiz.closedAt || answer.answeredAt > quiz.closedAt) continue;
-    points += quiz.choices.find((ch) => ch.choiceId === answer.choiceId)?.points ?? 0;
+    points += answerPoints(answer, quiz) ?? 0;
   }
   return { answered, points };
+}
+
+/** 回答 1 件の点数。まだ点数にならない回答（出題中・締め切り後に保存された）は undefined */
+function answerPoints(answer: QuizAnswerRecord, quiz: QuizRecord): number | undefined {
+  if (quiz.status !== "closed" || !quiz.closedAt || answer.answeredAt > quiz.closedAt) return undefined;
+  return quiz.choices.find((ch) => ch.choiceId === answer.choiceId)?.points ?? 0;
+}
+
+/** 全員分のクイズの回答数と点数 */
+function quizStatsByUser(entries: { quiz: QuizRecord; answers: QuizAnswerRecord[] }[]): Map<string, QuizStats> {
+  const quizzes = entries.map((e) => e.quiz);
+  const byUser = new Map<string, QuizAnswerRecord[]>();
+  for (const a of entries.flatMap((e) => e.answers)) appendTo(byUser, a.userId, a);
+  return new Map([...byUser].map(([userId, list]) => [userId, scoreQuizAnswers(list, quizzes)]));
+}
+
+function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
+  const list = map.get(key);
+  if (list) list.push(value);
+  else map.set(key, [value]);
 }
 
 /** ポイントは保存せず、現在の設定で毎回計算する（設定を変えると全員に同じ基準で反映される） */
 export function calculatePoints(user: UserRecord, settings: Settings, quiz: QuizStats): number {
   return user.approvedCount * settings.uploadPoints + user.favoritesReceived * settings.favoritePoints + quiz.points;
+}
+
+export interface RankingSource {
+  users: UserRecord[];
+  settings: Settings;
+  quizzes: { quiz: QuizRecord; answers: QuizAnswerRecord[] }[];
+  /** 公開中の写真 */
+  photos: PhotoRecord[];
+  /** 公開中の写真へのお気に入り */
+  favorites: FavoriteRecord[];
+  now: string;
+}
+
+/**
+ * ランキングと累計ポイントの推移を作る。ポイントは保存していないので、今残っているデータから
+ * 時刻つきの出来事（写真の公開・お気に入りに選ばれた・クイズの締め切り）を組み立て、現在の設定で数える。
+ * 削除した写真や外したお気に入りは含めないので、推移の最後はユーザ管理と同じポイントになる
+ * （GSI の反映待ちでずれることがあるため、最後の点は calculatePoints の値にそろえる）
+ */
+export function buildRanking(source: RankingSource): RankingResponse {
+  const { users, settings, quizzes, photos, favorites, now } = source;
+  const events = new Map<string, { at: string; points: number }[]>();
+  const add = (userId: string, at: string, points: number | undefined) => {
+    if (points) appendTo(events, userId, { at, points });
+  };
+
+  const photosById = new Map(photos.map((p) => [p.photoId, p]));
+  // 事前確認では承認した時刻、事後確認では投稿した時刻に公開される
+  for (const photo of photos) add(photo.uploaderId, photo.reviewedAt ?? photo.createdAt, settings.uploadPoints);
+  for (const favorite of favorites) {
+    const photo = photosById.get(favorite.photoId);
+    if (photo) add(photo.uploaderId, favorite.createdAt, settings.favoritePoints);
+  }
+  // クイズの点数は締め切った時刻に入る（scoreQuizAnswers と同じ answerPoints で数える）
+  for (const { quiz, answers } of quizzes) {
+    for (const answer of answers) if (quiz.closedAt) add(answer.userId, quiz.closedAt, answerPoints(answer, quiz));
+  }
+
+  const quizStats = quizStatsByUser(quizzes);
+
+  const entries = users.map((user) => {
+    const points = calculatePoints(user, settings, quizStats.get(user.userId) ?? NO_QUIZ_STATS);
+    const history: RankingPointDto[] = [{ at: user.createdAt, points: 0 }];
+    let total = 0;
+    for (const event of (events.get(user.userId) ?? []).sort((a, b) => a.at.localeCompare(b.at))) {
+      total += event.points;
+      const last = history[history.length - 1]!;
+      // 登録時の 0 は残す（登録と同じ時刻の出来事でも、0 から上がる線にする）
+      if (history.length > 1 && last.at === event.at) last.points = total;
+      else history.push({ at: event.at, points: total });
+    }
+    history.push({ at: now, points });
+    return { user, points, history };
+  });
+
+  // ポイントの高い順。同点は先に登録した人を上にする（順位は同じ）
+  entries.sort((a, b) => b.points - a.points || a.user.createdAt.localeCompare(b.user.createdAt));
+  const ranking: RankingEntryDto[] = [];
+  entries.forEach((entry, i) => {
+    const prev = ranking[i - 1];
+    ranking.push({
+      rank: prev && prev.points === entry.points ? prev.rank : i + 1,
+      userId: entry.user.userId,
+      displayName: formatDisplayName(entry.user.epithet, entry.user.name),
+      status: entry.user.status,
+      points: entry.points,
+      history: entry.history,
+    });
+  });
+  return { ranking, generatedAt: now };
 }
 
 function toUserDto(user: UserRecord, settings: Settings, quiz: QuizStats): UserDto {

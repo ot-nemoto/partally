@@ -26,6 +26,7 @@ export function AdminLayout() {
         <strong>partally 管理</strong>
         <nav>
           <NavLink to="/admin/users">ユーザ</NavLink>
+          <NavLink to="/admin/ranking">ランキング</NavLink>
           <NavLink to="/admin/tokens">QR</NavLink>
           <NavLink to="/admin/photos">写真</NavLink>
           <NavLink to="/admin/quizzes">クイズ</NavLink>

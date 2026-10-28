@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createApp, scoreQuizAnswers } from "./app.js";
+import { buildRanking, createApp, scoreQuizAnswers } from "./app.js";
 import { ingestUpload } from "./ingest.js";
 import { MemoryRepository } from "./memory-repository.js";
 import { MemoryPhotoStorage } from "./memory-storage.js";
 import { photoKey } from "./photo-storage.js";
-import { DEFAULT_SETTINGS } from "./repository.js";
+import { DEFAULT_SETTINGS, type UserRecord } from "./repository.js";
 import type { UrlSigner } from "./url-signer.js";
 
 const ADMIN_PASSWORD = "secret-password";
@@ -664,6 +664,42 @@ describe("API", () => {
       expect((await me(c.request)).user.favoritesGiven).toBe(0);
     });
 
+    it("ランキングは高い順に並び、累計の推移の最後がユーザ管理のポイントと一致する", async () => {
+      const { a, b, photoA1, photoA2, admin } = await setup();
+      const c = await participant("佐藤");
+      await b.request("PUT", `/api/photos/${photoA1}/favorite`);
+      await c.request("PUT", `/api/photos/${photoA1}/favorite`);
+      await c.request("PUT", `/api/photos/${photoA2}/favorite`);
+      // 外したお気に入りは推移にも入らない
+      await c.request("DELETE", `/api/photos/${photoA2}/favorite`);
+
+      const res = await admin("GET", "/api/admin/ranking");
+      expect(res.status).toBe(200);
+      expect(res.body.ranking.map((r: any) => [r.rank, r.displayName.replace(/^〈.*〉/, ""), r.points])).toEqual([
+        [1, "田中", 4],
+        [2, "鈴木", 1],
+        [3, "佐藤", 0],
+      ]);
+      const users = (await admin("GET", "/api/admin/users")).body.users;
+      for (const entry of res.body.ranking) {
+        const history = entry.history as { at: string; points: number }[];
+        expect(history[0]!.points).toBe(0);
+        expect(history.at(-1)).toEqual({ at: res.body.generatedAt, points: entry.points });
+        expect(entry.points).toBe(users.find((u: any) => u.userId === entry.userId).points);
+        // 時刻は古い順
+        expect(history.map((h) => h.at)).toEqual(history.map((h) => h.at).toSorted());
+      }
+      // 田中: 写真 2 枚と選ばれた 2 件で、最後の点の前に 4 に達している
+      expect(res.body.ranking[0].history.at(-2).points).toBe(4);
+      expect(res.body.ranking[0].userId).toBe(a.userId);
+      expect(res.body.ranking[1].userId).toBe(b.userId);
+    });
+
+    it("ランキングは管理者のログインが必要", async () => {
+      const { a } = await setup();
+      expect((await a.request("GET", "/api/admin/ranking")).status).toBe(401);
+    });
+
     it("お気に入りの操作は参加者のログインが必要", async () => {
       const { photoA1 } = await setup();
       expect((await createClient(app)("PUT", `/api/photos/${photoA1}/favorite`)).status).toBe(401);
@@ -956,5 +992,113 @@ describe("scoreQuizAnswers", () => {
     expect(scoreQuizAnswers([answer("Q1", "2026-01-01T00:09:59.999Z")], [quiz])).toEqual({ answered: 1, points: 10 });
     expect(scoreQuizAnswers([answer("Q1", "2026-01-01T00:10:00.001Z")], [quiz])).toEqual({ answered: 1, points: 0 });
     expect(scoreQuizAnswers([answer("GONE", "2026-01-01T00:01:00.000Z")], [quiz])).toEqual({ answered: 0, points: 0 });
+  });
+});
+
+describe("buildRanking", () => {
+  const user = (userId: string, name: string, counts: Partial<UserRecord> = {}): UserRecord => ({
+    userId,
+    name,
+    epithet: "疾風の魔術師",
+    status: "active",
+    uploadCount: 0,
+    approvedCount: 0,
+    favoritesGiven: 0,
+    favoritesReceived: 0,
+    createdAt: `2026-01-01T00:00:0${userId.slice(1)}.000Z`,
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...counts,
+  });
+  const quiz = {
+    quizId: "Q1",
+    text: "問題",
+    choices: [
+      { choiceId: "A", text: "a", points: 10 },
+      { choiceId: "B", text: "b", points: 0 },
+    ],
+    status: "closed" as const,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    closedAt: "2026-01-01T02:00:00.000Z",
+  };
+  const photo = (photoId: string, uploaderId: string, createdAt: string, reviewedAt?: string) => ({
+    photoId,
+    uploaderId,
+    status: "approved" as const,
+    favoriteCount: 0,
+    createdAt,
+    reviewedAt,
+  });
+
+  it("写真は公開した時刻、お気に入りは選ばれた時刻、クイズは締め切った時刻に加え、同じ時刻はまとめる", () => {
+    const result = buildRanking({
+      users: [
+        user("u1", "田中", { approvedCount: 2, favoritesReceived: 1 }),
+        user("u2", "鈴木", { approvedCount: 0 }),
+        user("u3", "佐藤", { approvedCount: 1 }),
+      ],
+      settings: { ...DEFAULT_SETTINGS, uploadPoints: 2, favoritePoints: 3 },
+      quizzes: [
+        {
+          quiz,
+          answers: [
+            { quizId: "Q1", userId: "u2", choiceId: "A", answeredAt: "2026-01-01T01:59:00.000Z" },
+            { quizId: "Q1", userId: "u3", choiceId: "B", answeredAt: "2026-01-01T01:59:00.000Z" },
+          ],
+        },
+        // 出題中のクイズは数えない
+        {
+          quiz: { ...quiz, quizId: "Q2", status: "open" as const, closedAt: undefined },
+          answers: [{ quizId: "Q2", userId: "u1", choiceId: "A", answeredAt: "2026-01-01T02:30:00.000Z" }],
+        },
+      ],
+      photos: [
+        // 事前確認は承認した時刻
+        photo("P1", "u1", "2026-01-01T00:10:00.000Z", "2026-01-01T00:20:00.000Z"),
+        // 事後確認は投稿した時刻
+        photo("P2", "u1", "2026-01-01T00:20:00.000Z"),
+        photo("P3", "u3", "2026-01-01T00:30:00.000Z"),
+      ],
+      favorites: [{ userId: "u2", photoId: "P2", createdAt: "2026-01-01T01:00:00.000Z" }],
+      now: "2026-01-01T03:00:00.000Z",
+    });
+
+    expect(result.generatedAt).toBe("2026-01-01T03:00:00.000Z");
+    expect(result.ranking.map((r) => [r.rank, r.userId, r.points])).toEqual([
+      [1, "u2", 10],
+      [2, "u1", 7],
+      [3, "u3", 2],
+    ]);
+    expect(result.ranking[1]!.history).toEqual([
+      { at: "2026-01-01T00:00:01.000Z", points: 0 },
+      { at: "2026-01-01T00:20:00.000Z", points: 4 },
+      { at: "2026-01-01T01:00:00.000Z", points: 7 },
+      { at: "2026-01-01T03:00:00.000Z", points: 7 },
+    ]);
+    expect(result.ranking[0]!.history).toEqual([
+      { at: "2026-01-01T00:00:02.000Z", points: 0 },
+      { at: "2026-01-01T02:00:00.000Z", points: 10 },
+      { at: "2026-01-01T03:00:00.000Z", points: 10 },
+    ]);
+    // 0 点の選択肢は点を増やさない
+    expect(result.ranking[2]!.history.map((h) => h.points)).toEqual([0, 2, 2]);
+  });
+
+  it("同点は同じ順位で、次の順位は人数分飛ばす。同点の中は先に登録した人が上", () => {
+    const result = buildRanking({
+      users: [user("u3", "佐藤"), user("u1", "田中", { approvedCount: 1 }), user("u2", "鈴木", { approvedCount: 1 })],
+      settings: DEFAULT_SETTINGS,
+      quizzes: [],
+      photos: [],
+      favorites: [],
+      now: "2026-01-01T03:00:00.000Z",
+    });
+    expect(result.ranking.map((r) => [r.rank, r.userId])).toEqual([
+      [1, "u1"],
+      [1, "u2"],
+      [3, "u3"],
+    ]);
+    // 推移の元データが無くても、最後の点はユーザのカウンタから計算したポイント
+    expect(result.ranking[0]!.history.at(-1)).toEqual({ at: "2026-01-01T03:00:00.000Z", points: 1 });
   });
 });
