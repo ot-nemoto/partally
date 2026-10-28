@@ -2,7 +2,11 @@ import type { CurrentQuizDto, CurrentQuizResponse, MeResponse, Rules, UserDto } 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useOutletContext } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../api";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 import { ReloadProvider } from "../hooks/useReload";
+
+/** 出題・締め切りにすぐ気づけるよう、表示中はこの間隔で出題中のクイズを確認する（文字だけの小さな通信） */
+const QUIZ_REFRESH_MS = 5_000;
 
 export interface ParticipantContext {
   user: UserDto;
@@ -82,8 +86,9 @@ export function ParticipantLayout() {
   useEffect(() => {
     if (state.kind === "user") void refreshQuiz();
   }, [state.kind, refreshQuiz]);
+  useAutoRefresh(refreshQuiz, QUIZ_REFRESH_MS);
 
-  // 自動では取り直さない。「更新」で自分の情報・ルール・出題中のクイズと、表示中の画面の一覧を取り直す
+  // クイズ以外は自動では取り直さない。「更新」で自分の情報・ルール・出題中のクイズと、表示中の画面の一覧を取り直す
   const [reloadCount, setReloadCount] = useState(0);
   const [reloading, setReloading] = useState(false);
   const reload = useCallback(async () => {
