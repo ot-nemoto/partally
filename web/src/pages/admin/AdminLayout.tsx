@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import "@fontsource/righteous/latin-400.css";
 import { api } from "../../api";
 import { ReloadProvider } from "../../hooks/useReload";
 
@@ -27,14 +28,14 @@ export function AdminLayout() {
   return (
     <div className="admin">
       <header className="admin-header">
-        <strong>partally 管理</strong>
+        <strong className="admin-brand">ADMIN</strong>
         <nav>
-          <NavLink to="/admin/users">ユーザ</NavLink>
-          <NavLink to="/admin/ranking">ランキング</NavLink>
+          <NavLink to="/admin/users">User</NavLink>
+          <NavLink to="/admin/ranking">Ranking</NavLink>
           <NavLink to="/admin/tokens">QR</NavLink>
-          <NavLink to="/admin/photos">写真</NavLink>
+          <NavLink to="/admin/photos">Photo</NavLink>
           <NavLink to="/admin/quizzes">Quiz</NavLink>
-          <NavLink to="/admin/settings">設定</NavLink>
+          <NavLink to="/admin/settings">Setting</NavLink>
         </nav>
         {!onSettings && (
           <button type="button" className="link" onClick={() => setReloadCount((n) => n + 1)}>

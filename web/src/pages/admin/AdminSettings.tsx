@@ -8,6 +8,7 @@ import {
 import { type FormEvent, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
 import { NumberField } from "../../components/NumberField";
+import { PageTitle } from "../../components/PageTitle";
 
 const MODERATION_OPTIONS: { value: ModerationMode; label: string; description: string }[] = [
   {
@@ -63,7 +64,7 @@ export function AdminSettings() {
 
   return (
     <section>
-      <h1>設定</h1>
+      <PageTitle en="Setting" ja="設定" />
       {!settings && !error && <p className="muted">読み込み中…</p>}
       {settings && (
         <form className="settings-form" onSubmit={save}>

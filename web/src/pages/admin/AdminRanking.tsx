@@ -1,6 +1,7 @@
 import type { RankingEntryDto, RankingPointDto, RankingResponse } from "@partally/shared";
 import { type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorMessage } from "../../api";
+import { PageTitle } from "../../components/PageTitle";
 import { useOnReload } from "../../hooks/useReload";
 
 /** グラフに同時に出せる人数（色を見分けられるのは 8 色まで） */
@@ -72,7 +73,7 @@ export function AdminRanking() {
 
   return (
     <section className="ranking">
-      <h1>ランキング</h1>
+      <PageTitle en="Ranking" ja="ランキング" />
       {error && <p className="error">{error}</p>}
       {data && data.ranking.length === 0 && <p className="muted">まだ参加者がいません。</p>}
       {data && data.ranking.length > 0 && (

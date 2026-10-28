@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../api";
 import { formatTime, Lightbox } from "../../components/Lightbox";
+import { PageTitle } from "../../components/PageTitle";
 import { useOnReload } from "../../hooks/useReload";
 
 const TABS: { status: PhotoStatus; label: string }[] = [
@@ -75,7 +76,7 @@ export function AdminPhotos() {
 
   return (
     <section>
-      <h1>写真の確認・管理</h1>
+      <PageTitle en="Photo" ja="写真の確認・管理" />
       {moderation && (
         <p className="muted">
           現在の公開方法：{moderation === "pre" ? "管理者が承認してから公開" : "アップロードと同時に公開"}（
