@@ -11,7 +11,10 @@ export function AdminUsers() {
 
   const load = useCallback(() => {
     api<UsersResponse>("GET", "/admin/users")
-      .then((res) => setUsers(res.users))
+      .then((res) => {
+        setUsers(res.users);
+        setError(undefined);
+      })
       .catch((e) => setError(errorMessage(e)));
   }, []);
 

@@ -12,7 +12,10 @@ export function AdminTokens() {
 
   const load = useCallback(() => {
     api<TokensResponse>("GET", "/admin/tokens")
-      .then((res) => setTokens(res.tokens))
+      .then((res) => {
+        setTokens(res.tokens);
+        setError(undefined);
+      })
       .catch((e) => setError(errorMessage(e)));
   }, []);
 

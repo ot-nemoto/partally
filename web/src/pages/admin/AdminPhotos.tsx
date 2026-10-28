@@ -1,5 +1,5 @@
 import type { PhotoDto, PhotoResponse, PhotoStatus, PhotosResponse, SettingsResponse } from "@partally/shared";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../api";
 import { formatTime, Lightbox } from "../../components/Lightbox";
@@ -19,14 +19,18 @@ export function AdminPhotos() {
   const [error, setError] = useState<string>();
   const [selected, setSelected] = useState<PhotoDto>();
 
+  // タブの切り替えや「更新」で読み込みが重なったとき、後から返ってきた古い応答（別のタブの一覧）で上書きしない
+  const latestRequest = useRef(0);
   const load = useCallback(async () => {
+    const request = ++latestRequest.current;
     try {
       const res = await api<PhotosResponse>("GET", `/admin/photos?status=${status}`);
+      if (request !== latestRequest.current) return;
       setPhotos(res.photos);
       setCursor(res.cursor);
       setError(undefined);
     } catch (e) {
-      setError(errorMessage(e));
+      if (request === latestRequest.current) setError(errorMessage(e));
     }
   }, [status]);
 
