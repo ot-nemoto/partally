@@ -17,23 +17,30 @@ export function AdminRanking() {
   /** グラフに出す人と色の番号（0〜7）。更新しても色は人に付いたまま変えない */
   const [slots, setSlots] = useState<Map<string, number>>();
 
+  // 定期更新と画面への復帰で読み込みが重なったとき、後から返ってきた古い応答で戻さない
+  const latestRequest = useRef(0);
   const load = useCallback(() => {
+    const request = ++latestRequest.current;
     api<RankingResponse>("GET", "/admin/ranking")
       .then((res) => {
+        if (request !== latestRequest.current) return;
         setData(res);
         setError(undefined);
       })
-      .catch((e) => setError(errorMessage(e)));
+      .catch((e) => request === latestRequest.current && setError(errorMessage(e)));
   }, []);
 
   useEffect(load, [load]);
   useAutoRefresh(load, REFRESH_MS);
 
-  // 最初の読み込みで上位をグラフに出す。以降は選んだ人を保ち、いなくなった人だけ外す
+  // 参加者がいる最初の読み込みで上位をグラフに出す。以降は選んだ人を保ち、いなくなった人だけ外す
   useEffect(() => {
     if (!data) return;
     setSlots((prev) => {
-      if (!prev) return new Map(data.ranking.slice(0, MAX_LINES).map((r, i) => [r.userId, i]));
+      if (!prev) {
+        if (data.ranking.length === 0) return undefined;
+        return new Map(data.ranking.slice(0, MAX_LINES).map((r, i) => [r.userId, i]));
+      }
       const ids = new Set(data.ranking.map((r) => r.userId));
       const kept = [...prev].filter(([userId]) => ids.has(userId));
       return kept.length === prev.size ? prev : new Map(kept);

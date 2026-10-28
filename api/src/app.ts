@@ -210,14 +210,7 @@ export function createApp(deps: AppDeps) {
   };
 
   /** 全員分のクイズの回答数と点数（管理画面のユーザ一覧用） */
-  const quizStatsOfAll = async (): Promise<Map<string, QuizStats>> => {
-    const entries = await quizzesWithAnswers();
-    const quizzes = entries.map((e) => e.quiz);
-    const answers = entries.flatMap((e) => e.answers);
-    const byUser = new Map<string, QuizAnswerRecord[]>();
-    for (const a of answers) byUser.set(a.userId, [...(byUser.get(a.userId) ?? []), a]);
-    return new Map([...byUser].map(([userId, list]) => [userId, scoreQuizAnswers(list, quizzes)]));
-  };
+  const quizStatsOfAll = async () => quizStatsByUser(await quizzesWithAnswers());
 
   /** ユーザ情報を、設定とクイズの成績を添えて参加者向けに返す */
   const participantUser = async (user: UserRecord, settings?: Settings) => {
@@ -725,10 +718,29 @@ export function scoreQuizAnswers(answers: QuizAnswerRecord[], quizzes: QuizRecor
     const quiz = byId.get(answer.quizId);
     if (!quiz) continue;
     answered++;
-    if (quiz.status !== "closed" || !quiz.closedAt || answer.answeredAt > quiz.closedAt) continue;
-    points += quiz.choices.find((ch) => ch.choiceId === answer.choiceId)?.points ?? 0;
+    points += answerPoints(answer, quiz) ?? 0;
   }
   return { answered, points };
+}
+
+/** 回答 1 件の点数。まだ点数にならない回答（出題中・締め切り後に保存された）は undefined */
+function answerPoints(answer: QuizAnswerRecord, quiz: QuizRecord): number | undefined {
+  if (quiz.status !== "closed" || !quiz.closedAt || answer.answeredAt > quiz.closedAt) return undefined;
+  return quiz.choices.find((ch) => ch.choiceId === answer.choiceId)?.points ?? 0;
+}
+
+/** 全員分のクイズの回答数と点数 */
+function quizStatsByUser(entries: { quiz: QuizRecord; answers: QuizAnswerRecord[] }[]): Map<string, QuizStats> {
+  const quizzes = entries.map((e) => e.quiz);
+  const byUser = new Map<string, QuizAnswerRecord[]>();
+  for (const a of entries.flatMap((e) => e.answers)) appendTo(byUser, a.userId, a);
+  return new Map([...byUser].map(([userId, list]) => [userId, scoreQuizAnswers(list, quizzes)]));
+}
+
+function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
+  const list = map.get(key);
+  if (list) list.push(value);
+  else map.set(key, [value]);
 }
 
 /** ポイントは保存せず、現在の設定で毎回計算する（設定を変えると全員に同じ基準で反映される） */
@@ -756,8 +768,8 @@ export interface RankingSource {
 export function buildRanking(source: RankingSource): RankingResponse {
   const { users, settings, quizzes, photos, favorites, now } = source;
   const events = new Map<string, { at: string; points: number }[]>();
-  const add = (userId: string, at: string, points: number) => {
-    if (points !== 0) events.set(userId, [...(events.get(userId) ?? []), { at, points }]);
+  const add = (userId: string, at: string, points: number | undefined) => {
+    if (points) appendTo(events, userId, { at, points });
   };
 
   const photosById = new Map(photos.map((p) => [p.photoId, p]));
@@ -767,21 +779,15 @@ export function buildRanking(source: RankingSource): RankingResponse {
     const photo = photosById.get(favorite.photoId);
     if (photo) add(photo.uploaderId, favorite.createdAt, settings.favoritePoints);
   }
-  // クイズの点数は締め切った時刻に入る（scoreQuizAnswers と同じ条件で数える）
+  // クイズの点数は締め切った時刻に入る（scoreQuizAnswers と同じ answerPoints で数える）
   for (const { quiz, answers } of quizzes) {
-    if (quiz.status !== "closed" || !quiz.closedAt) continue;
-    for (const answer of answers) {
-      if (answer.answeredAt > quiz.closedAt) continue;
-      add(answer.userId, quiz.closedAt, quiz.choices.find((ch) => ch.choiceId === answer.choiceId)?.points ?? 0);
-    }
+    for (const answer of answers) if (quiz.closedAt) add(answer.userId, quiz.closedAt, answerPoints(answer, quiz));
   }
 
-  const quizStats = new Map<string, QuizAnswerRecord[]>();
-  for (const a of quizzes.flatMap((e) => e.answers)) quizStats.set(a.userId, [...(quizStats.get(a.userId) ?? []), a]);
-  const allQuizzes = quizzes.map((e) => e.quiz);
+  const quizStats = quizStatsByUser(quizzes);
 
   const entries = users.map((user) => {
-    const points = calculatePoints(user, settings, scoreQuizAnswers(quizStats.get(user.userId) ?? [], allQuizzes));
+    const points = calculatePoints(user, settings, quizStats.get(user.userId) ?? NO_QUIZ_STATS);
     const history: RankingPointDto[] = [{ at: user.createdAt, points: 0 }];
     let total = 0;
     for (const event of (events.get(user.userId) ?? []).sort((a, b) => a.at.localeCompare(b.at))) {
