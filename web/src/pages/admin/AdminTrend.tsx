@@ -24,8 +24,17 @@ export function AdminTrend() {
   const { data, error } = useRanking();
   /** グラフに出す人と色の番号（0〜9）。更新しても色は人に付いたまま変えない */
   const [slots, setSlots] = useState<Map<string, number>>();
-  /** カーソルを合わせている人 */
-  const [focus, setFocus] = useState<string>();
+  /**
+   * 強調する人。マウスを合わせている人を優先し、なければキーボードでチェックボックスに移った人。
+   * タッチでは触れた直後に pointerleave が来て一瞬で消えるので、マウスだけを見る
+   */
+  const [pointerFocus, setPointerFocus] = useState<string>();
+  const [keyFocus, setKeyFocus] = useState<string>();
+  const focus = pointerFocus ?? keyFocus;
+  const hoverProps = (userId: string) => ({
+    onPointerEnter: (e: PointerEvent) => e.pointerType === "mouse" && setPointerFocus(userId),
+    onPointerLeave: () => setPointerFocus(undefined),
+  });
 
   // 参加者がいる最初の読み込みで上位をグラフに出す。以降は選んだ人を保ち、いなくなった人だけ外す
   useEffect(() => {
@@ -46,6 +55,8 @@ export function AdminTrend() {
       const next = new Map(prev);
       if (next.has(userId)) {
         next.delete(userId);
+        // 外した直後に、合わせたままのカーソルで濃い色の線として出し直さない
+        setPointerFocus(undefined);
       } else {
         const used = new Set(next.values());
         const free = Array.from({ length: MAX_LINES }, (_, i) => i).find((i) => !used.has(i));
@@ -76,11 +87,7 @@ export function AdminTrend() {
             <h2>累計ポイントの推移</h2>
             <ul className="ranking-legend">
               {series.map(({ entry, slot }) => (
-                <li
-                  key={entry.userId}
-                  onPointerEnter={() => setFocus(entry.userId)}
-                  onPointerLeave={() => setFocus(undefined)}
-                >
+                <li key={entry.userId} {...hoverProps(entry.userId)}>
                   <span className="swatch" style={{ background: `var(--series-${slot + 1})` }} />
                   {entry.displayName}
                 </li>
@@ -115,8 +122,7 @@ export function AdminTrend() {
                     <tr
                       key={r.userId}
                       className={r.status === "unbound" ? "dimmed" : undefined}
-                      onPointerEnter={() => setFocus(r.userId)}
-                      onPointerLeave={() => setFocus(undefined)}
+                      {...hoverProps(r.userId)}
                     >
                       <td>
                         <label className="ranking-toggle">
@@ -125,8 +131,8 @@ export function AdminTrend() {
                             checked={slot !== undefined}
                             disabled={slot === undefined && full}
                             onChange={() => toggle(r.userId)}
-                            onFocus={() => setFocus(r.userId)}
-                            onBlur={() => setFocus(undefined)}
+                            onFocus={(e) => e.currentTarget.matches(":focus-visible") && setKeyFocus(r.userId)}
+                            onBlur={() => setKeyFocus(undefined)}
                             aria-label={`${r.displayName} をグラフで色付きにする`}
                           />
                           <span
@@ -235,10 +241,6 @@ function RankingChart({
     color: `var(--series-${slot + 1})`,
     focused: entry.userId === focus,
   }));
-  const focusedContext = focus !== undefined && !lines.some((l) => l.focused) && all.find((e) => e.userId === focus);
-  if (focusedContext) lines.push({ entry: focusedContext, color: "var(--text)", focused: true });
-  lines.sort((a, b) => Number(a.focused) - Number(b.focused));
-
   // 右端の名前。線の終わりの高さに置き、近いものは上下にずらす
   const plotRight = CHART.width - CHART.right;
   const labels = placeLabels(
@@ -246,6 +248,17 @@ function RankingChart({
     CHART.top,
     CHART.top + plotHeight,
   );
+  // 灰色の人を強調するときは線と名前を足す。ほかの名前が動かないよう、名前はずらさずに上に重ねる
+  const focusedContext = focus !== undefined && !lines.some((l) => l.focused) && all.find((e) => e.userId === focus);
+  if (focusedContext) {
+    const extra = { entry: focusedContext, color: "var(--text)", focused: true };
+    const lineY = y(focusedContext.points);
+    lines.push(extra);
+    labels.push({ ...extra, lineY, labelY: lineY });
+  }
+  lines.sort((a, b) => Number(a.focused) - Number(b.focused));
+  labels.sort((a, b) => Number(a.focused) - Number(b.focused));
+  const hasFocus = lines.some((l) => l.focused);
   const labelChars = narrow ? LABEL_CHARS.narrow : LABEL_CHARS.wide;
 
   const yTicks = Array.from({ length: 5 }, (_, i) => (maxPoints / 4) * i);
@@ -275,7 +288,7 @@ function RankingChart({
         width={CHART.width}
         height={CHART.height}
         viewBox={`0 0 ${CHART.width} ${CHART.height}`}
-        className={focus !== undefined ? "has-focus" : undefined}
+        className={hasFocus ? "has-focus" : undefined}
         role="img"
         aria-label="累計ポイントの推移"
         onPointerMove={onPointerMove}
@@ -314,7 +327,9 @@ function RankingChart({
           <g key={l.entry.userId} className={`end-label${l.focused ? " focused" : ""}`}>
             <title>{l.entry.displayName}</title>
             {/* ずらした名前と線の終わりを細い灰色の線でつなぐ（色付きだと点が急に増えたように見える） */}
-            <line className="leader" x1={plotRight + 3} y1={l.lineY} x2={plotRight + 10} y2={l.labelY} />
+            {Math.abs(l.labelY - l.lineY) > 0.5 && (
+              <line className="leader" x1={plotRight + 3} y1={l.lineY} x2={plotRight + 10} y2={l.labelY} />
+            )}
             <rect x={plotRight + 12} y={l.labelY - 4} width={8} height={8} rx={2} fill={l.color} />
             <text x={plotRight + 23} y={l.labelY} dominantBaseline="middle">
               {shorten(l.entry.name, labelChars)}
@@ -369,9 +384,11 @@ function placeLabels<T extends { lineY: number }>(items: T[], top: number, botto
   return sorted;
 }
 
-/** max 文字を超える名前は末尾を「…」にする */
+const graphemes = new Intl.Segmenter("ja", { granularity: "grapheme" });
+
+/** max 文字を超える名前は末尾を「…」にする。絵文字などを途中で切らないよう、見た目の 1 文字ずつ数える */
 function shorten(name: string, max: number) {
-  const chars = [...name];
+  const chars = Array.from(graphemes.segment(name), (s) => s.segment);
   return chars.length > max ? `${chars.slice(0, max - 1).join("")}…` : name;
 }
 
