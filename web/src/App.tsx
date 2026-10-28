@@ -8,6 +8,7 @@ import { AdminRanking } from "./pages/admin/AdminRanking";
 import { AdminSettings } from "./pages/admin/AdminSettings";
 import { AdminTokens } from "./pages/admin/AdminTokens";
 import { AdminTokensPrint } from "./pages/admin/AdminTokensPrint";
+import { AdminTrend } from "./pages/admin/AdminTrend";
 import { AdminUsers } from "./pages/admin/AdminUsers";
 import { Gallery } from "./pages/Gallery";
 import { Home } from "./pages/Home";
@@ -33,6 +34,7 @@ export function App() {
         <Route index element={<AdminUsers />} />
         <Route path="users" element={<AdminUsers />} />
         <Route path="ranking" element={<AdminRanking />} />
+        <Route path="trend" element={<AdminTrend />} />
         <Route path="tokens" element={<AdminTokens />} />
         <Route path="photos" element={<AdminPhotos />} />
         <Route path="quizzes" element={<AdminQuizzes />} />
