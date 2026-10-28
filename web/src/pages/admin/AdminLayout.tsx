@@ -36,6 +36,7 @@ export function AdminLayout() {
         <nav lang="en">
           <NavLink to="/admin/users">User</NavLink>
           <NavLink to="/admin/ranking">Ranking</NavLink>
+          <NavLink to="/admin/trend">Trend</NavLink>
           <NavLink to="/admin/tokens">QR</NavLink>
           <NavLink to="/admin/photos">Photo</NavLink>
           <NavLink to="/admin/quizzes">Quiz</NavLink>
