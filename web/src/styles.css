@@ -64,6 +64,52 @@ h1 {
   margin: 0 0 0.75rem;
 }
 
+/* 画面の見出し（PageTitle）。英字を赤から金のグラデーションで大きく、日本語を小さく添える */
+.page-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  margin: 0 0 1rem;
+}
+
+.page-title-en {
+  position: relative;
+  padding-bottom: 0.3rem;
+  background: linear-gradient(120deg, var(--accent) 15%, var(--gold) 85%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-family: "Righteous", system-ui, sans-serif;
+  font-size: 2.4rem;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0.04em;
+}
+
+.page-title-en::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--gold) 70%, transparent);
+  content: "";
+}
+
+.page-title-ja {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+}
+
+.page-title-ja::before {
+  color: var(--gold);
+  content: "✦ ";
+}
+
 h2 {
   font-size: 1.15rem;
   margin: 0 0 0.75rem;
@@ -949,6 +995,51 @@ textarea {
 
 .quiz-open {
   border-color: var(--accent);
+}
+
+/* 締め切った問題は折りたたみ、見出しに問題文を 1 行で出す。
+   details の中身にはカードの flex の間隔が効かないので、要素の間を margin で空ける */
+.quiz-closed {
+  display: block;
+}
+
+.quiz-closed > :not(summary) {
+  margin-top: 0.75rem;
+  margin-bottom: 0;
+}
+
+.quiz-closed summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.quiz-closed summary::-webkit-details-marker {
+  display: none;
+}
+
+.quiz-closed summary .quiz-card-header::after {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.8rem;
+  content: "▸ 開く";
+}
+
+.quiz-closed[open] summary .quiz-card-header::after {
+  content: "▾ 閉じる";
+}
+
+.quiz-summary-text {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quiz-closed[open] .quiz-summary-text {
+  display: none;
 }
 
 .status {

@@ -33,7 +33,7 @@ export function AdminLayout() {
           <NavLink to="/admin/ranking">ランキング</NavLink>
           <NavLink to="/admin/tokens">QR</NavLink>
           <NavLink to="/admin/photos">写真</NavLink>
-          <NavLink to="/admin/quizzes">クイズ</NavLink>
+          <NavLink to="/admin/quizzes">Quiz</NavLink>
           <NavLink to="/admin/settings">設定</NavLink>
         </nav>
         {!onSettings && (
