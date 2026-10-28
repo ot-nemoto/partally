@@ -809,6 +809,7 @@ export function buildRanking(source: RankingSource): RankingResponse {
     ranking.push({
       rank: prev && prev.points === entry.points ? prev.rank : i + 1,
       userId: entry.user.userId,
+      name: entry.user.name,
       displayName: formatDisplayName(entry.user.epithet, entry.user.name),
       status: entry.user.status,
       points: entry.points,

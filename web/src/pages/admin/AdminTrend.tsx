@@ -3,18 +3,29 @@ import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { PageTitle } from "../../components/PageTitle";
 import { useRanking } from "../../hooks/useRanking";
 
-/** 色を付けて強調できる人数（色を見分けられるのは 8 色まで）。ほかの人は灰色の線で描く */
-const MAX_LINES = 8;
+/** 色を付けて強調できる人数（色だけで見分けられるのは 10 色ほどまで）。ほかの人は灰色の線で描く */
+const MAX_LINES = 10;
 
-const MARGIN = { left: 44, right: 16, top: 12, bottom: 28 };
+/** 右側は線の終わりに名前を出すぶん空ける */
+const MARGIN = { left: 44, right: 108, top: 12, bottom: 28 };
+/** 狭い画面での右の余白と、名前を省略せずに出す文字数 */
+const NARROW_RIGHT = 68;
+const LABEL_CHARS = { wide: 7, narrow: 4 };
+/** 名前と名前の縦の間隔（px）。これより近いときは上下にずらす */
+const LABEL_GAP = 13;
 /** これより狭いと、グラフを低くしてツールチップをグラフの下に出す */
 const NARROW_WIDTH = 520;
 
-/** 累計ポイントの推移。全員を灰色の線で描き、表で選んだ人（最大 8 人）を色付きで強調する */
+/**
+ * 累計ポイントの推移。全員を灰色の線で描き、表で選んだ人（最大 10 人）を色付きで強調する。
+ * 表の行や凡例にカーソルを合わせた人は、線を太くするか（灰色の人なら）濃い色で重ねる
+ */
 export function AdminTrend() {
   const { data, error } = useRanking();
-  /** グラフに出す人と色の番号（0〜7）。更新しても色は人に付いたまま変えない */
+  /** グラフに出す人と色の番号（0〜9）。更新しても色は人に付いたまま変えない */
   const [slots, setSlots] = useState<Map<string, number>>();
+  /** カーソルを合わせている人 */
+  const [focus, setFocus] = useState<string>();
 
   // 参加者がいる最初の読み込みで上位をグラフに出す。以降は選んだ人を保ち、いなくなった人だけ外す
   useEffect(() => {
@@ -65,7 +76,11 @@ export function AdminTrend() {
             <h2>累計ポイントの推移</h2>
             <ul className="ranking-legend">
               {series.map(({ entry, slot }) => (
-                <li key={entry.userId}>
+                <li
+                  key={entry.userId}
+                  onPointerEnter={() => setFocus(entry.userId)}
+                  onPointerLeave={() => setFocus(undefined)}
+                >
                   <span className="swatch" style={{ background: `var(--series-${slot + 1})` }} />
                   {entry.displayName}
                 </li>
@@ -77,11 +92,11 @@ export function AdminTrend() {
                 </li>
               )}
             </ul>
-            <RankingChart all={data.ranking} series={series} end={data.generatedAt} />
+            <RankingChart all={data.ranking} series={series} focus={focus} end={data.generatedAt} />
           </div>
           <p className="muted">
             色を付けて出せるのは {MAX_LINES}{" "}
-            人までです（ほかの人は灰色の線）。最新にするには上の「更新」を押してください。
+            人までです（ほかの人は灰色の線）。行にカーソルを合わせると、その人の線を強調します。最新にするには上の「更新」を押してください。
           </p>
           <div className="table-wrap">
             <table>
@@ -97,7 +112,12 @@ export function AdminTrend() {
                 {data.ranking.map((r) => {
                   const slot = slots?.get(r.userId);
                   return (
-                    <tr key={r.userId} className={r.status === "unbound" ? "dimmed" : undefined}>
+                    <tr
+                      key={r.userId}
+                      className={r.status === "unbound" ? "dimmed" : undefined}
+                      onPointerEnter={() => setFocus(r.userId)}
+                      onPointerLeave={() => setFocus(undefined)}
+                    >
                       <td>
                         <label className="ranking-toggle">
                           <input
@@ -105,6 +125,8 @@ export function AdminTrend() {
                             checked={slot !== undefined}
                             disabled={slot === undefined && full}
                             onChange={() => toggle(r.userId)}
+                            onFocus={() => setFocus(r.userId)}
+                            onBlur={() => setFocus(undefined)}
                             aria-label={`${r.displayName} をグラフで色付きにする`}
                           />
                           <span
@@ -138,11 +160,29 @@ interface Series {
   slot: number;
 }
 
+/** 色付きで描く線（選んだ人と、カーソルを合わせた灰色の人） */
+interface Line {
+  entry: RankingEntryDto;
+  color: string;
+  focused: boolean;
+}
+
 /**
  * 累計ポイントの階段状の折れ線。ポイントは出来事の時刻で上がるので、次の出来事までは横ばいにする。
- * 全員（all）を灰色の細い線で背景に描き、選んだ人（series）を色付きで重ねる。軸の範囲は全員から決める
+ * 全員（all）を灰色の細い線で背景に描き、選んだ人（series）を色付きで重ねて、右端に名前を出す。
+ * focus の人は線を太くし、灰色の人なら濃い色で重ねる。軸の範囲は全員から決める
  */
-function RankingChart({ all, series, end }: { all: RankingEntryDto[]; series: Series[]; end: string }) {
+function RankingChart({
+  all,
+  series,
+  focus,
+  end,
+}: {
+  all: RankingEntryDto[];
+  series: Series[];
+  focus: string | undefined;
+  end: string;
+}) {
   const [hover, setHover] = useState<number>();
   // 文字の大きさを保つため、viewBox で拡大縮小せず表示幅に合わせて描く
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -155,7 +195,7 @@ function RankingChart({ all, series, end }: { all: RankingEntryDto[]; series: Se
     return () => observer.disconnect();
   }, []);
   const narrow = width < NARROW_WIDTH;
-  const CHART = { ...MARGIN, width, height: narrow ? 240 : 320 };
+  const CHART = { ...MARGIN, right: narrow ? NARROW_RIGHT : MARGIN.right, width, height: narrow ? 240 : 320 };
 
   const endTime = Date.parse(end);
   // 軸の範囲は全員から決める。人数や出来事が多くても引数の上限に当たらないよう、展開せずに数える
@@ -178,15 +218,35 @@ function RankingChart({ all, series, end }: { all: RankingEntryDto[]; series: Se
 
   // 灰色の線はホバーでは変わらないので、データ・選択・大きさが変わったときだけ作り直す
   const chartHeight = CHART.height;
+  const chartRight = CHART.right;
   const contextPaths = useMemo(() => {
     const selected = new Set(series.map((s) => s.entry.userId));
     const plotH = chartHeight - MARGIN.top - MARGIN.bottom;
-    const toX = (time: number) => MARGIN.left + ((time - startTime) / span) * (width - MARGIN.left - MARGIN.right);
+    const toX = (time: number) => MARGIN.left + ((time - startTime) / span) * (width - MARGIN.left - chartRight);
     const toY = (points: number) => MARGIN.top + plotH - (points / maxPoints) * plotH;
     return all
       .filter((e) => !selected.has(e.userId))
       .map((e) => <path key={e.userId} className="series-line context" d={stepPath(e.history, toX, toY)} />);
-  }, [all, series, startTime, span, maxPoints, width, chartHeight]);
+  }, [all, series, startTime, span, maxPoints, width, chartHeight, chartRight]);
+
+  // 色付きの線。強調する線は最後に描いて上に重ねる
+  const lines: Line[] = series.map(({ entry, slot }) => ({
+    entry,
+    color: `var(--series-${slot + 1})`,
+    focused: entry.userId === focus,
+  }));
+  const focusedContext = focus !== undefined && !lines.some((l) => l.focused) && all.find((e) => e.userId === focus);
+  if (focusedContext) lines.push({ entry: focusedContext, color: "var(--text)", focused: true });
+  lines.sort((a, b) => Number(a.focused) - Number(b.focused));
+
+  // 右端の名前。線の終わりの高さに置き、近いものは上下にずらす
+  const plotRight = CHART.width - CHART.right;
+  const labels = placeLabels(
+    lines.map((l) => ({ ...l, lineY: y(l.entry.points) })),
+    CHART.top,
+    CHART.top + plotHeight,
+  );
+  const labelChars = narrow ? LABEL_CHARS.narrow : LABEL_CHARS.wide;
 
   const yTicks = Array.from({ length: 5 }, (_, i) => (maxPoints / 4) * i);
   const xTickCount = narrow ? 3 : 5;
@@ -203,9 +263,9 @@ function RankingChart({ all, series, end }: { all: RankingEntryDto[]; series: Se
   const hoverValues =
     hover === undefined
       ? []
-      : series
-          .map((s) => ({ ...s, points: valueAt(s.entry.history, hover) }))
-          .filter((s): s is Series & { points: number } => s.points !== undefined)
+      : lines
+          .map((l) => ({ ...l, points: valueAt(l.entry.history, hover) }))
+          .filter((l): l is Line & { points: number } => l.points !== undefined)
           .sort((a, b) => b.points - a.points);
   const hoverLeft = hover === undefined ? 0 : (x(hover) / CHART.width) * 100;
 
@@ -215,6 +275,7 @@ function RankingChart({ all, series, end }: { all: RankingEntryDto[]; series: Se
         width={CHART.width}
         height={CHART.height}
         viewBox={`0 0 ${CHART.width} ${CHART.height}`}
+        className={focus !== undefined ? "has-focus" : undefined}
         role="img"
         aria-label="累計ポイントの推移"
         onPointerMove={onPointerMove}
@@ -241,26 +302,30 @@ function RankingChart({ all, series, end }: { all: RankingEntryDto[]; series: Se
         ))}
         {/* 透明度はまとめて付ける（線ごとに付けると重なった所が濃くなる） */}
         <g className="context-lines">{contextPaths}</g>
-        {series.map(({ entry, slot }) => (
+        {lines.map((l) => (
           <path
-            key={entry.userId}
-            className="series-line"
-            d={stepPath(entry.history, x, y)}
-            stroke={`var(--series-${slot + 1})`}
+            key={l.entry.userId}
+            className={`series-line${l.focused ? " focused" : ""}`}
+            d={stepPath(l.entry.history, x, y)}
+            stroke={l.color}
           />
         ))}
-        {hover !== undefined && series.length > 0 && (
+        {labels.map((l) => (
+          <g key={l.entry.userId} className={`end-label${l.focused ? " focused" : ""}`}>
+            <title>{l.entry.displayName}</title>
+            {/* ずらした名前と線の終わりを細い灰色の線でつなぐ（色付きだと点が急に増えたように見える） */}
+            <line className="leader" x1={plotRight + 3} y1={l.lineY} x2={plotRight + 10} y2={l.labelY} />
+            <rect x={plotRight + 12} y={l.labelY - 4} width={8} height={8} rx={2} fill={l.color} />
+            <text x={plotRight + 23} y={l.labelY} dominantBaseline="middle">
+              {shorten(l.entry.name, labelChars)}
+            </text>
+          </g>
+        ))}
+        {hover !== undefined && lines.length > 0 && (
           <g>
             <line className="crosshair" x1={x(hover)} x2={x(hover)} y1={CHART.top} y2={CHART.top + plotHeight} />
             {hoverValues.map((s) => (
-              <circle
-                key={s.entry.userId}
-                className="marker"
-                cx={x(hover)}
-                cy={y(s.points)}
-                r={4}
-                fill={`var(--series-${s.slot + 1})`}
-              />
+              <circle key={s.entry.userId} className="marker" cx={x(hover)} cy={y(s.points)} r={4} fill={s.color} />
             ))}
           </g>
         )}
@@ -274,7 +339,7 @@ function RankingChart({ all, series, end }: { all: RankingEntryDto[]; series: Se
           <div className="muted">{formatTime(hover, withDate)}</div>
           {hoverValues.map((s) => (
             <div key={s.entry.userId} className="row">
-              <span className="swatch" style={{ background: `var(--series-${s.slot + 1})` }} />
+              <span className="swatch" style={{ background: s.color }} />
               <span className="tooltip-name">{s.entry.displayName}</span>
               <strong>{s.points}</strong>
             </div>
@@ -283,6 +348,31 @@ function RankingChart({ all, series, end }: { all: RankingEntryDto[]; series: Se
       )}
     </div>
   );
+}
+
+/**
+ * 名前の縦の位置を決める。線の終わりの高さ（lineY）の順に並べ、LABEL_GAP より近ければ下へずらし、
+ * 下にはみ出したぶんは下から上へ押し戻す
+ */
+function placeLabels<T extends { lineY: number }>(items: T[], top: number, bottom: number) {
+  const sorted = [...items].sort((a, b) => a.lineY - b.lineY).map((item) => ({ ...item, labelY: item.lineY }));
+  for (let i = 0; i < sorted.length; i++) {
+    const prev = sorted[i - 1];
+    const item = sorted[i];
+    if (item) item.labelY = Math.max(item.labelY, prev ? prev.labelY + LABEL_GAP : top);
+  }
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const next = sorted[i + 1];
+    const item = sorted[i];
+    if (item) item.labelY = Math.min(item.labelY, next ? next.labelY - LABEL_GAP : bottom);
+  }
+  return sorted;
+}
+
+/** max 文字を超える名前は末尾を「…」にする */
+function shorten(name: string, max: number) {
+  const chars = [...name];
+  return chars.length > max ? `${chars.slice(0, max - 1).join("")}…` : name;
 }
 
 function stepPath(history: RankingPointDto[], x: (t: number) => number, y: (p: number) => number) {

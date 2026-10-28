@@ -216,6 +216,8 @@ export interface RankingEntryDto {
   /** 順位。同点は同じ順位で、次はその人数分飛ばす（1, 1, 3…） */
   rank: number;
   userId: string;
+  /** 称号を付けない名前（グラフの線の終わりなど、狭い所に出す） */
+  name: string;
   displayName: string;
   status: UserStatus;
   /** ユーザ管理と同じく、現在の設定で計算したポイント */
