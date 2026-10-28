@@ -539,6 +539,18 @@ tr.dimmed .ranking-bar {
   stroke-linecap: round;
 }
 
+/* 選んでいない人の線。細い灰色で背景にし、選んだ人の色付きの線を目立たせる */
+.chart-wrap .series-line.context {
+  stroke: var(--muted);
+  stroke-width: 1;
+  opacity: 0.35;
+}
+
+.swatch-context {
+  background: var(--muted);
+  opacity: 0.5;
+}
+
 .chart-wrap .crosshair {
   stroke: var(--muted);
   stroke-width: 1;

@@ -63,24 +63,23 @@ export function AdminTrend() {
         <>
           <div className="card ranking-chart">
             <h2>累計ポイントの推移</h2>
-            {series.length === 0 ? (
-              <p className="muted">下の表でグラフに出す人を選んでください。</p>
-            ) : (
-              <>
-                <ul className="ranking-legend">
-                  {series.map(({ entry, slot }) => (
-                    <li key={entry.userId}>
-                      <span className="swatch" style={{ background: `var(--series-${slot + 1})` }} />
-                      {entry.displayName}
-                    </li>
-                  ))}
-                </ul>
-                <RankingChart series={series} end={data.generatedAt} />
-              </>
-            )}
+            <ul className="ranking-legend">
+              {series.map(({ entry, slot }) => (
+                <li key={entry.userId}>
+                  <span className="swatch" style={{ background: `var(--series-${slot + 1})` }} />
+                  {entry.displayName}
+                </li>
+              ))}
+              <li className="muted">
+                <span className="swatch swatch-context" />
+                その他の参加者
+              </li>
+            </ul>
+            <RankingChart all={data.ranking} series={series} end={data.generatedAt} />
           </div>
           <p className="muted">
-            グラフに出せるのは {MAX_LINES} 人までです。最新にするには上の「更新」を押してください。
+            色を付けて出せるのは {MAX_LINES}{" "}
+            人までです（ほかの人は灰色の線）。最新にするには上の「更新」を押してください。
           </p>
           <div className="table-wrap">
             <table>
@@ -137,8 +136,11 @@ interface Series {
   slot: number;
 }
 
-/** 累計ポイントの階段状の折れ線。ポイントは出来事の時刻で上がるので、次の出来事までは横ばいにする */
-function RankingChart({ series, end }: { series: Series[]; end: string }) {
+/**
+ * 累計ポイントの階段状の折れ線。ポイントは出来事の時刻で上がるので、次の出来事までは横ばいにする。
+ * 全員（all）を灰色の細い線で背景に描き、選んだ人（series）を色付きで重ねる。軸の範囲は全員から決める
+ */
+function RankingChart({ all, series, end }: { all: RankingEntryDto[]; series: Series[]; end: string }) {
   const [hover, setHover] = useState<number>();
   // 文字の大きさを保つため、viewBox で拡大縮小せず表示幅に合わせて描く
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -154,9 +156,12 @@ function RankingChart({ series, end }: { series: Series[]; end: string }) {
   const CHART = { ...MARGIN, width, height: narrow ? 240 : 320 };
 
   const endTime = Date.parse(end);
-  const startTime = Math.min(...series.map((s) => Date.parse(s.entry.history[0]?.at ?? end)));
+  const startTime = Math.min(...all.map((e) => Date.parse(e.history[0]?.at ?? end)));
   const span = Math.max(endTime - startTime, 60_000);
-  const maxPoints = niceMax(Math.max(...series.map((s) => s.entry.points), ...series.flatMap(historyPoints)));
+  const maxPoints = niceMax(
+    Math.max(...all.map((e) => e.points), ...all.flatMap((e) => e.history.map((h) => h.points))),
+  );
+  const selected = new Set(series.map((s) => s.entry.userId));
 
   const plotWidth = CHART.width - CHART.left - CHART.right;
   const plotHeight = CHART.height - CHART.top - CHART.bottom;
@@ -214,6 +219,11 @@ function RankingChart({ series, end }: { series: Series[]; end: string }) {
             {formatTime(tick, withDate)}
           </text>
         ))}
+        {all
+          .filter((e) => !selected.has(e.userId))
+          .map((e) => (
+            <path key={e.userId} className="series-line context" d={stepPath(e.history, x, y)} />
+          ))}
         {series.map(({ entry, slot }) => (
           <path
             key={entry.userId}
@@ -258,10 +268,6 @@ function RankingChart({ series, end }: { series: Series[]; end: string }) {
   );
 }
 
-function historyPoints(s: Series) {
-  return s.entry.history.map((h) => h.points);
-}
-
 function stepPath(history: RankingPointDto[], x: (t: number) => number, y: (p: number) => number) {
   return history
     .map((h, i) => {
@@ -287,7 +293,9 @@ function niceMax(max: number) {
   if (max <= 4) return 4;
   const step = max / 4;
   const magnitude = 10 ** Math.floor(Math.log10(step));
-  const nice = [1, 2, 5, 10].map((m) => m * magnitude).find((s) => s >= step) ?? step;
+  // 2.5 刻みは目盛りが整数になるとき（25, 250…）だけ使う
+  const multiples = magnitude >= 10 ? [1, 2, 2.5, 5, 10] : [1, 2, 5, 10];
+  const nice = multiples.map((m) => m * magnitude).find((s) => s >= step) ?? step;
   return nice * 4;
 }
 
