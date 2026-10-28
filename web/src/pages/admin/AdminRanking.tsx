@@ -1,9 +1,8 @@
 import type { RankingEntryDto, RankingPointDto, RankingResponse } from "@partally/shared";
 import { type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorMessage } from "../../api";
-import { useAutoRefresh } from "../../hooks/useAutoRefresh";
+import { useOnReload } from "../../hooks/useReload";
 
-const REFRESH_MS = 30_000;
 /** グラフに同時に出せる人数（色を見分けられるのは 8 色まで） */
 const MAX_LINES = 8;
 
@@ -17,7 +16,7 @@ export function AdminRanking() {
   /** グラフに出す人と色の番号（0〜7）。更新しても色は人に付いたまま変えない */
   const [slots, setSlots] = useState<Map<string, number>>();
 
-  // 定期更新と画面への復帰で読み込みが重なったとき、後から返ってきた古い応答で戻さない
+  // 「更新」を続けて押して読み込みが重なったとき、後から返ってきた古い応答で戻さない
   const latestRequest = useRef(0);
   const load = useCallback(() => {
     const request = ++latestRequest.current;
@@ -31,7 +30,7 @@ export function AdminRanking() {
   }, []);
 
   useEffect(load, [load]);
-  useAutoRefresh(load, REFRESH_MS);
+  useOnReload(load);
 
   // 参加者がいる最初の読み込みで上位をグラフに出す。以降は選んだ人を保ち、いなくなった人だけ外す
   useEffect(() => {
@@ -97,7 +96,7 @@ export function AdminRanking() {
             )}
           </div>
           <p className="muted">
-            グラフに出せるのは {MAX_LINES} 人までです。{REFRESH_MS / 1000} 秒ごとに更新します。
+            グラフに出せるのは {MAX_LINES} 人までです。最新にするには上の「更新」を押してください。
           </p>
           <div className="table-wrap">
             <table>

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "../api";
 import { CaptureButtons } from "../components/CaptureButtons";
 import { Lightbox } from "../components/Lightbox";
-import { useAutoRefresh } from "../hooks/useAutoRefresh";
+import { useOnReload } from "../hooks/useReload";
 
 const STATUS_LABEL: Record<PhotoStatus, string> = {
   pending: "確認待ち",
@@ -23,7 +23,7 @@ export function Mine() {
   }, []);
 
   useEffect(load, [load]);
-  useAutoRefresh(load, 5 * 60 * 1000);
+  useOnReload(load);
 
   return (
     <>

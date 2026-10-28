@@ -3,15 +3,13 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../api";
 import { formatTime, Lightbox } from "../../components/Lightbox";
-import { useAutoRefresh } from "../../hooks/useAutoRefresh";
+import { useOnReload } from "../../hooks/useReload";
 
 const TABS: { status: PhotoStatus; label: string }[] = [
   { status: "pending", label: "確認待ち" },
   { status: "approved", label: "公開中" },
   { status: "rejected", label: "却下済み" },
 ];
-/** 確認待ちは次々に届くので短く、それ以外も署名付き URL の期限が切れる前に取り直す */
-const POLL_INTERVAL_MS = { pending: 15_000, approved: 5 * 60_000, rejected: 5 * 60_000 } as const;
 
 export function AdminPhotos() {
   const [status, setStatus] = useState<PhotoStatus>("pending");
@@ -36,7 +34,7 @@ export function AdminPhotos() {
     setPhotos(undefined);
     void load();
   }, [load]);
-  useAutoRefresh(load, POLL_INTERVAL_MS[status]);
+  useOnReload(load);
 
   useEffect(() => {
     api<SettingsResponse>("GET", "/admin/settings")
