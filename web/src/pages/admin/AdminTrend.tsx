@@ -1,8 +1,7 @@
-import type { RankingEntryDto, RankingPointDto, RankingResponse } from "@partally/shared";
-import { type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, errorMessage } from "../../api";
+import type { RankingEntryDto, RankingPointDto } from "@partally/shared";
+import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { PageTitle } from "../../components/PageTitle";
-import { useOnReload } from "../../hooks/useReload";
+import { useRanking } from "../../hooks/useRanking";
 
 /** グラフに同時に出せる人数（色を見分けられるのは 8 色まで） */
 const MAX_LINES = 8;
@@ -13,26 +12,9 @@ const NARROW_WIDTH = 520;
 
 /** 累計ポイントの推移。表で選んだ人（最大 8 人）の折れ線を出す */
 export function AdminTrend() {
-  const [data, setData] = useState<RankingResponse>();
-  const [error, setError] = useState<string>();
+  const { data, error } = useRanking();
   /** グラフに出す人と色の番号（0〜7）。更新しても色は人に付いたまま変えない */
   const [slots, setSlots] = useState<Map<string, number>>();
-
-  // 「更新」を続けて押して読み込みが重なったとき、後から返ってきた古い応答で戻さない
-  const latestRequest = useRef(0);
-  const load = useCallback(() => {
-    const request = ++latestRequest.current;
-    api<RankingResponse>("GET", "/admin/ranking")
-      .then((res) => {
-        if (request !== latestRequest.current) return;
-        setData(res);
-        setError(undefined);
-      })
-      .catch((e) => request === latestRequest.current && setError(errorMessage(e)));
-  }, []);
-
-  useEffect(load, [load]);
-  useOnReload(load);
 
   // 参加者がいる最初の読み込みで上位をグラフに出す。以降は選んだ人を保ち、いなくなった人だけ外す
   useEffect(() => {
