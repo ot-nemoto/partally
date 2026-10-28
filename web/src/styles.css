@@ -540,15 +540,24 @@ tr.dimmed .ranking-bar {
 }
 
 /* 選んでいない人の線。細い灰色で背景にし、選んだ人の色付きの線を目立たせる */
+/* 選んでいない人の線。細い灰色で背景にし、選んだ人の色付きの線を目立たせる。
+   透明度はグループにまとめて付け、凡例の色見本とそろえる */
+:root {
+  --context-opacity: 0.35;
+}
+
+.chart-wrap .context-lines {
+  opacity: var(--context-opacity);
+}
+
 .chart-wrap .series-line.context {
   stroke: var(--muted);
   stroke-width: 1;
-  opacity: 0.35;
 }
 
 .swatch-context {
   background: var(--muted);
-  opacity: 0.5;
+  opacity: var(--context-opacity);
 }
 
 .chart-wrap .crosshair {

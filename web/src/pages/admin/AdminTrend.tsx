@@ -3,14 +3,14 @@ import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { PageTitle } from "../../components/PageTitle";
 import { useRanking } from "../../hooks/useRanking";
 
-/** グラフに同時に出せる人数（色を見分けられるのは 8 色まで） */
+/** 色を付けて強調できる人数（色を見分けられるのは 8 色まで）。ほかの人は灰色の線で描く */
 const MAX_LINES = 8;
 
 const MARGIN = { left: 44, right: 16, top: 12, bottom: 28 };
 /** これより狭いと、グラフを低くしてツールチップをグラフの下に出す */
 const NARROW_WIDTH = 520;
 
-/** 累計ポイントの推移。表で選んだ人（最大 8 人）の折れ線を出す */
+/** 累計ポイントの推移。全員を灰色の線で描き、表で選んだ人（最大 8 人）を色付きで強調する */
 export function AdminTrend() {
   const { data, error } = useRanking();
   /** グラフに出す人と色の番号（0〜7）。更新しても色は人に付いたまま変えない */
@@ -70,10 +70,12 @@ export function AdminTrend() {
                   {entry.displayName}
                 </li>
               ))}
-              <li className="muted">
-                <span className="swatch swatch-context" />
-                その他の参加者
-              </li>
+              {data.ranking.length > series.length && (
+                <li className="muted">
+                  <span className="swatch swatch-context" />
+                  その他の参加者
+                </li>
+              )}
             </ul>
             <RankingChart all={data.ranking} series={series} end={data.generatedAt} />
           </div>
@@ -85,7 +87,7 @@ export function AdminTrend() {
             <table>
               <thead>
                 <tr>
-                  <th>グラフ</th>
+                  <th>強調</th>
                   <th className="num">順位</th>
                   <th>名前</th>
                   <th className="num">ポイント</th>
@@ -103,7 +105,7 @@ export function AdminTrend() {
                             checked={slot !== undefined}
                             disabled={slot === undefined && full}
                             onChange={() => toggle(r.userId)}
-                            aria-label={`${r.displayName} をグラフに出す`}
+                            aria-label={`${r.displayName} をグラフで色付きにする`}
                           />
                           <span
                             className="swatch"
@@ -156,17 +158,35 @@ function RankingChart({ all, series, end }: { all: RankingEntryDto[]; series: Se
   const CHART = { ...MARGIN, width, height: narrow ? 240 : 320 };
 
   const endTime = Date.parse(end);
-  const startTime = Math.min(...all.map((e) => Date.parse(e.history[0]?.at ?? end)));
+  // 軸の範囲は全員から決める。人数や出来事が多くても引数の上限に当たらないよう、展開せずに数える
+  const { startTime, maxPoints } = useMemo(() => {
+    let start = endTime;
+    let max = 0;
+    for (const e of all) {
+      start = Math.min(start, Date.parse(e.history[0]?.at ?? end));
+      max = Math.max(max, e.points);
+      for (const h of e.history) max = Math.max(max, h.points);
+    }
+    return { startTime: start, maxPoints: niceMax(max) };
+  }, [all, end, endTime]);
   const span = Math.max(endTime - startTime, 60_000);
-  const maxPoints = niceMax(
-    Math.max(...all.map((e) => e.points), ...all.flatMap((e) => e.history.map((h) => h.points))),
-  );
-  const selected = new Set(series.map((s) => s.entry.userId));
 
   const plotWidth = CHART.width - CHART.left - CHART.right;
   const plotHeight = CHART.height - CHART.top - CHART.bottom;
   const x = (time: number) => CHART.left + ((time - startTime) / span) * plotWidth;
   const y = (points: number) => CHART.top + plotHeight - (points / maxPoints) * plotHeight;
+
+  // 灰色の線はホバーでは変わらないので、データ・選択・大きさが変わったときだけ作り直す
+  const chartHeight = CHART.height;
+  const contextPaths = useMemo(() => {
+    const selected = new Set(series.map((s) => s.entry.userId));
+    const plotH = chartHeight - MARGIN.top - MARGIN.bottom;
+    const toX = (time: number) => MARGIN.left + ((time - startTime) / span) * (width - MARGIN.left - MARGIN.right);
+    const toY = (points: number) => MARGIN.top + plotH - (points / maxPoints) * plotH;
+    return all
+      .filter((e) => !selected.has(e.userId))
+      .map((e) => <path key={e.userId} className="series-line context" d={stepPath(e.history, toX, toY)} />);
+  }, [all, series, startTime, span, maxPoints, width, chartHeight]);
 
   const yTicks = Array.from({ length: 5 }, (_, i) => (maxPoints / 4) * i);
   const xTickCount = narrow ? 3 : 5;
@@ -219,11 +239,8 @@ function RankingChart({ all, series, end }: { all: RankingEntryDto[]; series: Se
             {formatTime(tick, withDate)}
           </text>
         ))}
-        {all
-          .filter((e) => !selected.has(e.userId))
-          .map((e) => (
-            <path key={e.userId} className="series-line context" d={stepPath(e.history, x, y)} />
-          ))}
+        {/* 透明度はまとめて付ける（線ごとに付けると重なった所が濃くなる） */}
+        <g className="context-lines">{contextPaths}</g>
         {series.map(({ entry, slot }) => (
           <path
             key={entry.userId}
@@ -232,7 +249,7 @@ function RankingChart({ all, series, end }: { all: RankingEntryDto[]; series: Se
             stroke={`var(--series-${slot + 1})`}
           />
         ))}
-        {hover !== undefined && (
+        {hover !== undefined && series.length > 0 && (
           <g>
             <line className="crosshair" x1={x(hover)} x2={x(hover)} y1={CHART.top} y2={CHART.top + plotHeight} />
             {hoverValues.map((s) => (
@@ -293,9 +310,12 @@ function niceMax(max: number) {
   if (max <= 4) return 4;
   const step = max / 4;
   const magnitude = 10 ** Math.floor(Math.log10(step));
-  // 2.5 刻みは目盛りが整数になるとき（25, 250…）だけ使う
-  const multiples = magnitude >= 10 ? [1, 2, 2.5, 5, 10] : [1, 2, 5, 10];
-  const nice = multiples.map((m) => m * magnitude).find((s) => s >= step) ?? step;
+  // 目盛りが整数になる刻みだけを使う（2.5 刻みは 25, 250… のときだけ）
+  const nice =
+    [1, 2, 2.5, 5, 10]
+      .map((m) => m * magnitude)
+      .filter(Number.isInteger)
+      .find((s) => s >= step) ?? step;
   return nice * 4;
 }
 
