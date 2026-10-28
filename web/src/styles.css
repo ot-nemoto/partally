@@ -1038,8 +1038,13 @@ textarea {
   white-space: nowrap;
 }
 
+/* 開いたら問題文を他のカードと同じ見た目で全文出す */
 .quiz-closed[open] .quiz-summary-text {
-  display: none;
+  color: var(--text);
+  font-size: 1.1rem;
+  font-weight: 600;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .status {

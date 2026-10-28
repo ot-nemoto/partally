@@ -33,20 +33,28 @@ export function Mine() {
   useEffect(load, [load]);
   useOnReload(load);
 
-  // 送信が終わるたびに一覧を取り直す（サーバ側の登録が少し遅れるので少し待つ）。画面を離れたら取り直さない
+  // 送信待ちが減ったら（送信の完了。諦めて破棄したときも含む）一覧を取り直す。サーバ側の登録は S3 のイベントで
+  // 少し遅れる（Lambda の起動待ちでは数秒）ので、少し待ってから 1 回、最後の送信から 5 秒後にもう 1 回取り直す。
+  // 続けて送っている間も最初の取り直しは延ばさない。画面を離れたら取り直さない
   useEffect(() => {
     let previous = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let soon: ReturnType<typeof setTimeout> | undefined;
+    let late: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = subscribeQueue((s) => {
       if (s.waiting < previous) {
-        clearTimeout(timer);
-        timer = setTimeout(load, 1500);
+        soon ??= setTimeout(() => {
+          soon = undefined;
+          load();
+        }, 1500);
+        clearTimeout(late);
+        late = setTimeout(load, 5000);
       }
       previous = s.waiting;
     });
     return () => {
       unsubscribe();
-      clearTimeout(timer);
+      clearTimeout(soon);
+      clearTimeout(late);
     };
   }, [load]);
 

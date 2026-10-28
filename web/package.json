@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/righteous": "^5.3.0",
     "@partally/shared": "*",
     "heic2any": "^0.0.4",
     "qrcode": "^1.5.4",

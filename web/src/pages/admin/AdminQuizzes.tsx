@@ -144,7 +144,6 @@ export function AdminQuizzes() {
                 <span className="quiz-card-header">{header(q, number)}</span>
                 <span className="quiz-summary-text">{q.text}</span>
               </summary>
-              <p className="quiz-text">{q.text}</p>
               {body}
             </details>
           );
