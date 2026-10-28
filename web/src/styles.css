@@ -19,6 +19,8 @@
   --series-6: #008300;
   --series-7: #6250d6;
   --series-8: #e34948;
+  --series-9: #9a6b3f;
+  --series-10: #0e9bb0;
   color-scheme: light dark;
 }
 
@@ -34,7 +36,7 @@
     --danger: #f87171;
     --error-bg: #3b1d1d;
     --notice-bg: #3a2f12;
-    /* グラフの系列色（暗い背景向けに明るさをそろえた同じ 8 色） */
+    /* グラフの系列色（暗い背景向けに明るさをそろえた同じ 10 色） */
     --series-1: #3987e5;
     --series-2: #d95926;
     --series-3: #199e70;
@@ -43,6 +45,8 @@
     --series-6: #008300;
     --series-7: #9085e9;
     --series-8: #e66767;
+    --series-9: #b88a5c;
+    --series-10: #22b2c6;
   }
 }
 
@@ -539,7 +543,6 @@ tr.dimmed .ranking-bar {
   stroke-linecap: round;
 }
 
-/* 選んでいない人の線。細い灰色で背景にし、選んだ人の色付きの線を目立たせる */
 /* 選んでいない人の線。細い灰色で背景にし、選んだ人の色付きの線を目立たせる。
    透明度はグループにまとめて付け、凡例の色見本とそろえる */
 :root {
@@ -558,6 +561,31 @@ tr.dimmed .ranking-bar {
 .swatch-context {
   background: var(--muted);
   opacity: var(--context-opacity);
+}
+
+/* カーソルを合わせた人の線は太くし、ほかの色付きの線と名前を薄くする */
+.chart-wrap .series-line.focused {
+  stroke-width: 3.5;
+}
+
+.chart-wrap .has-focus .series-line:not(.focused, .context),
+.chart-wrap .has-focus .end-label:not(.focused) {
+  opacity: 0.25;
+}
+
+/* 線の終わりの名前 */
+.chart-wrap .end-label text {
+  fill: var(--text);
+  font-size: 11px;
+}
+
+.chart-wrap .end-label.focused text {
+  font-weight: 700;
+}
+
+.chart-wrap .end-label .leader {
+  stroke: var(--muted);
+  stroke-width: 1;
 }
 
 .chart-wrap .crosshair {
