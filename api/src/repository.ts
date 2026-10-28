@@ -40,6 +40,13 @@ export interface PhotoRecord {
   reviewedAt?: string;
 }
 
+/** お気に入り（userId が photoId を選んだ） */
+export interface FavoriteRecord {
+  userId: string;
+  photoId: string;
+  createdAt: string;
+}
+
 export interface QuizChoice {
   choiceId: string;
   text: string;
@@ -212,8 +219,8 @@ export interface Repository {
   /** userId が選んでいる写真の ID */
   listFavoritePhotoIds(userId: string): Promise<string[]>;
 
-  /** photoId を選んでいるユーザの ID */
-  listFavoriteUserIds(photoId: string): Promise<string[]>;
+  /** photoId へのお気に入り（選んだ人と時刻） */
+  listFavoritesOfPhoto(photoId: string): Promise<FavoriteRecord[]>;
 
   /** photoId へのお気に入りをすべて外す（写真の削除時） */
   clearFavorites(photoId: string): Promise<void>;

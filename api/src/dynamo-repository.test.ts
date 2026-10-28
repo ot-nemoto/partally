@@ -320,6 +320,19 @@ describe("DynamoRepository", () => {
       );
     });
 
+    it("写真ごとのお気に入りを、選んだ人と時刻つきで返す", async () => {
+      ddb.on(QueryCommand).resolves({
+        Items: [{ userId: "u1", photoId: "P1", createdAt: "2026-01-02T00:00:00.000Z" }],
+      });
+      expect(await repo.listFavoritesOfPhoto("P1")).toEqual([
+        { userId: "u1", photoId: "P1", createdAt: "2026-01-02T00:00:00.000Z" },
+      ]);
+      expect(ddb.commandCalls(QueryCommand)[0]!.args[0].input).toMatchObject({
+        IndexName: "GSI1",
+        ExpressionAttributeValues: { ":pk": "FAVS#P1" },
+      });
+    });
+
     it("自分の写真は選べない", async () => {
       await expect(repo.addFavorite("u2", photo, 10, "x")).rejects.toBeInstanceOf(InvalidStateError);
       expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(0);
