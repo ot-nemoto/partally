@@ -68,20 +68,24 @@ export function ParticipantLayout() {
   const [quiz, setQuizState] = useState<CurrentQuizDto | null>();
   const loggedIn = useRef(false);
   loggedIn.current = state.kind === "user";
-  // 回答した回数。確認の途中で回答されたら、古い応答で回答を上書きしない
-  const answerCount = useRef(0);
+  // 回答と確認のたびに増やす。確認の途中で回答されたり、後から送った確認が先に返ったりしたら、
+  // 古い応答で上書きしない（遅い通信で締め切り前の応答が後から届き、お知らせが戻るのを防ぐ）
+  const quizVersion = useRef(0);
   const setQuiz = useCallback((next: CurrentQuizDto | null) => {
-    answerCount.current++;
+    quizVersion.current++;
     setQuizState(next);
   }, []);
   const refreshQuiz = useCallback(async () => {
     if (!loggedIn.current) return;
-    const startedAt = answerCount.current;
+    const version = ++quizVersion.current;
     await api<CurrentQuizResponse>("GET", "/quiz/current")
       .then((res) => {
-        if (answerCount.current === startedAt) setQuizState(res.quiz);
+        if (quizVersion.current === version) setQuizState(res.quiz);
       })
-      .catch(() => undefined);
+      .catch((e) => {
+        // ログインが切れたら案内の画面にする（確認も止まる）。通信エラーは次の確認に任せる
+        if (e instanceof ApiError && e.status === 401) setState({ kind: "guest" });
+      });
   }, []);
   useEffect(() => {
     if (state.kind === "user") void refreshQuiz();

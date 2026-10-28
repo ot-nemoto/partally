@@ -2,7 +2,7 @@ import { useEffect } from "react";
 
 /**
  * 画面が表示されている間 intervalMs ごとに refresh を呼び、別のタブやアプリから戻ってきたときにも呼ぶ。
- * 画面が見えていない間は呼ばない。自動で取り直すのは出題中のクイズだけ（それ以外は「更新」ボタンで取り直す）
+ * 画面が見えていない間は呼ばない
  */
 export function useAutoRefresh(refresh: () => void, intervalMs: number) {
   useEffect(() => {
