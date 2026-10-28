@@ -52,11 +52,6 @@ export function Mine() {
           </div>
         ))}
       </div>
-      {photos && (
-        <button type="button" className="more" onClick={load}>
-          更新
-        </button>
-      )}
       {selected && (
         <Lightbox photo={selected} onClose={() => setSelected(undefined)}>
           <span className="small">
