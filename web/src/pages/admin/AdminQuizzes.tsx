@@ -14,11 +14,9 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
 import { Modal } from "../../components/Modal";
 import { NumberField } from "../../components/NumberField";
-import { useAutoRefresh } from "../../hooks/useAutoRefresh";
+import { useOnReload } from "../../hooks/useReload";
 
 const STATUS_LABEL: Record<QuizStatus, string> = { draft: "下書き", open: "出題中", closed: "締め切り" };
-/** 出題中の回答数を追えるよう、短い間隔で取り直す */
-const POLL_INTERVAL_MS = 5_000;
 
 export function AdminQuizzes() {
   const [quizzes, setQuizzes] = useState<QuizDto[]>();
@@ -40,7 +38,7 @@ export function AdminQuizzes() {
   useEffect(() => {
     void load();
   }, [load]);
-  useAutoRefresh(load, POLL_INTERVAL_MS);
+  useOnReload(load);
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);

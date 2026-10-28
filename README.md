@@ -15,6 +15,7 @@
 - ポイント：写真が公開されると 1 枚ごと、お気に入りに選ばれると 1 回ごとにポイントが入る（点数と、参加者のホーム画面に表示するかは管理画面で設定）
 - お気に入り：「みんなの写真」で他の人の写真を上限（既定 10 枚）まで選べる。受付のオン／オフと上限は管理画面で設定
 - クイズ：管理者が選択肢付きの問題を作り（選択肢ごとに点数を設定）、好きなタイミングで出題・締め切り。参加者はスマホで答え、締め切った時点の回答の点数がポイントに入る
+- ランキング：管理画面で順位・名前・ポイントの表と、累計ポイントの推移の折れ線グラフを見られる
 
 本番データの初期化は GitHub Actions の Reset ワークフローから行う（[docs/setup.md](docs/setup.md)「本番データの初期化」）。
 
@@ -35,7 +36,7 @@
 
 ## 開発の進め方
 
-作業は Issue から始め、概要・作業内容・確認内容を必ず書く（「作業」テンプレートで必須）。ブランチで作業して `master` 宛ての PR を作り、PR テンプレートに沿って `Closes #<Issue 番号>` と実際に行った確認を書く。詳しくは [CLAUDE.md](CLAUDE.md) を参照。
+作業は Issue から始め、概要・作業内容・確認内容を必ず書く（「作業」テンプレートで必須）。ブランチで作業して `develop` 宛ての PR を作り、PR テンプレートに沿って `Closes #<Issue 番号>` と実際に行った確認を書く。詳しくは [CLAUDE.md](CLAUDE.md) を参照。
 
 ## ローカル開発
 
@@ -61,14 +62,15 @@ npm run format   # 整形と import の並べ替え、安全な自動修正を�
 
 - lint と整形は [Biome](https://biomejs.dev/) で行う。設定は `biome.json`。
 - `style/noNonNullAssertion` は無効にしている（`noUncheckedIndexedAccess` を有効にしているため、添字アクセスの後の `!` を意図して使う）。テストでは `any` を許可している。
-- master 宛ての PR と master への push では GitHub Actions の CI（`.github/workflows/ci.yml`）が lint・型チェック・テスト・ビルドを実行する。デプロイ（`deploy.yml`）は型チェックとテストだけを行う。
+- develop 宛ての PR と develop への push では GitHub Actions の CI（`.github/workflows/ci.yml`）が lint・型チェック・テスト・ビルドを実行する。develop への push（PR のマージ）では、続けて本番へデプロイする。
+- 毎朝 develop → master の PR が自動で作られ、マージすると master でタグと GitHub Release が作られる。依存パッケージと Actions の更新は Dependabot が毎週 develop 宛てに PR を作る。
 - エディタは Biome の拡張機能（VS Code なら `biomejs.biome`）を入れると、保存時に整形できる。
 
 ## デプロイ
 
 初期設定とデプロイの手順は [docs/setup.md](docs/setup.md) を参照。
 
-- **GitHub Actions から（推奨）**: AWS 側で署名鍵・CDK ブートストラップ・デプロイ用 IAM ロールを用意し、GitHub の `production` Environment に設定を登録して、Actions の Deploy ワークフローを手動実行する。
+- **GitHub Actions から（推奨）**: AWS 側で署名鍵・CDK ブートストラップ・デプロイ用 IAM ロールを用意し、GitHub の `production` Environment に設定を登録して、develop へ PR をマージすると Actions の CI ワークフローが自動でデプロイする。
 - **手元の PC から**: 同じ AWS 側の準備をした上で `npm run deploy`。
 
 デプロイ後、管理画面で QR を発行して印刷する。QR はデプロイ先の URL を指すため、**本番の管理画面から印刷すること**。

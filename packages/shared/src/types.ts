@@ -204,3 +204,27 @@ export interface CurrentQuizDto {
 export interface CurrentQuizResponse {
   quiz: CurrentQuizDto | null;
 }
+
+/** 累計ポイントの推移の 1 点 */
+export interface RankingPointDto {
+  at: string;
+  /** その時点までの累計ポイント */
+  points: number;
+}
+
+export interface RankingEntryDto {
+  /** 順位。同点は同じ順位で、次はその人数分飛ばす（1, 1, 3…） */
+  rank: number;
+  userId: string;
+  displayName: string;
+  status: UserStatus;
+  /** ユーザ管理と同じく、現在の設定で計算したポイント */
+  points: number;
+  /** 登録時の 0 から現在までの累計ポイント。点が増減した時刻ごとに 1 点、最後は現在の時刻 */
+  history: RankingPointDto[];
+}
+
+export interface RankingResponse {
+  ranking: RankingEntryDto[];
+  generatedAt: string;
+}

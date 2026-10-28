@@ -1,0 +1,55 @@
+name: Bump Version
+
+on:
+  pull_request:
+    branches:
+      - master
+    types:
+      - labeled
+
+jobs:
+  bump:
+    # fork PR ではブランチが base 側に無く GITHUB_TOKEN も read-only のため push に失敗する。
+    # 同一リポジトリの PR に限定し、fork PR は（失敗させず）スキップする。
+    if: >
+      (github.event.label.name == 'bump:patch' || github.event.label.name == 'bump:minor')
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    concurrency:
+      group: bump-version-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Bump version
+        id: bump
+        run: |
+          TYPE=${{ github.event.label.name == 'bump:minor' && 'minor' || 'patch' }}
+          # --ignore-scripts: PR 側 package.json の preversion/version/postversion を実行させない（サプライチェーン対策）
+          npx -y npm@11 version $TYPE --no-git-tag-version --ignore-scripts
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          # GITHUB_TOKEN の push ではワークフローが動かないので [skip ci] は付けない
+          # （付けると squash・rebase でマージしたときに master の先頭コミットに残り、release.yml が動かなくなる）
+          git commit -m "chore: bump version to ${{ steps.bump.outputs.version }}"
+          # 実行中に develop へ別の PR がマージされても取り込んで push し直す
+          for i in 1 2 3; do
+            git push && exit 0
+            git pull --rebase
+          done
+          exit 1

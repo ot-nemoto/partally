@@ -24,8 +24,8 @@ export class MemoryRepository implements Repository {
   private users = new Map<string, UserRecord>();
   private epithets = new Map<string, string>();
   private photos = new Map<string, PhotoRecord>();
-  /** 「選んだ人 → 写真」の組。キーは `${userId}#${photoId}` */
-  private favorites = new Set<string>();
+  /** 「選んだ人 → 写真」の組と選んだ時刻。キーは `${userId}#${photoId}` */
+  private favorites = new Map<string, string>();
   private quizzes = new Map<string, QuizRecord>();
   /** キーは `${userId}#${quizId}` */
   private quizAnswers = new Map<string, QuizAnswerRecord>();
@@ -172,7 +172,7 @@ export class MemoryRepository implements Repository {
     return clone(photo);
   }
 
-  async addFavorite(userId: string, photo: PhotoRecord, limit: number) {
+  async addFavorite(userId: string, photo: PhotoRecord, limit: number, createdAt: string) {
     const key = `${userId}#${photo.photoId}`;
     if (this.favorites.has(key)) return;
     const chooser = this.users.get(userId);
@@ -180,7 +180,7 @@ export class MemoryRepository implements Repository {
     if (chooser.favoritesGiven >= limit) throw new FavoriteLimitError();
     const stored = this.photos.get(photo.photoId);
     if (stored?.status !== "approved") throw new InvalidStateError();
-    this.favorites.add(key);
+    this.favorites.set(key, createdAt);
     chooser.favoritesGiven++;
     stored.favoriteCount++;
     this.userOf(stored).favoritesReceived++;
@@ -199,17 +199,19 @@ export class MemoryRepository implements Repository {
   }
 
   async listFavoritePhotoIds(userId: string) {
-    return [...this.favorites].filter((k) => k.startsWith(`${userId}#`)).map((k) => k.split("#")[1]!);
+    return [...this.favorites.keys()].filter((k) => k.startsWith(`${userId}#`)).map((k) => k.split("#")[1]!);
   }
 
-  async listFavoriteUserIds(photoId: string) {
-    return [...this.favorites].filter((k) => k.endsWith(`#${photoId}`)).map((k) => k.split("#")[0]!);
+  async listFavoritesOfPhoto(photoId: string) {
+    return [...this.favorites]
+      .filter(([k]) => k.endsWith(`#${photoId}`))
+      .map(([k, createdAt]) => ({ userId: k.split("#")[0]!, photoId, createdAt }));
   }
 
   async clearFavorites(photoId: string) {
     const photo = this.photos.get(photoId);
     if (!photo) return;
-    for (const userId of await this.listFavoriteUserIds(photoId)) await this.removeFavorite(userId, photo);
+    for (const { userId } of await this.listFavoritesOfPhoto(photoId)) await this.removeFavorite(userId, photo);
   }
 
   async createQuiz(quiz: QuizRecord) {

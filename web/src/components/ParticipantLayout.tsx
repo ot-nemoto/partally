@@ -2,12 +2,7 @@ import type { CurrentQuizDto, CurrentQuizResponse, MeResponse, Rules, UserDto } 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useOutletContext } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../api";
-import { useAutoRefresh } from "../hooks/useAutoRefresh";
-
-/** 管理画面での設定の変更（お気に入りの受付・ポイントの表示）を反映するため、表示中はこの間隔で自分の情報とルールを取り直す */
-const RULES_REFRESH_MS = 30_000;
-/** 出題に気づけるよう、表示中はこの間隔で出題中のクイズを確認する */
-const QUIZ_REFRESH_MS = 5_000;
+import { ReloadProvider } from "../hooks/useReload";
 
 export interface ParticipantContext {
   user: UserDto;
@@ -48,15 +43,18 @@ export function ParticipantLayout() {
 
   useEffect(reloadUser, [reloadUser]);
 
-  // 裏での取り直しは、通信エラーでは画面を切り替えない（ログアウト状態になったときだけ反映する）
-  const refreshQuietly = useCallback(() => {
-    api<MeResponse>("GET", "/me")
-      .then((res) => setState((prev) => (prev.kind === "user" ? { ...prev, user: res.user, rules: res.rules } : prev)))
-      .catch((e) => {
-        if (e instanceof ApiError && e.status === 401) setState({ kind: "guest" });
-      });
-  }, []);
-  useAutoRefresh(refreshQuietly, RULES_REFRESH_MS);
+  // 「更新」での取り直しは、通信エラーでは画面を切り替えない（ログアウト状態になったときだけ反映する）
+  const refreshQuietly = useCallback(
+    () =>
+      api<MeResponse>("GET", "/me")
+        .then((res) =>
+          setState((prev) => (prev.kind === "user" ? { ...prev, user: res.user, rules: res.rules } : prev)),
+        )
+        .catch((e) => {
+          if (e instanceof ApiError && e.status === 401) setState({ kind: "guest" });
+        }),
+    [],
+  );
 
   const setUser = useCallback(
     (user: UserDto) => setState((prev) => (prev.kind === "user" ? { ...prev, user } : prev)),
@@ -72,19 +70,28 @@ export function ParticipantLayout() {
     answerCount.current++;
     setQuizState(next);
   }, []);
-  const refreshQuiz = useCallback(() => {
+  const refreshQuiz = useCallback(async () => {
     if (!loggedIn.current) return;
     const startedAt = answerCount.current;
-    api<CurrentQuizResponse>("GET", "/quiz/current")
+    await api<CurrentQuizResponse>("GET", "/quiz/current")
       .then((res) => {
         if (answerCount.current === startedAt) setQuizState(res.quiz);
       })
       .catch(() => undefined);
   }, []);
   useEffect(() => {
-    if (state.kind === "user") refreshQuiz();
+    if (state.kind === "user") void refreshQuiz();
   }, [state.kind, refreshQuiz]);
-  useAutoRefresh(refreshQuiz, QUIZ_REFRESH_MS);
+
+  // 自動では取り直さない。「更新」で自分の情報・ルール・出題中のクイズと、表示中の画面の一覧を取り直す
+  const [reloadCount, setReloadCount] = useState(0);
+  const [reloading, setReloading] = useState(false);
+  const reload = useCallback(async () => {
+    setReloading(true);
+    setReloadCount((n) => n + 1);
+    await Promise.all([refreshQuietly(), refreshQuiz()]);
+    setReloading(false);
+  }, [refreshQuietly, refreshQuiz]);
   const location = useLocation();
 
   if (state.kind === "loading") return <main className="page muted">読み込み中…</main>;
@@ -117,11 +124,13 @@ export function ParticipantLayout() {
             </span>
           </Link>
         )}
-        <Outlet
-          context={
-            { user: state.user, rules: state.rules, reloadUser, setUser, quiz, setQuiz } satisfies ParticipantContext
-          }
-        />
+        <ReloadProvider value={reloadCount}>
+          <Outlet
+            context={
+              { user: state.user, rules: state.rules, reloadUser, setUser, quiz, setQuiz } satisfies ParticipantContext
+            }
+          />
+        </ReloadProvider>
       </main>
       <nav className="tabbar">
         <NavLink to="/" end>
@@ -129,6 +138,9 @@ export function ParticipantLayout() {
         </NavLink>
         <NavLink to="/gallery">みんなの写真</NavLink>
         <NavLink to="/mine">自分の写真</NavLink>
+        <button type="button" className="tabbar-reload" onClick={reload} disabled={reloading}>
+          {reloading ? "更新中…" : "↻ 更新"}
+        </button>
       </nav>
     </div>
   );

@@ -1,0 +1,23 @@
+# 依存パッケージと Actions の更新 PR を毎週 develop 宛てに作る。
+# npm はルートの package-lock.json で全 workspace（packages/shared・api・web・infra）をまとめて見る
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    target-branch: develop
+    groups:
+      production-dependencies:
+        dependency-type: production
+      development-dependencies:
+        dependency-type: development
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: develop

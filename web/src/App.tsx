@@ -4,6 +4,7 @@ import { AdminLayout } from "./pages/admin/AdminLayout";
 import { AdminLogin } from "./pages/admin/AdminLogin";
 import { AdminPhotos } from "./pages/admin/AdminPhotos";
 import { AdminQuizzes } from "./pages/admin/AdminQuizzes";
+import { AdminRanking } from "./pages/admin/AdminRanking";
 import { AdminSettings } from "./pages/admin/AdminSettings";
 import { AdminTokens } from "./pages/admin/AdminTokens";
 import { AdminTokensPrint } from "./pages/admin/AdminTokensPrint";
@@ -31,6 +32,7 @@ export function App() {
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<AdminUsers />} />
         <Route path="users" element={<AdminUsers />} />
+        <Route path="ranking" element={<AdminRanking />} />
         <Route path="tokens" element={<AdminTokens />} />
         <Route path="photos" element={<AdminPhotos />} />
         <Route path="quizzes" element={<AdminQuizzes />} />
