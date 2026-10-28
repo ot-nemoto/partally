@@ -1,17 +1,15 @@
 import type { PhotoDto, PhotoResponse, PhotoStatus, PhotosResponse, SettingsResponse } from "@partally/shared";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../api";
 import { formatTime, Lightbox } from "../../components/Lightbox";
-import { useAutoRefresh } from "../../hooks/useAutoRefresh";
+import { useOnReload } from "../../hooks/useReload";
 
 const TABS: { status: PhotoStatus; label: string }[] = [
   { status: "pending", label: "確認待ち" },
   { status: "approved", label: "公開中" },
   { status: "rejected", label: "却下済み" },
 ];
-/** 確認待ちは次々に届くので短く、それ以外も署名付き URL の期限が切れる前に取り直す */
-const POLL_INTERVAL_MS = { pending: 15_000, approved: 5 * 60_000, rejected: 5 * 60_000 } as const;
 
 export function AdminPhotos() {
   const [status, setStatus] = useState<PhotoStatus>("pending");
@@ -21,14 +19,18 @@ export function AdminPhotos() {
   const [error, setError] = useState<string>();
   const [selected, setSelected] = useState<PhotoDto>();
 
+  // タブの切り替えや「更新」で読み込みが重なったとき、後から返ってきた古い応答（別のタブの一覧）で上書きしない
+  const latestRequest = useRef(0);
   const load = useCallback(async () => {
+    const request = ++latestRequest.current;
     try {
       const res = await api<PhotosResponse>("GET", `/admin/photos?status=${status}`);
+      if (request !== latestRequest.current) return;
       setPhotos(res.photos);
       setCursor(res.cursor);
       setError(undefined);
     } catch (e) {
-      setError(errorMessage(e));
+      if (request === latestRequest.current) setError(errorMessage(e));
     }
   }, [status]);
 
@@ -36,7 +38,7 @@ export function AdminPhotos() {
     setPhotos(undefined);
     void load();
   }, [load]);
-  useAutoRefresh(load, POLL_INTERVAL_MS[status]);
+  useOnReload(load);
 
   useEffect(() => {
     api<SettingsResponse>("GET", "/admin/settings")

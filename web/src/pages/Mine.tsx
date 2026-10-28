@@ -1,9 +1,9 @@
 import type { PhotoDto, PhotoStatus, PhotosResponse } from "@partally/shared";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../api";
 import { CaptureButtons } from "../components/CaptureButtons";
 import { Lightbox } from "../components/Lightbox";
-import { useAutoRefresh } from "../hooks/useAutoRefresh";
+import { useOnReload } from "../hooks/useReload";
 
 const STATUS_LABEL: Record<PhotoStatus, string> = {
   pending: "確認待ち",
@@ -16,14 +16,21 @@ export function Mine() {
   const [error, setError] = useState<string>();
   const [selected, setSelected] = useState<PhotoDto>();
 
+  // 「更新」を続けて押して読み込みが重なったとき、後から返ってきた古い応答で戻さない
+  const latestRequest = useRef(0);
   const load = useCallback(() => {
+    const request = ++latestRequest.current;
     api<PhotosResponse>("GET", "/photos/mine")
-      .then((res) => setPhotos(res.photos))
-      .catch((e) => setError(errorMessage(e)));
+      .then((res) => {
+        if (request !== latestRequest.current) return;
+        setPhotos(res.photos);
+        setError(undefined);
+      })
+      .catch((e) => request === latestRequest.current && setError(errorMessage(e)));
   }, []);
 
   useEffect(load, [load]);
-  useAutoRefresh(load, 5 * 60 * 1000);
+  useOnReload(load);
 
   return (
     <>

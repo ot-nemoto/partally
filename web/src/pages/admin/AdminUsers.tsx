@@ -2,6 +2,7 @@ import type { UserDto, UserResponse, UsersResponse } from "@partally/shared";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
 import { Modal } from "../../components/Modal";
+import { useOnReload } from "../../hooks/useReload";
 
 export function AdminUsers() {
   const [users, setUsers] = useState<UserDto[]>();
@@ -10,11 +11,15 @@ export function AdminUsers() {
 
   const load = useCallback(() => {
     api<UsersResponse>("GET", "/admin/users")
-      .then((res) => setUsers(res.users))
+      .then((res) => {
+        setUsers(res.users);
+        setError(undefined);
+      })
       .catch((e) => setError(errorMessage(e)));
   }, []);
 
   useEffect(load, [load]);
+  useOnReload(load);
 
   function replace(user: UserDto) {
     setUsers((prev) => prev?.map((u) => (u.userId === user.userId ? user : u)));

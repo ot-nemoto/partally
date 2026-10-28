@@ -2,6 +2,7 @@ import type { TokenDto, TokensResponse } from "@partally/shared";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../api";
+import { useOnReload } from "../../hooks/useReload";
 
 export function AdminTokens() {
   const [tokens, setTokens] = useState<TokenDto[]>();
@@ -11,11 +12,15 @@ export function AdminTokens() {
 
   const load = useCallback(() => {
     api<TokensResponse>("GET", "/admin/tokens")
-      .then((res) => setTokens(res.tokens))
+      .then((res) => {
+        setTokens(res.tokens);
+        setError(undefined);
+      })
       .catch((e) => setError(errorMessage(e)));
   }, []);
 
   useEffect(load, [load]);
+  useOnReload(load);
 
   async function issue(e: FormEvent) {
     e.preventDefault();
