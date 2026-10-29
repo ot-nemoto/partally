@@ -41,18 +41,20 @@ export function AdminQuizzes() {
   const [busy, setBusy] = useState(false);
   const [shown, setShown] = useState(loadShown);
 
+  function changeShown(next: Set<QuizStatus>) {
+    setShown(next);
+    try {
+      localStorage.setItem(SHOWN_KEY, JSON.stringify([...next]));
+    } catch {
+      // 覚えられなくても、この画面の間は切り替わる
+    }
+  }
+
   function toggleShown(status: QuizStatus) {
-    setShown((prev) => {
-      const next = new Set(prev);
-      if (next.has(status)) next.delete(status);
-      else next.add(status);
-      try {
-        localStorage.setItem(SHOWN_KEY, JSON.stringify([...next]));
-      } catch {
-        // 覚えられなくても、この画面の間は切り替わる
-      }
-      return next;
-    });
+    const next = new Set(shown);
+    if (next.has(status)) next.delete(status);
+    else next.add(status);
+    changeShown(next);
   }
 
   const load = useCallback(async () => {
@@ -97,7 +99,10 @@ export function AdminQuizzes() {
   // 「第 N 問」は作成順の番号。新しい問題を上にし、選んだ状態の問題だけを出す
   const numbered = (quizzes ?? []).map((quiz, i) => ({ quiz, number: i + 1 }));
   const sorted = numbered.filter(({ quiz }) => shown.has(quiz.status)).reverse();
-  const counts = (status: QuizStatus) => numbered.filter(({ quiz }) => quiz.status === status).length;
+  const counts: Record<QuizStatus, number> = { open: 0, draft: 0, closed: 0 };
+  for (const { quiz } of numbered) counts[quiz.status]++;
+  // 前に隠した状態が残っていても気づけるよう、隠している問題の数を出す
+  const hiddenCount = numbered.length - sorted.length;
 
   const header = (q: QuizDto, number: number) => (
     <>
@@ -132,13 +137,14 @@ export function AdminQuizzes() {
               aria-pressed={shown.has(s)}
               onClick={() => toggleShown(s)}
             >
-              {STATUS_LABEL[s]}（{counts(s)}）
+              {STATUS_LABEL[s]}（{counts[s]}）
             </button>
           ))}
         </fieldset>
       )}
       {error && <p className="error">{error}</p>}
       {quizzes?.length === 0 && <p className="muted">まだ問題がありません。</p>}
+      {hiddenCount > 0 && <p className="muted small">{hiddenCount} 問を非表示にしています。</p>}
       {quizzes && quizzes.length > 0 && sorted.length === 0 && (
         <p className="muted">
           {shown.size === 0 ? "表示する状態を選んでください。" : "選んだ状態の問題はありません。"}
@@ -181,7 +187,12 @@ export function AdminQuizzes() {
                 </button>
               )}
             </div>
-            {q.status === "draft" && hasOpen && <p className="muted small">出題中の問題を締め切ると出題できます。</p>}
+            {q.status === "draft" && hasOpen && (
+              <p className="muted small">
+                出題中の問題を締め切ると出題できます。
+                {!shown.has("open") && "（出題中の問題は非表示にしています）"}
+              </p>
+            )}
           </>
         );
         // 締め切った問題は折りたたみ、見出しに番号・回答数・問題文だけを出す
@@ -209,6 +220,8 @@ export function AdminQuizzes() {
           quiz={editing === "new" ? undefined : editing}
           onClose={() => setEditing(undefined)}
           onSaved={() => {
+            // 新しく作った問題は下書きなので、下書きを隠していても見えるようにする
+            if (editing === "new" && !shown.has("draft")) changeShown(new Set([...shown, "draft"]));
             setEditing(undefined);
             void load();
           }}
