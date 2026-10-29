@@ -41,20 +41,30 @@ export function AdminQuizzes() {
   const [busy, setBusy] = useState(false);
   const [shown, setShown] = useState(loadShown);
 
-  function changeShown(next: Set<QuizStatus>) {
-    setShown(next);
-    try {
-      localStorage.setItem(SHOWN_KEY, JSON.stringify([...next]));
-    } catch {
-      // 覚えられなくても、この画面の間は切り替わる
-    }
+  function changeShown(change: (prev: Set<QuizStatus>) => Set<QuizStatus>) {
+    setShown((prev) => {
+      const next = change(prev);
+      try {
+        localStorage.setItem(SHOWN_KEY, JSON.stringify([...next]));
+      } catch {
+        // 覚えられなくても、この画面の間は切り替わる
+      }
+      return next;
+    });
   }
 
   function toggleShown(status: QuizStatus) {
-    const next = new Set(shown);
-    if (next.has(status)) next.delete(status);
-    else next.add(status);
-    changeShown(next);
+    changeShown((prev) => {
+      const next = new Set(prev);
+      if (next.has(status)) next.delete(status);
+      else next.add(status);
+      return next;
+    });
+  }
+
+  /** 作った・出題した・締め切った問題が、隠している状態になっても見えるようにする */
+  function reveal(status: QuizStatus) {
+    changeShown((prev) => (prev.has(status) ? prev : new Set([...prev, status])));
   }
 
   const load = useCallback(async () => {
@@ -84,10 +94,17 @@ export function AdminQuizzes() {
     }
   }
 
-  const open = (q: QuizDto) => run(() => api<QuizResponse>("POST", `/admin/quizzes/${q.quizId}/open`));
+  const open = (q: QuizDto) =>
+    run(async () => {
+      await api<QuizResponse>("POST", `/admin/quizzes/${q.quizId}/open`);
+      reveal("open");
+    });
   const close = (q: QuizDto) => {
     if (!confirm("回答の受付を締め切ります。締め切った問題はもう一度出題できません。よろしいですか？")) return;
-    return run(() => api<QuizResponse>("POST", `/admin/quizzes/${q.quizId}/close`));
+    return run(async () => {
+      await api<QuizResponse>("POST", `/admin/quizzes/${q.quizId}/close`);
+      reveal("closed");
+    });
   };
   const remove = (q: QuizDto) => {
     const note = q.answerCount > 0 ? `\n${q.answerCount} 人の回答と、その点数も消えます。` : "";
@@ -196,8 +213,8 @@ export function AdminQuizzes() {
           quiz={editing === "new" ? undefined : editing}
           onClose={() => setEditing(undefined)}
           onSaved={() => {
-            // 新しく作った問題は下書きなので、下書きを隠していても見えるようにする
-            if (editing === "new" && !shown.has("draft")) changeShown(new Set([...shown, "draft"]));
+            // 新しく作った問題は下書き
+            if (editing === "new") reveal("draft");
             setEditing(undefined);
             void load();
           }}
