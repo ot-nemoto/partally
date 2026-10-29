@@ -2,6 +2,7 @@ import type { RankingEntryDto, RankingPointDto } from "@partally/shared";
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { PageTitle } from "../../components/PageTitle";
 import { useRanking } from "../../hooks/useRanking";
+import { formatTime, needsDate, valueAt } from "./rankingHistory";
 
 /** 色を付けて強調できる人数（色だけで見分けられるのは 10 色ほどまで）。ほかの人は灰色の線で描く */
 const MAX_LINES = 10;
@@ -92,12 +93,6 @@ export function AdminTrend() {
                   {entry.displayName}
                 </li>
               ))}
-              {data.ranking.length > series.length && (
-                <li className="muted">
-                  <span className="swatch swatch-context" />
-                  その他の参加者
-                </li>
-              )}
             </ul>
             <RankingChart all={data.ranking} series={series} focus={focus} end={data.generatedAt} />
           </div>
@@ -264,7 +259,7 @@ function RankingChart({
   const yTicks = Array.from({ length: 5 }, (_, i) => (maxPoints / 4) * i);
   const xTickCount = narrow ? 3 : 5;
   const xTicks = Array.from({ length: xTickCount }, (_, i) => startTime + (span / (xTickCount - 1)) * i);
-  const withDate = span > 20 * 60 * 60 * 1000;
+  const withDate = needsDate(span);
 
   function onPointerMove(e: PointerEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -402,16 +397,6 @@ function stepPath(history: RankingPointDto[], x: (t: number) => number, y: (p: n
     .join("");
 }
 
-/** time の時点の累計。登録前なら undefined */
-function valueAt(history: RankingPointDto[], time: number) {
-  let value: number | undefined;
-  for (const h of history) {
-    if (Date.parse(h.at) > time) break;
-    value = h.points;
-  }
-  return value;
-}
-
 /** 目盛りが切りのよい数になる上限（4 等分する） */
 function niceMax(max: number) {
   if (max <= 4) return 4;
@@ -428,10 +413,4 @@ function niceMax(max: number) {
 
 function formatPoints(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
-function formatTime(time: number, withDate: boolean) {
-  const d = new Date(time);
-  const hm = `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
-  return withDate ? `${d.getMonth() + 1}/${d.getDate()} ${hm}` : hm;
 }
