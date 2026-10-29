@@ -130,7 +130,10 @@ export function AdminSettings() {
             <label className="checkbox">
               <input
                 type="checkbox"
+                role="switch"
+                className="switch"
                 checked={settings.showPoints}
+                aria-checked={settings.showPoints}
                 onChange={(e) => update("showPoints", e.target.checked)}
               />
               <span>
@@ -144,7 +147,10 @@ export function AdminSettings() {
             <label className="checkbox">
               <input
                 type="checkbox"
+                role="switch"
+                className="switch"
                 checked={settings.showQuizPoints}
+                aria-checked={settings.showQuizPoints}
                 onChange={(e) => update("showQuizPoints", e.target.checked)}
               />
               <span>
@@ -164,7 +170,10 @@ export function AdminSettings() {
             <label className="checkbox">
               <input
                 type="checkbox"
+                role="switch"
+                className="switch"
                 checked={settings.favoritesEnabled}
+                aria-checked={settings.favoritesEnabled}
                 onChange={(e) => update("favoritesEnabled", e.target.checked)}
               />
               <span>
@@ -192,7 +201,10 @@ export function AdminSettings() {
                 <label className="checkbox">
                   <input
                     type="checkbox"
+                    role="switch"
+                    className="switch"
                     checked={settings[o.visible]}
+                    aria-checked={settings[o.visible]}
                     onChange={(e) => update(o.visible, e.target.checked)}
                   />
                   <span>
@@ -204,7 +216,10 @@ export function AdminSettings() {
                   <label className="checkbox">
                     <input
                       type="checkbox"
+                      role="switch"
+                      className="switch"
                       checked={settings[o.hideNames]}
+                      aria-checked={settings[o.hideNames]}
                       disabled={!settings[o.visible]}
                       onChange={(e) => update(o.hideNames, e.target.checked)}
                     />
@@ -213,7 +228,10 @@ export function AdminSettings() {
                   <label className="checkbox">
                     <input
                       type="checkbox"
+                      role="switch"
+                      className="switch"
                       checked={settings[o.hidePoints]}
+                      aria-checked={settings[o.hidePoints]}
                       disabled={!settings[o.visible]}
                       onChange={(e) => update(o.hidePoints, e.target.checked)}
                     />
