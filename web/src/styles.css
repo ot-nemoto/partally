@@ -68,7 +68,6 @@ h1 {
   margin: 0 0 0.75rem;
 }
 
-/* 画面の見出し（PageTitle）。英字を赤から金のグラデーションで大きく、日本語を小さく添える */
 /* 管理画面のタイトルの行。スクロールしても固定したヘッダーのすぐ下に残す（右に保存ボタンなどを置ける） */
 .title-bar {
   position: sticky;
@@ -85,6 +84,7 @@ h1 {
   background: var(--bg);
 }
 
+/* 画面の見出し（PageTitle）。英字を赤から金のグラデーションで大きく、日本語を小さく添える */
 .page-title {
   display: flex;
   flex-wrap: wrap;
@@ -1165,8 +1165,6 @@ button.more {
 .settings-status:empty {
   display: none;
 }
-
-/* キーボードで移った項目が、固定したタイトルの行に隠れないようにする */
 
 .settings-status p {
   margin: 0;

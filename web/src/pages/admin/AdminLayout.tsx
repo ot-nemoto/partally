@@ -4,6 +4,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 // 管理画面を開いたときだけ読み込む。読み込むまでは system-ui で表示する
 import "@fontsource/righteous/latin-400.css";
 import { api } from "../../api";
+import { useHeightVar } from "../../hooks/useHeightVar";
 import { ReloadProvider } from "../../hooks/useReload";
 
 /** 管理画面の共通レイアウト。未ログインならログイン画面へ送る */
@@ -27,19 +28,7 @@ export function AdminLayout() {
 
   // 固定したヘッダーの高さを CSS 変数にし、その下に固定する行（Settings の保存・推移の再生）の位置を合わせる
   const headerRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const el = headerRef.current;
-    if (!ready || !el) return;
-    const root = document.documentElement;
-    const observer = new ResizeObserver(() =>
-      root.style.setProperty("--admin-header-height", `${el.getBoundingClientRect().height}px`),
-    );
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-      root.style.removeProperty("--admin-header-height");
-    };
-  }, [ready]);
+  useHeightVar(headerRef, "--admin-header-height", ready);
 
   if (!ready) return <main className="page muted">読み込み中…</main>;
 

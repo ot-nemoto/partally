@@ -1,4 +1,5 @@
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useRef } from "react";
+import { useHeightVar } from "../hooks/useHeightVar";
 
 /**
  * 管理画面の見出しの行。英字の装飾タイトルに日本語の補足を小さく添え、children（保存ボタンなど）を右に並べる。
@@ -6,20 +7,9 @@ import { type ReactNode, useEffect, useRef } from "react";
  * 英字の書体（Righteous）は管理画面の共通レイアウト（AdminLayout）で読み込む
  */
 export function PageTitle(props: { en: string; ja: string; className?: string; children?: ReactNode }) {
+  // 1 画面に見出しの行は 1 つなので、ページ全体の変数に高さを書く
   const barRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = barRef.current;
-    if (!el) return;
-    const root = document.documentElement;
-    const observer = new ResizeObserver(() =>
-      root.style.setProperty("--admin-title-height", `${el.getBoundingClientRect().height}px`),
-    );
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-      root.style.removeProperty("--admin-title-height");
-    };
-  }, []);
+  useHeightVar(barRef, "--admin-title-height");
 
   return (
     <div className={`title-bar${props.className ? ` ${props.className}` : ""}`} ref={barRef}>
