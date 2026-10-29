@@ -26,7 +26,7 @@ export function Home() {
       </section>
       <CaptureButtons />
       <section className="card">
-        {/* ポイントを伏せている間は、ポイントとその元になる選ばれた数を出さない（API からも返らない） */}
+        {/* ポイント・クイズの点数を伏せている間は出さない（API からも返らない） */}
         {rules.showPoints && (
           <p className="points">
             <span className="points-value">{user.points}</span>
@@ -48,18 +48,23 @@ export function Home() {
             <dt>回答した問題</dt>
             <dd>{user.quizAnswered}</dd>
           </div>
-          {rules.showPoints && (
+          {rules.showQuizPoints && (
             <div>
               <dt>クイズの点数</dt>
               <dd>{user.quizPoints}</dd>
             </div>
           )}
         </dl>
-        {rules.showPoints && (
+        {(rules.showPoints || rules.showQuizPoints) && (
           <p className="muted small">
-            写真 1 枚公開で {rules.uploadPoints} ポイント
-            {rules.favoritePoints > 0 && `・お気に入りに 1 回選ばれると ${rules.favoritePoints} ポイント`}
-            ・クイズは締め切り後に、選んだ答えの点数が入ります
+            {rules.showPoints && (
+              <>
+                写真 1 枚公開で {rules.uploadPoints} ポイント
+                {rules.favoritePoints > 0 && `・お気に入りに 1 回選ばれると ${rules.favoritePoints} ポイント`}
+              </>
+            )}
+            {rules.showPoints && rules.showQuizPoints && "・"}
+            {rules.showQuizPoints && "クイズは締め切り後に、選んだ答えの点数が入ります"}
           </p>
         )}
         {rules.favoritesEnabled && (

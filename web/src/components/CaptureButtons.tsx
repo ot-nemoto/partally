@@ -2,7 +2,7 @@ import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import { enqueuePhoto, flushQueue, type QueueState, subscribeQueue } from "../photos/queue";
 
 /** 撮影・写真選択のボタンと送信状況 */
-export function CaptureButtons(props: { onQueued?: () => void }) {
+export function CaptureButtons() {
   const cameraRef = useRef<HTMLInputElement>(null);
   const libraryRef = useRef<HTMLInputElement>(null);
   const [queue, setQueue] = useState<QueueState>({ waiting: 0, uploading: false });
@@ -19,7 +19,6 @@ export function CaptureButtons(props: { onQueued?: () => void }) {
     setError(undefined);
     try {
       for (const file of files) await enqueuePhoto(file);
-      props.onQueued?.();
     } catch {
       setError("この写真は読み込めませんでした。別の写真でお試しください。");
     } finally {

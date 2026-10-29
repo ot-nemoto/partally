@@ -8,6 +8,7 @@ import {
 import { type FormEvent, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
 import { NumberField } from "../../components/NumberField";
+import { PageTitle } from "../../components/PageTitle";
 
 const MODERATION_OPTIONS: { value: ModerationMode; label: string; description: string }[] = [
   {
@@ -19,6 +20,31 @@ const MODERATION_OPTIONS: { value: ModerationMode; label: string; description: s
     value: "post",
     label: "アップロードと同時に公開",
     description: "すぐに全員へ共有されます。不適切な写真は後から削除してください。",
+  },
+];
+
+type BooleanSetting = { [K in keyof Settings]: Settings[K] extends boolean ? K : never }[keyof Settings];
+
+const PUBLISH_OPTIONS: {
+  label: string;
+  description: string;
+  visible: BooleanSetting;
+  hideNames: BooleanSetting;
+  hidePoints: BooleanSetting;
+}[] = [
+  {
+    label: "ランキング",
+    description: "今のポイントの高い順の順位と横棒です。",
+    visible: "rankingVisible",
+    hideNames: "rankingHideNames",
+    hidePoints: "rankingHidePoints",
+  },
+  {
+    label: "ポイントの推移（トレンド）",
+    description: "累計ポイントの推移の折れ線です（上位 10 人を色付き、ほかを灰色で表示）。",
+    visible: "trendVisible",
+    hideNames: "trendHideNames",
+    hidePoints: "trendHidePoints",
   },
 ];
 
@@ -63,7 +89,7 @@ export function AdminSettings() {
 
   return (
     <section>
-      <h1>設定</h1>
+      <PageTitle en="Setting" ja="設定" />
       {!settings && !error && <p className="muted">読み込み中…</p>}
       {settings && (
         <form className="settings-form" onSubmit={save}>
@@ -115,6 +141,19 @@ export function AdminSettings() {
                 </span>
               </span>
             </label>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={settings.showQuizPoints}
+                onChange={(e) => update("showQuizPoints", e.target.checked)}
+              />
+              <span>
+                <strong>参加者のホーム画面にクイズの点数を表示する</strong>
+                <span className="muted small">
+                  オフにすると、参加者には自分のクイズの点数が見えなくなります。合計のポイントにはクイズの点数も含まれます。
+                </span>
+              </span>
+            </label>
             <p className="muted small">
               ポイントは現在の設定で毎回計算します。変更すると、これまでの分も含めて全員のポイントが変わります。
             </p>
@@ -143,6 +182,49 @@ export function AdminSettings() {
             />
             <p className="muted small">
               減らしても選択済みのお気に入りはそのまま残り、上限を下回るまで新しく選べません。
+            </p>
+          </div>
+
+          <div className="card settings">
+            <h2>参加者への公開</h2>
+            {PUBLISH_OPTIONS.map((o) => (
+              <fieldset key={o.visible} className="publish-option">
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={settings[o.visible]}
+                    onChange={(e) => update(o.visible, e.target.checked)}
+                  />
+                  <span>
+                    <strong>参加者に{o.label}を見せる</strong>
+                    <span className="muted small">{o.description}</span>
+                  </span>
+                </label>
+                <div className="publish-sub">
+                  <label className="checkbox">
+                    <input
+                      type="checkbox"
+                      checked={settings[o.hideNames]}
+                      disabled={!settings[o.visible]}
+                      onChange={(e) => update(o.hideNames, e.target.checked)}
+                    />
+                    <span>名前を伏せる（全員を「???」と表示）</span>
+                  </label>
+                  <label className="checkbox">
+                    <input
+                      type="checkbox"
+                      checked={settings[o.hidePoints]}
+                      disabled={!settings[o.visible]}
+                      onChange={(e) => update(o.hidePoints, e.target.checked)}
+                    />
+                    <span>ポイントを伏せる（棒・線の形だけを見せる）</span>
+                  </label>
+                </div>
+              </fieldset>
+            ))}
+            <p className="muted small">
+              参加者の画面の「順位」タブに出ます。合計と順位は、写真・お気に入り・クイズのすべてのポイントで計算します。
+              ホーム画面でポイントを表示しない設定でも、ここで「ポイントを伏せる」にしない限り、ポイントは見えます。
             </p>
           </div>
 

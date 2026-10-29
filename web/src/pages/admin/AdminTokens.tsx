@@ -2,6 +2,7 @@ import type { TokenDto, TokensResponse } from "@partally/shared";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../api";
+import { PageTitle } from "../../components/PageTitle";
 import { useOnReload } from "../../hooks/useReload";
 
 export function AdminTokens() {
@@ -40,7 +41,7 @@ export function AdminTokens() {
 
   return (
     <section>
-      <h1>QR コード管理</h1>
+      <PageTitle en="QR" ja="QR コード管理" />
       <form className="inline-form" onSubmit={issue}>
         <label>
           発行数

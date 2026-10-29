@@ -67,6 +67,13 @@ export const updateSettingsRequestSchema = z.object({
   favoritePoints: points,
   // 後から追加した項目。古い画面から保存されても 400 にせず、今の値を残す
   showPoints: z.boolean().optional(),
+  showQuizPoints: z.boolean().optional(),
+  rankingVisible: z.boolean().optional(),
+  rankingHideNames: z.boolean().optional(),
+  rankingHidePoints: z.boolean().optional(),
+  trendVisible: z.boolean().optional(),
+  trendHideNames: z.boolean().optional(),
+  trendHidePoints: z.boolean().optional(),
 });
 
 export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;

@@ -14,9 +14,12 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
 import { Modal } from "../../components/Modal";
 import { NumberField } from "../../components/NumberField";
+import { PageTitle } from "../../components/PageTitle";
 import { useOnReload } from "../../hooks/useReload";
 
 const STATUS_LABEL: Record<QuizStatus, string> = { draft: "下書き", open: "出題中", closed: "締め切り" };
+/** 一覧の並び順。出題中 → 下書き（これから出す）→ 締め切りの順で、同じ状態の中は作成順 */
+const STATUS_ORDER: Record<QuizStatus, number> = { open: 0, draft: 1, closed: 2 };
 
 export function AdminQuizzes() {
   const [quizzes, setQuizzes] = useState<QuizDto[]>();
@@ -64,10 +67,22 @@ export function AdminQuizzes() {
   };
 
   const hasOpen = quizzes?.some((q) => q.status === "open") ?? false;
+  // 「第 N 問」は作成順の番号のまま、並びだけ状態順にする
+  const sorted = (quizzes ?? [])
+    .map((quiz, i) => ({ quiz, number: i + 1 }))
+    .sort((a, b) => STATUS_ORDER[a.quiz.status] - STATUS_ORDER[b.quiz.status]);
+
+  const header = (q: QuizDto, number: number) => (
+    <>
+      <span className="muted small">第 {number} 問</span>
+      <span className={`status status-${q.status}`}>{STATUS_LABEL[q.status]}</span>
+      {q.status !== "draft" && <span className="muted small">回答 {q.answerCount} 人</span>}
+    </>
+  );
 
   return (
     <section className="admin-quizzes">
-      <h1>クイズ</h1>
+      <PageTitle en="Quiz" ja="クイズ" />
       <p className="muted small">
         {"「出題」を押すと参加者の画面に問題が出ます。出題中にできるのは 1 問だけです。"}
         {
@@ -81,51 +96,66 @@ export function AdminQuizzes() {
       </div>
       {error && <p className="error">{error}</p>}
       {quizzes?.length === 0 && <p className="muted">まだ問題がありません。</p>}
-      {quizzes?.map((q, i) => (
-        <article key={q.quizId} className={`card quiz-card quiz-${q.status}`}>
-          <header className="quiz-card-header">
-            <span className="muted small">第 {i + 1} 問</span>
-            <span className={`status status-${q.status}`}>{STATUS_LABEL[q.status]}</span>
-            {q.status !== "draft" && <span className="muted small">回答 {q.answerCount} 人</span>}
-          </header>
-          <p className="quiz-text">{q.text}</p>
-          <ul className="quiz-admin-choices">
-            {q.choices.map((ch) => (
-              <li key={ch.choiceId}>
-                <span>{ch.text}</span>
-                <span className="muted small">{ch.points} 点</span>
-                {q.status !== "draft" && <span className="num">{ch.answerCount} 人</span>}
-              </li>
-            ))}
-          </ul>
-          <div className="actions">
-            {q.status === "draft" && (
-              <button type="button" className="primary" onClick={() => open(q)} disabled={busy || hasOpen}>
-                出題
+      {sorted.map(({ quiz: q, number }) => {
+        const body = (
+          <>
+            <ul className="quiz-admin-choices">
+              {q.choices.map((ch) => (
+                <li key={ch.choiceId}>
+                  <span>{ch.text}</span>
+                  <span className="muted small">{ch.points} 点</span>
+                  {q.status !== "draft" && <span className="num">{ch.answerCount} 人</span>}
+                </li>
+              ))}
+            </ul>
+            <div className="actions">
+              {q.status === "draft" && (
+                <button type="button" className="primary" onClick={() => open(q)} disabled={busy || hasOpen}>
+                  出題
+                </button>
+              )}
+              {q.status === "open" && (
+                <button type="button" className="primary" onClick={() => close(q)} disabled={busy}>
+                  締め切る
+                </button>
+              )}
+              {q.status !== "draft" && (
+                <button type="button" onClick={() => setResults(q)}>
+                  回答者を見る
+                </button>
+              )}
+              <button type="button" onClick={() => setEditing(q)} disabled={busy}>
+                編集
               </button>
-            )}
-            {q.status === "open" && (
-              <button type="button" className="primary" onClick={() => close(q)} disabled={busy}>
-                締め切る
-              </button>
-            )}
-            {q.status !== "draft" && (
-              <button type="button" onClick={() => setResults(q)}>
-                回答者を見る
-              </button>
-            )}
-            <button type="button" onClick={() => setEditing(q)} disabled={busy}>
-              編集
-            </button>
-            {q.status !== "open" && (
-              <button type="button" className="danger" onClick={() => remove(q)} disabled={busy}>
-                削除
-              </button>
-            )}
-          </div>
-          {q.status === "draft" && hasOpen && <p className="muted small">出題中の問題を締め切ると出題できます。</p>}
-        </article>
-      ))}
+              {q.status !== "open" && (
+                <button type="button" className="danger" onClick={() => remove(q)} disabled={busy}>
+                  削除
+                </button>
+              )}
+            </div>
+            {q.status === "draft" && hasOpen && <p className="muted small">出題中の問題を締め切ると出題できます。</p>}
+          </>
+        );
+        // 締め切った問題は折りたたみ、見出しに番号・回答数・問題文だけを出す
+        if (q.status === "closed") {
+          return (
+            <details key={q.quizId} className="card quiz-card quiz-closed">
+              <summary>
+                <span className="quiz-card-header">{header(q, number)}</span>
+                <span className="quiz-summary-text">{q.text}</span>
+              </summary>
+              {body}
+            </details>
+          );
+        }
+        return (
+          <article key={q.quizId} className={`card quiz-card quiz-${q.status}`}>
+            <header className="quiz-card-header">{header(q, number)}</header>
+            <p className="quiz-text">{q.text}</p>
+            {body}
+          </article>
+        );
+      })}
       {editing && (
         <QuizFormDialog
           quiz={editing === "new" ? undefined : editing}

@@ -133,6 +133,20 @@ export interface Settings {
   favoritePoints: number;
   /** 参加者のホーム画面にポイントを表示するか（発表まで伏せておきたいときに切る） */
   showPoints: boolean;
+  /** 参加者のホーム画面にクイズの点数を表示するか */
+  showQuizPoints: boolean;
+  /** 参加者にランキングを見せるか */
+  rankingVisible: boolean;
+  /** 参加者のランキングで名前を伏せるか */
+  rankingHideNames: boolean;
+  /** 参加者のランキングでポイントを伏せるか */
+  rankingHidePoints: boolean;
+  /** 参加者にポイントの推移（トレンド）を見せるか */
+  trendVisible: boolean;
+  /** 参加者のトレンドで名前を伏せるか */
+  trendHideNames: boolean;
+  /** 参加者のトレンドでポイントを伏せるか */
+  trendHidePoints: boolean;
 }
 
 /** 参加者に見せるポイントのルール（設定のうち公開してよい部分） */
@@ -216,6 +230,10 @@ export interface RankingEntryDto {
   /** 順位。同点は同じ順位で、次はその人数分飛ばす（1, 1, 3…） */
   rank: number;
   userId: string;
+  /** 称号を付けない名前（グラフの線の終わりなど、狭い所に出す） */
+  name: string;
+  /** 称号（二つ名） */
+  epithet: string;
   displayName: string;
   status: UserStatus;
   /** ユーザ管理と同じく、現在の設定で計算したポイント */
@@ -227,4 +245,13 @@ export interface RankingEntryDto {
 export interface RankingResponse {
   ranking: RankingEntryDto[];
   generatedAt: string;
+}
+
+/**
+ * 参加者に返すランキング・推移。名前を伏せるときは名前・称号を「???」にし、ユーザ ID も返さない。
+ * ポイントを伏せるときは、最大値を 100 とした割合だけを返す
+ */
+export interface ParticipantRankingResponse extends RankingResponse {
+  hideNames: boolean;
+  hidePoints: boolean;
 }

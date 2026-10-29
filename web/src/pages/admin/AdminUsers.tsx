@@ -2,6 +2,7 @@ import type { UserDto, UserResponse, UsersResponse } from "@partally/shared";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
 import { Modal } from "../../components/Modal";
+import { PageTitle } from "../../components/PageTitle";
 import { useOnReload } from "../../hooks/useReload";
 
 export function AdminUsers() {
@@ -45,7 +46,7 @@ export function AdminUsers() {
 
   return (
     <section>
-      <h1>ユーザ管理</h1>
+      <PageTitle en="User" ja="ユーザ管理" />
       {error && <p className="error">{error}</p>}
       {users && (
         <p className="muted">

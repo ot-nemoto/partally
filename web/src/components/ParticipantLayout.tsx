@@ -2,7 +2,11 @@ import type { CurrentQuizDto, CurrentQuizResponse, MeResponse, Rules, UserDto } 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useOutletContext } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../api";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 import { ReloadProvider } from "../hooks/useReload";
+
+/** 出題・締め切りにすぐ気づけるよう、表示中はこの間隔で出題中のクイズを確認する（文字だけの小さな通信） */
+const QUIZ_REFRESH_MS = 5_000;
 
 export interface ParticipantContext {
   user: UserDto;
@@ -64,26 +68,31 @@ export function ParticipantLayout() {
   const [quiz, setQuizState] = useState<CurrentQuizDto | null>();
   const loggedIn = useRef(false);
   loggedIn.current = state.kind === "user";
-  // 回答した回数。確認の途中で回答されたら、古い応答で回答を上書きしない
-  const answerCount = useRef(0);
+  // 回答と確認のたびに増やす。確認の途中で回答されたり、後から送った確認が先に返ったりしたら、
+  // 古い応答で上書きしない（遅い通信で締め切り前の応答が後から届き、お知らせが戻るのを防ぐ）
+  const quizVersion = useRef(0);
   const setQuiz = useCallback((next: CurrentQuizDto | null) => {
-    answerCount.current++;
+    quizVersion.current++;
     setQuizState(next);
   }, []);
   const refreshQuiz = useCallback(async () => {
     if (!loggedIn.current) return;
-    const startedAt = answerCount.current;
+    const version = ++quizVersion.current;
     await api<CurrentQuizResponse>("GET", "/quiz/current")
       .then((res) => {
-        if (answerCount.current === startedAt) setQuizState(res.quiz);
+        if (quizVersion.current === version) setQuizState(res.quiz);
       })
-      .catch(() => undefined);
+      .catch((e) => {
+        // ログインが切れたら案内の画面にする（確認も止まる）。通信エラーは次の確認に任せる
+        if (e instanceof ApiError && e.status === 401) setState({ kind: "guest" });
+      });
   }, []);
   useEffect(() => {
     if (state.kind === "user") void refreshQuiz();
   }, [state.kind, refreshQuiz]);
+  useAutoRefresh(refreshQuiz, QUIZ_REFRESH_MS);
 
-  // 自動では取り直さない。「更新」で自分の情報・ルール・出題中のクイズと、表示中の画面の一覧を取り直す
+  // クイズ以外は自動では取り直さない。「更新」で自分の情報・ルール・出題中のクイズと、表示中の画面の一覧を取り直す
   const [reloadCount, setReloadCount] = useState(0);
   const [reloading, setReloading] = useState(false);
   const reload = useCallback(async () => {
@@ -138,6 +147,8 @@ export function ParticipantLayout() {
         </NavLink>
         <NavLink to="/gallery">みんなの写真</NavLink>
         <NavLink to="/mine">自分の写真</NavLink>
+        {/* ランキング・推移は管理画面で見せる設定にしたときだけ出す */}
+        {(state.rules.rankingVisible || state.rules.trendVisible) && <NavLink to="/standings">順位</NavLink>}
         <button type="button" className="tabbar-reload" onClick={reload} disabled={reloading}>
           {reloading ? "更新中…" : "↻ 更新"}
         </button>

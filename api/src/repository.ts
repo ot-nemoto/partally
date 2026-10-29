@@ -85,6 +85,14 @@ export const DEFAULT_SETTINGS: Settings = {
   favoriteLimit: 10,
   favoritePoints: 1,
   showPoints: true,
+  showQuizPoints: true,
+  // 参加者へのランキング・トレンドは、管理者が見せると決めるまで出さない
+  rankingVisible: false,
+  rankingHideNames: false,
+  rankingHidePoints: false,
+  trendVisible: false,
+  trendHideNames: false,
+  trendHidePoints: false,
 };
 
 export interface UserChanges {
