@@ -676,7 +676,7 @@ describe("API", () => {
       const res = await admin("GET", "/api/admin/ranking");
       expect(res.status).toBe(200);
       expect(
-        res.body.ranking.map((r: any) => [r.rank, r.name, r.displayName.endsWith(`〉${r.name}`), r.points]),
+        res.body.ranking.map((r: any) => [r.rank, r.name, r.displayName === `〈${r.epithet}〉${r.name}`, r.points]),
       ).toEqual([
         [1, "田中", true, 4],
         [2, "鈴木", true, 1],

@@ -134,7 +134,8 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
                 {pos?.rank}
               </span>
               <span className="race-name" title={entry.displayName}>
-                {entry.name}
+                <span className="race-epithet">{entry.epithet}</span>
+                <span className="race-person">{entry.name}</span>
               </span>
               <span className="race-track">
                 {(pos?.points ?? 0) > 0 && (
