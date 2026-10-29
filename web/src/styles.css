@@ -1114,6 +1114,35 @@ button.more {
   max-width: 36rem;
 }
 
+/* 設定のタイトルと保存ボタン。スクロールしても画面の上に残す */
+.settings-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  max-width: 36rem;
+  margin-bottom: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.settings-bar .page-title {
+  margin: 0;
+}
+
+.settings-status {
+  flex-basis: 100%;
+}
+
+.settings-status p {
+  margin: 0;
+}
+
 .settings .checkbox {
   display: flex;
   gap: 0.75rem;

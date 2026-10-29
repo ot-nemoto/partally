@@ -89,10 +89,25 @@ export function AdminSettings() {
 
   return (
     <section>
-      <PageTitle en="Setting" ja="設定" />
+      {/* 項目が多くても保存できるよう、タイトルと保存ボタンはスクロールしても画面の上に残す */}
+      <div className="settings-bar">
+        <PageTitle en="Setting" ja="設定" />
+        {settings && (
+          <button type="submit" form="settings-form" className="primary" disabled={!changed || incomplete}>
+            保存
+          </button>
+        )}
+        {(error || incomplete || message) && (
+          <div className="settings-status">
+            {error && <p className="error">{error}</p>}
+            {incomplete && <p className="error">空欄の項目に数値を入れてください。</p>}
+            {message && <p className="small">{message}</p>}
+          </div>
+        )}
+      </div>
       {!settings && !error && <p className="muted">読み込み中…</p>}
       {settings && (
-        <form className="settings-form" onSubmit={save}>
+        <form id="settings-form" className="settings-form" onSubmit={save}>
           <div className="card settings">
             <h2>写真の公開方法</h2>
             {MODERATION_OPTIONS.map((o) => (
@@ -245,18 +260,8 @@ export function AdminSettings() {
               ホーム画面でポイントを表示しない設定でも、ここで「ポイントを伏せる」にしない限り、ポイントは見えます。
             </p>
           </div>
-
-          {error && <p className="error">{error}</p>}
-          {incomplete && <p className="error">空欄の項目に数値を入れてください。</p>}
-          {message && <p className="small">{message}</p>}
-          <div className="buttons">
-            <button type="submit" className="primary" disabled={!changed || incomplete}>
-              保存
-            </button>
-          </div>
         </form>
       )}
-      {!settings && error && <p className="error">{error}</p>}
     </section>
   );
 }
