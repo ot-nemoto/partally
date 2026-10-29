@@ -16,20 +16,17 @@ export function AdminRanking() {
 
   return (
     <section className="ranking">
-      <PageTitle en="Ranking" ja="ランキング" />
+      <PageTitle en="Ranking" ja="ランキング">
+        {!race && data && data.ranking.length > 0 && (
+          <button type="button" onClick={() => setRace(data)}>
+            ▶ 推移を再生
+          </button>
+        )}
+      </PageTitle>
       {error && <p className="error">{error}</p>}
       {data && data.ranking.length === 0 && <p className="muted">まだ参加者がいません。</p>}
       {race && <RankingRace data={race} onClose={() => setRace(undefined)} />}
-      {!race && data && data.ranking.length > 0 && (
-        <>
-          <div className="race-start">
-            <button type="button" onClick={() => setRace(data)}>
-              ▶ 推移を再生
-            </button>
-          </div>
-          <RankingBars ranking={data.ranking} showStatus />
-        </>
-      )}
+      {!race && data && data.ranking.length > 0 && <RankingBars ranking={data.ranking} showStatus />}
     </section>
   );
 }
