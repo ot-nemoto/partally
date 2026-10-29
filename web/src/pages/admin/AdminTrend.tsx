@@ -2,7 +2,7 @@ import type { RankingEntryDto, RankingPointDto } from "@partally/shared";
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { PageTitle } from "../../components/PageTitle";
 import { useRanking } from "../../hooks/useRanking";
-import { formatTime, valueAt } from "./rankingHistory";
+import { formatTime, needsDate, valueAt } from "./rankingHistory";
 
 /** 色を付けて強調できる人数（色だけで見分けられるのは 10 色ほどまで）。ほかの人は灰色の線で描く */
 const MAX_LINES = 10;
@@ -259,7 +259,7 @@ function RankingChart({
   const yTicks = Array.from({ length: 5 }, (_, i) => (maxPoints / 4) * i);
   const xTickCount = narrow ? 3 : 5;
   const xTicks = Array.from({ length: xTickCount }, (_, i) => startTime + (span / (xTickCount - 1)) * i);
-  const withDate = span > 20 * 60 * 60 * 1000;
+  const withDate = needsDate(span);
 
   function onPointerMove(e: PointerEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect();

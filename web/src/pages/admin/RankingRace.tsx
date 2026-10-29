@@ -1,8 +1,8 @@
 import type { RankingResponse } from "@partally/shared";
 import { useEffect, useMemo, useState } from "react";
-import { formatTime, valueAt } from "./rankingHistory";
+import { formatTime, needsDate, valueAt } from "./rankingHistory";
 
-/** 最初の登録から今までを再生する時間 */
+/** 最初に点が入る少し前から今までを再生する時間 */
 const RACE_MS = 20_000;
 /** 棒を出す人数 */
 const RACE_ROWS = 10;
@@ -15,11 +15,28 @@ const ROW_HEIGHT = 40;
  */
 export function RankingRace({ data, onClose }: { data: RankingResponse; onClose: () => void }) {
   const endTime = Date.parse(data.generatedAt);
-  const startTime = useMemo(
-    () => data.ranking.reduce((min, e) => Math.min(min, Date.parse(e.history[0]?.at ?? data.generatedAt)), endTime),
-    [data, endTime],
+  // 時刻は毎フレーム読み直さないよう、先に数にしておく
+  const entries = useMemo(
+    () =>
+      data.ranking.map((entry) => ({
+        entry,
+        history: entry.history.map((h) => ({ at: Date.parse(h.at), points: h.points })),
+      })),
+    [data],
   );
-  const withDate = endTime - startTime > 20 * 60 * 60 * 1000;
+  // 始まりは最初に点が入った時刻の少し前にする（前日に登録した人がいても、点の動かない時間を長く再生しない）。
+  // まだ誰にも点がなければ最初の登録から
+  const startTime = useMemo(() => {
+    let firstScore = endTime;
+    let firstJoin = endTime;
+    for (const { history } of entries) {
+      firstJoin = Math.min(firstJoin, history[0]?.at ?? endTime);
+      firstScore = Math.min(firstScore, history.find((h) => h.points !== 0)?.at ?? endTime);
+    }
+    if (firstScore >= endTime) return firstJoin;
+    return Math.max(firstJoin, firstScore - Math.max(60_000, (endTime - firstScore) * 0.05));
+  }, [entries, endTime]);
+  const withDate = needsDate(endTime - startTime);
 
   const [time, setTime] = useState(startTime);
   /** 「もう一度」で増やして再生し直す */
@@ -40,12 +57,8 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
 
   // その時点のポイントの高い順。同点は先に登録した人を上にする（今のランキングと同じ）。
   // 登録前の人は出さない
-  const standings = data.ranking
-    .map((entry) => ({
-      entry,
-      points: valueAt(entry.history, time),
-      joinedAt: Date.parse(entry.history[0]?.at ?? data.generatedAt),
-    }))
+  const standings = entries
+    .map(({ entry, history }) => ({ entry, points: valueAt(history, time), joinedAt: history[0]?.at ?? endTime }))
     .filter((s): s is typeof s & { points: number } => s.points !== undefined)
     .sort((a, b) => b.points - a.points || a.joinedAt - b.joinedAt);
   const positions = new Map<string, { index: number; rank: number; points: number }>();
@@ -82,13 +95,21 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
       <div className="race-progress" aria-hidden="true">
         <div style={{ width: `${progress * 100}%` }} />
       </div>
-      {/* 行は常に同じ順で描き、位置だけを変えて動かす（並べ替えると動きが付かない） */}
-      <ol className="race-board" style={{ height: RACE_ROWS * ROW_HEIGHT }} aria-label="順位の推移">
+      {/*
+        行は常に同じ順で描き、位置だけを変えて動かす（並べ替えると動きが付かない）。
+        読み上げでは見た目と順番が合わないので、全体を 1 枚の絵として扱う
+      */}
+      <div
+        className="race-board"
+        style={{ height: RACE_ROWS * ROW_HEIGHT }}
+        role="img"
+        aria-label="順位の推移のアニメーション。終わると今のランキングと同じ並びになります"
+      >
         {data.ranking.map((entry) => {
           const pos = positions.get(entry.userId);
           const shown = pos !== undefined && pos.index < RACE_ROWS;
           return (
-            <li
+            <div
               key={entry.userId}
               className={`race-row${entry.status === "unbound" ? " dimmed" : ""}`}
               style={{
@@ -96,7 +117,6 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
                 opacity: shown ? 1 : 0,
                 height: ROW_HEIGHT,
               }}
-              aria-hidden={!shown}
             >
               <span className={`race-rank${pos && pos.rank <= 3 && entry.status !== "unbound" ? " podium" : ""}`}>
                 {pos?.rank}
@@ -110,10 +130,10 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
                 )}
               </span>
               <strong className="race-points">{pos?.points ?? 0}</strong>
-            </li>
+            </div>
           );
         })}
-      </ol>
+      </div>
     </div>
   );
 }

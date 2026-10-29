@@ -526,9 +526,6 @@ tr.dimmed .ranking-bar,
 /* 行は重ねて置き、translateY で順位の位置へ動かす */
 .race-board {
   position: relative;
-  margin: 0;
-  padding: 0;
-  list-style: none;
   overflow: hidden;
 }
 
