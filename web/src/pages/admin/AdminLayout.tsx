@@ -31,7 +31,9 @@ export function AdminLayout() {
     const el = headerRef.current;
     if (!ready || !el) return;
     const root = document.documentElement;
-    const observer = new ResizeObserver(() => root.style.setProperty("--admin-header-height", `${el.offsetHeight}px`));
+    const observer = new ResizeObserver(() =>
+      root.style.setProperty("--admin-header-height", `${el.getBoundingClientRect().height}px`),
+    );
     observer.observe(el);
     return () => {
       observer.disconnect();
