@@ -90,9 +90,8 @@ export function AdminSettings() {
 
   return (
     <section>
-      {/* 項目が多くても保存できるよう、タイトルと保存ボタンはスクロールしても画面の上に残す */}
-      <div className="settings-bar">
-        <PageTitle en="Setting" ja="設定" />
+      {/* 項目が多くても保存できるよう、保存ボタンはスクロールしても画面の上に残るタイトルの行に置く */}
+      <PageTitle en="Setting" ja="設定" className="settings-bar">
         {settings && (
           <button type="submit" form="settings-form" className="primary" disabled={!changed || incomplete}>
             保存
@@ -104,7 +103,7 @@ export function AdminSettings() {
           {incomplete && <p className="error">空欄の項目に数値を入れてください。</p>}
           {message && <p className="small">{message}</p>}
         </div>
-      </div>
+      </PageTitle>
       {!settings && !error && <p className="muted">読み込み中…</p>}
       {settings && (
         <form id="settings-form" className="settings-form" onSubmit={save}>

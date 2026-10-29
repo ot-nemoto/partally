@@ -68,13 +68,29 @@ h1 {
   margin: 0 0 0.75rem;
 }
 
+/* 管理画面のタイトルの行。スクロールしても固定したヘッダーのすぐ下に残す（右に保存ボタンなどを置ける） */
+.title-bar {
+  position: sticky;
+  top: var(--admin-header-height, 0px);
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
 /* 画面の見出し（PageTitle）。英字を赤から金のグラデーションで大きく、日本語を小さく添える */
 .page-title {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0.25rem 0.75rem;
-  margin: 0 0 1rem;
+  margin: 0;
 }
 
 /* 英字の装飾（見出しとヘッダーの ADMIN で共通）。赤から金のグラデーションの文字 */
@@ -345,9 +361,9 @@ input {
   background: var(--surface);
 }
 
-/* キーボードで移った項目が、固定したヘッダーに隠れないようにする */
+/* キーボードで移った項目が、固定したヘッダーとタイトルの行に隠れないようにする */
 :root:has(.admin-header) {
-  scroll-padding-top: calc(var(--admin-header-height, 0px) + 1rem);
+  scroll-padding-top: calc(var(--admin-header-height, 0px) + var(--admin-title-height, 0px) + 1rem);
 }
 
 /* ヘッダーの「ADMIN」（装飾は .gradient-title） */
@@ -521,8 +537,8 @@ tr.dimmed .ranking-bar,
 
 .race-sticky {
   position: sticky;
-  /* 管理画面の固定したヘッダーのすぐ下に並べる */
-  top: var(--admin-header-height, 0px);
+  /* 管理画面の固定したヘッダーとタイトルの行のすぐ下に並べる */
+  top: calc(var(--admin-header-height, 0px) + var(--admin-title-height, 0px));
   z-index: 1;
   padding-top: 0.5rem;
   background: var(--surface);
@@ -1137,26 +1153,9 @@ button.more {
   max-width: 36rem;
 }
 
-/* 設定のタイトルと保存ボタン。スクロールしても画面の上に残す */
+/* 設定のタイトルの行は、項目の幅にそろえる */
 .settings-bar {
-  position: sticky;
-  /* 管理画面の固定したヘッダーのすぐ下に並べる */
-  top: var(--admin-header-height, 0px);
-  z-index: 2;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem 1rem;
   max-width: 36rem;
-  margin-bottom: 1rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
-}
-
-.settings-bar .page-title {
-  margin: 0;
 }
 
 .settings-status {
@@ -1165,11 +1164,6 @@ button.more {
 
 .settings-status:empty {
   display: none;
-}
-
-/* キーボードで移った項目が、固定したタイトルの行に隠れないようにする */
-:root:has(.settings-bar) {
-  scroll-padding-top: calc(var(--admin-header-height, 0px) + 6rem);
 }
 
 .settings-status p {
