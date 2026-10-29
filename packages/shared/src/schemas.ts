@@ -65,9 +65,9 @@ export const updateSettingsRequestSchema = z.object({
   favoritesEnabled: z.boolean(),
   favoriteLimit: z.number().int().min(0).max(FAVORITE_LIMIT_MAX),
   favoritePoints: points,
-  // 後から追加した項目。古い画面から保存されても 400 にせず、今の値を残す
-  showPoints: z.boolean().optional(),
+  // 以下は後から追加した項目。古い画面から保存されても 400 にせず、今の値を残す
   favoriteGivenPoints: points.optional(),
+  showPoints: z.boolean().optional(),
   showQuizPoints: z.boolean().optional(),
   rankingVisible: z.boolean().optional(),
   rankingHideNames: z.boolean().optional(),

@@ -80,10 +80,13 @@ export function Gallery() {
       {rules.favoritesEnabled ? (
         <p className="muted small">
           気に入った写真の ♡ を押すとお気に入りに選べます（{user.favoritesGiven} / {rules.favoriteLimit} 枚選択中）。
-          {rules.showPoints && rules.favoritePoints > 0 && `選ばれた人に ${rules.favoritePoints} ポイント入ります。`}
-          {rules.showPoints &&
-            rules.favoriteGivenPoints > 0 &&
-            `選んだあなたにも 1 枚につき ${rules.favoriteGivenPoints} ポイント入ります。`}
+          {rules.showPoints && (
+            <>
+              {rules.favoritePoints > 0 && `選ばれた人に ${rules.favoritePoints} ポイント入ります。`}
+              {rules.favoriteGivenPoints > 0 &&
+                `選んだあなたにも 1 枚につき ${rules.favoriteGivenPoints} ポイント入ります。`}
+            </>
+          )}
         </p>
       ) : (
         user.favoritesGiven > 0 && <p className="muted small">お気に入りの受付は終了しました（♥ が選んだ写真）。</p>

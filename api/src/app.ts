@@ -804,9 +804,11 @@ export function buildRanking(source: RankingSource): RankingResponse {
   for (const photo of photos) add(photo.uploaderId, photo.reviewedAt ?? photo.createdAt, settings.uploadPoints);
   for (const favorite of favorites) {
     const photo = photosById.get(favorite.photoId);
-    if (photo) add(photo.uploaderId, favorite.createdAt, settings.favoritePoints);
-    // 選んだ人にも、選んだ時刻に入る
-    add(favorite.userId, favorite.createdAt, settings.favoriteGivenPoints);
+    // 公開中の写真へのお気に入りだけを、選ばれた人と選んだ人（選んだ時刻）の両方に数える
+    if (photo) {
+      add(photo.uploaderId, favorite.createdAt, settings.favoritePoints);
+      add(favorite.userId, favorite.createdAt, settings.favoriteGivenPoints);
+    }
   }
   // クイズの点数は締め切った時刻に入る（scoreQuizAnswers と同じ answerPoints で数える）
   for (const { quiz, answers } of quizzes) {

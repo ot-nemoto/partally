@@ -1194,7 +1194,11 @@ describe("buildRanking", () => {
         photo("P2", "u1", "2026-01-01T00:20:00.000Z"),
         photo("P3", "u3", "2026-01-01T00:30:00.000Z"),
       ],
-      favorites: [{ userId: "u2", photoId: "P2", createdAt: "2026-01-01T01:00:00.000Z" }],
+      favorites: [
+        { userId: "u2", photoId: "P2", createdAt: "2026-01-01T01:00:00.000Z" },
+        // 公開中でない写真へのお気に入り（削除の後片付けの途中など）は、選んだ人にも数えない
+        { userId: "u3", photoId: "PX", createdAt: "2026-01-01T01:30:00.000Z" },
+      ],
       now: "2026-01-01T03:00:00.000Z",
     });
 
