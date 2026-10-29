@@ -141,6 +141,12 @@ export function AdminSettings() {
               max={POINTS_MAX}
               onChange={(v) => update("favoritePoints", v)}
             />
+            <NumberField
+              label="お気に入りを 1 枚選んだときのポイント（選んだ人に入る）"
+              value={settings.favoriteGivenPoints}
+              max={POINTS_MAX}
+              onChange={(v) => update("favoriteGivenPoints", v)}
+            />
             <SwitchField
               label="参加者のホーム画面にポイントを表示する"
               description="オフにすると、参加者には自分のポイント・お気に入りに選ばれた数・写真ごとの ♥ の数が見えなくなります（発表まで伏せたいとき）。集計は続き、管理画面のユーザ一覧では見られます。"

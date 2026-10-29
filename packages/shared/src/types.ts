@@ -129,8 +129,10 @@ export interface Settings {
   favoritesEnabled: boolean;
   /** 1 人が選べるお気に入りの数 */
   favoriteLimit: number;
-  /** お気に入りに 1 件選ばれたときのポイント */
+  /** お気に入りに 1 件選ばれたときのポイント（選ばれた人に入る） */
   favoritePoints: number;
+  /** お気に入りを 1 枚選んだときのポイント（選んだ人に入る） */
+  favoriteGivenPoints: number;
   /** 参加者のホーム画面にポイントを表示するか（発表まで伏せておきたいときに切る） */
   showPoints: boolean;
   /** 参加者のホーム画面にクイズの点数を表示するか */

@@ -61,6 +61,7 @@ export function Home() {
               <>
                 写真 1 枚公開で {rules.uploadPoints} ポイント
                 {rules.favoritePoints > 0 && `・お気に入りに 1 回選ばれると ${rules.favoritePoints} ポイント`}
+                {rules.favoriteGivenPoints > 0 && `・お気に入りを 1 枚選ぶと ${rules.favoriteGivenPoints} ポイント`}
               </>
             )}
             {rules.showPoints && rules.showQuizPoints && "・"}

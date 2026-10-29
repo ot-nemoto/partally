@@ -542,6 +542,7 @@ describe("API", () => {
         favoritesEnabled: true,
         favoriteLimit: 10,
         favoritePoints: 1,
+        favoriteGivenPoints: 10,
         showPoints: true,
         showQuizPoints: true,
         rankingVisible: false,
@@ -600,7 +601,7 @@ describe("API", () => {
       expect((await me(a.request)).user).toMatchObject({ uploadCount: 1, approvedCount: 0, points: 0 });
     });
 
-    it("他人の写真をお気に入りにすると、選ばれた人にポイントが付く。二重には数えない", async () => {
+    it("他人の写真をお気に入りにすると、選ばれた人と選んだ人にポイントが付く。二重には数えない", async () => {
       const { a, b, photoA1 } = await setup();
       const res = await b.request("PUT", `/api/photos/${photoA1}/favorite`);
       expect(res.status).toBe(200);
@@ -609,7 +610,8 @@ describe("API", () => {
       expect((await b.request("PUT", `/api/photos/${photoA1}/favorite`)).status).toBe(200);
 
       expect((await me(a.request)).user).toMatchObject({ favoritesReceived: 1, points: 3 });
-      expect((await me(b.request)).user).toMatchObject({ favoritesGiven: 1, points: 1 });
+      // 鈴木: 写真 1 枚（1）と、お気に入りを 1 枚選んだ分（既定 10）
+      expect((await me(b.request)).user).toMatchObject({ favoritesGiven: 1, points: 11 });
 
       const gallery = (await b.request("GET", "/api/photos")).body.photos;
       expect(gallery.find((p: any) => p.photoId === photoA1)).toMatchObject({ favorited: true, favoriteCount: 1 });
@@ -671,6 +673,22 @@ describe("API", () => {
       expect((await me(c.request)).user.favoritesGiven).toBe(0);
     });
 
+    it("お気に入りを選んだ人のポイントは設定で変えられ、外すと戻る", async () => {
+      const { a, b, photoA1, admin } = await setup();
+      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post", favoriteGivenPoints: 4 });
+      await b.request("PUT", `/api/photos/${photoA1}/favorite`);
+      expect((await me(b.request)).user.points).toBe(1 + 4);
+      expect((await me(a.request)).user.points).toBe(2 + 1);
+      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post", favoriteGivenPoints: 0 });
+      expect((await me(b.request)).user.points).toBe(1);
+      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post", favoriteGivenPoints: 4 });
+      await b.request("DELETE", `/api/photos/${photoA1}/favorite`);
+      expect((await me(b.request)).user.points).toBe(1);
+      // 古い画面から favoriteGivenPoints を送らずに保存しても、今の値が残る
+      const { favoriteGivenPoints: _omit, ...old } = { ...DEFAULT_SETTINGS, moderation: "post" as const };
+      expect((await admin("PUT", "/api/admin/settings", old)).body.settings.favoriteGivenPoints).toBe(4);
+    });
+
     it("ランキングは高い順に並び、累計の推移の最後がユーザ管理のポイントと一致する", async () => {
       const { a, b, photoA1, photoA2, admin } = await setup();
       const c = await participant("佐藤");
@@ -685,9 +703,10 @@ describe("API", () => {
       expect(
         res.body.ranking.map((r: any) => [r.rank, r.name, r.displayName === `〈${r.epithet}〉${r.name}`, r.points]),
       ).toEqual([
-        [1, "田中", true, 4],
-        [2, "鈴木", true, 1],
-        [3, "佐藤", true, 0],
+        // 鈴木: 写真 1 枚と選んだ 1 枚（10）、佐藤: 選んだ 1 枚（外した分は入らない）、田中: 写真 2 枚と選ばれた 2 件
+        [1, "鈴木", true, 11],
+        [2, "佐藤", true, 10],
+        [3, "田中", true, 4],
       ]);
       const users = (await admin("GET", "/api/admin/users")).body.users;
       for (const entry of res.body.ranking) {
@@ -699,9 +718,11 @@ describe("API", () => {
         expect(history.map((h) => h.at)).toEqual(history.map((h) => h.at).toSorted());
       }
       // 田中: 写真 2 枚と選ばれた 2 件で、最後の点の前に 4 に達している
-      expect(res.body.ranking[0].history.at(-2).points).toBe(4);
-      expect(res.body.ranking[0].userId).toBe(a.userId);
-      expect(res.body.ranking[1].userId).toBe(b.userId);
+      expect(res.body.ranking[2].history.at(-2).points).toBe(4);
+      expect(res.body.ranking[2].userId).toBe(a.userId);
+      expect(res.body.ranking[0].userId).toBe(b.userId);
+      // 佐藤: 選んだ時刻に 10 に上がる
+      expect(res.body.ranking[1].history.map((h: any) => h.points)).toEqual([0, 10, 10]);
     });
 
     it("参加者のランキング・トレンドは、見せる設定のときだけ返す（既定は見せない）", async () => {
@@ -1144,14 +1165,14 @@ describe("buildRanking", () => {
     reviewedAt,
   });
 
-  it("写真は公開した時刻、お気に入りは選ばれた時刻、クイズは締め切った時刻に加え、同じ時刻はまとめる", () => {
+  it("写真は公開した時刻、お気に入りは選ばれた時刻（選んだ人も同じ時刻）、クイズは締め切った時刻に加え、同じ時刻はまとめる", () => {
     const result = buildRanking({
       users: [
         user("u1", "田中", { approvedCount: 2, favoritesReceived: 1 }),
-        user("u2", "鈴木", { approvedCount: 0 }),
+        user("u2", "鈴木", { approvedCount: 0, favoritesGiven: 1 }),
         user("u3", "佐藤", { approvedCount: 1 }),
       ],
-      settings: { ...DEFAULT_SETTINGS, uploadPoints: 2, favoritePoints: 3 },
+      settings: { ...DEFAULT_SETTINGS, uploadPoints: 2, favoritePoints: 3, favoriteGivenPoints: 5 },
       quizzes: [
         {
           quiz,
@@ -1179,7 +1200,7 @@ describe("buildRanking", () => {
 
     expect(result.generatedAt).toBe("2026-01-01T03:00:00.000Z");
     expect(result.ranking.map((r) => [r.rank, r.userId, r.points])).toEqual([
-      [1, "u2", 10],
+      [1, "u2", 15],
       [2, "u1", 7],
       [3, "u3", 2],
     ]);
@@ -1191,8 +1212,9 @@ describe("buildRanking", () => {
     ]);
     expect(result.ranking[0]!.history).toEqual([
       { at: "2026-01-01T00:00:02.000Z", points: 0 },
-      { at: "2026-01-01T02:00:00.000Z", points: 10 },
-      { at: "2026-01-01T03:00:00.000Z", points: 10 },
+      { at: "2026-01-01T01:00:00.000Z", points: 5 },
+      { at: "2026-01-01T02:00:00.000Z", points: 15 },
+      { at: "2026-01-01T03:00:00.000Z", points: 15 },
     ]);
     // 0 点の選択肢は点を増やさない
     expect(result.ranking[2]!.history.map((h) => h.points)).toEqual([0, 2, 2]);
