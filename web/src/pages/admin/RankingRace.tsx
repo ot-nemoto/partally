@@ -69,6 +69,16 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
   const max = Math.max(1, standings[0]?.points ?? 0);
   const progress = endTime > startTime ? (time - startTime) / (endTime - startTime) : 1;
 
+  // 下までスクロールした所で押しても、表や再生の始まりが見えるよう画面の上へ戻す
+  function replay() {
+    window.scrollTo({ top: 0 });
+    setRound((r) => r + 1);
+  }
+  function close() {
+    window.scrollTo({ top: 0 });
+    onClose();
+  }
+
   return (
     <div className="race card">
       {/* 全員を並べると長くなるので、時刻とボタンはスクロールしても画面の上に残す */}
@@ -78,15 +88,15 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
           <div className="race-actions">
             {done ? (
               <>
-                <button type="button" className="primary" onClick={() => setRound((r) => r + 1)}>
+                <button type="button" className="primary" onClick={replay}>
                   もう一度
                 </button>
-                <button type="button" onClick={onClose}>
+                <button type="button" onClick={close}>
                   表に戻る
                 </button>
               </>
             ) : (
-              <button type="button" onClick={onClose}>
+              <button type="button" onClick={close}>
                 停止
               </button>
             )}
@@ -102,20 +112,20 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
       */}
       <div
         className="race-board"
-        style={{ height: data.ranking.length * ROW_HEIGHT }}
+        style={{ height: Math.max(standings.length, 1) * ROW_HEIGHT }}
         role="img"
         aria-label="順位の推移のアニメーション。終わると今のランキングと同じ並びになります"
       >
         {data.ranking.map((entry) => {
           const pos = positions.get(entry.userId);
-          // 登録前の人は一番下に隠しておき、登録したら下から現れる
+          // 登録前の人は最後の行のすぐ下に隠しておき、登録したら下から現れる
           const shown = pos !== undefined;
           return (
             <div
               key={entry.userId}
               className={`race-row${entry.status === "unbound" ? " dimmed" : ""}`}
               style={{
-                transform: `translateY(${(pos?.index ?? data.ranking.length) * ROW_HEIGHT}px)`,
+                transform: `translateY(${(pos?.index ?? standings.length) * ROW_HEIGHT}px)`,
                 opacity: shown ? 1 : 0,
                 height: ROW_HEIGHT,
               }}
