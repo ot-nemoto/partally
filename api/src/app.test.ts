@@ -745,6 +745,29 @@ describe("API", () => {
       expect(text).not.toContain("田中");
       expect(text).not.toContain(a.userId);
 
+      // 名前を伏せると、登録した時刻（推移の始まり）も全員そろえる
+      const hiddenTrend = await admin("PUT", "/api/admin/settings", {
+        ...DEFAULT_SETTINGS,
+        uploadPoints: 3,
+        rankingVisible: true,
+        rankingHideNames: true,
+        rankingHidePoints: true,
+        trendVisible: true,
+        trendHideNames: true,
+      });
+      expect(hiddenTrend.status).toBe(200);
+      const starts = (await a.request("GET", "/api/trend")).body.ranking.map((r: any) => r.history[0].at);
+      expect(new Set(starts).size).toBe(1);
+      await admin("PUT", "/api/admin/settings", {
+        ...DEFAULT_SETTINGS,
+        uploadPoints: 3,
+        rankingVisible: true,
+        rankingHideNames: true,
+        rankingHidePoints: true,
+        trendVisible: true,
+        trendHidePoints: true,
+      });
+
       // トレンドはポイントだけを伏せる（名前は見える）。推移も割合にする
       const trend = (await a.request("GET", "/api/trend")).body;
       expect(trend).toMatchObject({ hideNames: false, hidePoints: true });
@@ -752,6 +775,30 @@ describe("API", () => {
         ["田中", 100],
         ["鈴木", 50],
       ]);
+    });
+
+    it("参加者のランキングには、紐づけを解除した人を出さず、順位を付け直す", async () => {
+      const { a, b, admin } = await setup();
+      const c = await participant("佐藤");
+      await uploadAs(c.request);
+      await uploadAs(c.request);
+      await uploadAs(c.request);
+      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, rankingVisible: true });
+      expect((await admin("POST", `/api/admin/users/${c.userId}/unbind`)).status).toBe(200);
+
+      // 管理画面には解除した人も残る
+      const all = (await admin("GET", "/api/admin/ranking")).body.ranking;
+      expect(all.map((r: any) => [r.rank, r.name])).toEqual([
+        [1, "佐藤"],
+        [2, "田中"],
+        [3, "鈴木"],
+      ]);
+      const ranking = (await a.request("GET", "/api/ranking")).body.ranking;
+      expect(ranking.map((r: any) => [r.rank, r.name, r.points])).toEqual([
+        [1, "田中", 2],
+        [2, "鈴木", 1],
+      ]);
+      expect(b.userId).toBe(ranking[1].userId);
     });
 
     it("ランキングは管理者のログインが必要", async () => {

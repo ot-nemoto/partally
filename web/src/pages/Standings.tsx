@@ -63,8 +63,9 @@ function StandingsView({ view }: { view: View }) {
       .catch((e) => {
         if (request !== latestRequest.current) return;
         // 見ている間に非公開にされた
-        if (e instanceof ApiError && e.status === 404) setHidden(true);
-        else setError(errorMessage(e));
+        const notPublic = e instanceof ApiError && e.status === 404;
+        setHidden(notPublic);
+        setError(notPublic ? undefined : errorMessage(e));
       });
   }, [view]);
   useEffect(load, [load]);

@@ -877,31 +877,38 @@ function toParticipantUserDto(user: UserRecord, settings: Settings, quiz: QuizSt
 export const HIDDEN_NAME = "???";
 
 /**
- * 参加者に返すランキング・推移。名前を伏せるときは名前・称号・ユーザ ID を返さない（ID は順番の番号に置き換える）。
- * ポイントを伏せるときは、最大値を 100 とした割合（小数第 1 位まで）に置き換える。順位は元のポイントで決まったまま
+ * 参加者に返すランキング・推移。紐づけを解除した人は除き、順位を付け直す（同点は同じ順位）。
+ * 名前を伏せるときは名前・称号・ユーザ ID を返さず（ID は順番の番号に置き換える）、
+ * 登録した時刻から人が分からないよう、推移の始まり（登録時の 0）を全員そろえる。
+ * ポイントを伏せるときは、最大値を 100 とした割合（小数第 1 位まで）に置き換える
  */
 export function toParticipantRanking(
   ranking: RankingResponse,
   hideNames: boolean,
   hidePoints: boolean,
 ): ParticipantRankingResponse {
+  const entries = ranking.ranking.filter((e) => e.status !== "unbound");
   let max = 0;
-  for (const e of ranking.ranking) {
+  let start = ranking.generatedAt;
+  for (const e of entries) {
     max = Math.max(max, e.points);
     for (const h of e.history) max = Math.max(max, h.points);
+    const joined = e.history[0]?.at;
+    if (joined && joined < start) start = joined;
   }
   const scale = (points: number) => (hidePoints ? (max > 0 ? Math.round((points / max) * 1000) / 10 : 0) : points);
-  return {
-    generatedAt: ranking.generatedAt,
-    hideNames,
-    hidePoints,
-    ranking: ranking.ranking.map((e, i) => ({
+  const result: RankingEntryDto[] = [];
+  entries.forEach((e, i) => {
+    const prev = result[i - 1];
+    result.push({
       ...e,
+      rank: prev && entries[i - 1]?.points === e.points ? prev.rank : i + 1,
       ...(hideNames ? { userId: `r${i + 1}`, name: HIDDEN_NAME, epithet: HIDDEN_NAME, displayName: HIDDEN_NAME } : {}),
       points: scale(e.points),
-      history: e.history.map((h) => ({ at: h.at, points: scale(h.points) })),
-    })),
-  };
+      history: e.history.map((h, j) => ({ at: hideNames && j === 0 ? start : h.at, points: scale(h.points) })),
+    });
+  });
+  return { generatedAt: ranking.generatedAt, hideNames, hidePoints, ranking: result };
 }
 
 function toQuizDto(quiz: QuizRecord, answers: QuizAnswerRecord[]): QuizDto {

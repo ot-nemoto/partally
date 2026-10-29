@@ -221,7 +221,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `favoriteLimit` | number | 1 人が選べるお気に入りの数（既定 10、0〜100） |
 | `favoritePoints` | number | お気に入りに 1 回選ばれたときのポイント（既定 1、0〜100） |
 | `showPoints` | boolean | 参加者にポイントを見せるか（既定 オン）。オフの間は参加者向けの API 応答からポイント・選ばれた数・写真の ♥ の数を除く。集計は続き、管理画面では見える |
-| `showQuizPoints` | boolean | 参加者にクイズの点数を見せるか（既定 オン）。オフの間は `/api/me` からクイズの点数を除く。合計のポイント（`showPoints` に従う）にはクイズの点数も含む |
+| `showQuizPoints` | boolean | 参加者にクイズの点数を見せるか（既定 オン）。オフの間は `/api/me` からクイズの点数を除く。合計のポイント（`showPoints` に従う）にはクイズの点数も含む。この項目を保存する前は、以前クイズの点数も一緒に伏せていた `showPoints` の値を引き継ぐ |
 | `rankingVisible` / `rankingHideNames` / `rankingHidePoints` | boolean | 参加者にランキングを見せるか（既定 オフ）と、名前・ポイントを伏せるか（既定 オフ） |
 | `trendVisible` / `trendHideNames` / `trendHidePoints` | boolean | 参加者にポイントの推移を見せるか（既定 オフ）と、名前・ポイントを伏せるか（既定 オフ） |
 
@@ -413,7 +413,7 @@ sequenceDiagram
 | POST | `/api/auth/logout` | Cookie 削除 |
 | GET | `/api/me` | 自分の情報（表示名・アップロード数・ポイント・お気に入りの数・回答した問題数・クイズの点数）とポイントのルール。CloudFront Cookie の再発行 |
 | GET | `/api/quiz/current` | 出題中のクイズ（問題文・選択肢・自分の回答）。無ければ `null`。正解がわからないよう選択肢の点数は返さない。画面の表示中は 5 秒ごとと、別のアプリから戻ったときに呼ぶ（画面が見えていない間は呼ばない）。出題・締め切りが自動で反映される |
-| GET | `/api/ranking` | ランキング（推移なし）。設定 `rankingVisible` がオフなら 404。名前を伏せるときは全員の名前・称号・表示名を `???` にし、ユーザ ID を順番の番号（`r1`…）に置き換える。ポイントを伏せるときは、最大値を 100 とした割合（小数第 1 位まで）だけを返す。応答に `hideNames`・`hidePoints` を含む |
+| GET | `/api/ranking` | ランキング（推移なし）。設定 `rankingVisible` がオフなら 404。紐づけを解除した人は除き、順位を付け直す。名前を伏せるときは全員の名前・称号・表示名を `???` にし、ユーザ ID を順番の番号（`r1`…）に置き換え、推移の始まり（登録した時刻）も全員そろえる。ポイントを伏せるときは、最大値を 100 とした割合（小数第 1 位まで）だけを返す。応答に `hideNames`・`hidePoints` を含む |
 | GET | `/api/trend` | ランキングと累計ポイントの推移。`trendVisible` がオフなら 404。伏せ方は `/api/ranking` と同じ（`trendHideNames`・`trendHidePoints` に従う） |
 | PUT | `/api/quiz/{quizId}/answer` | 回答する `{choiceId}`（選び直しは上書き）。出題中でなければ 409 `quiz_closed` |
 | POST | `/api/photos/upload-url` | アップロード用署名付き POST を発行 |

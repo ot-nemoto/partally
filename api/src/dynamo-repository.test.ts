@@ -53,6 +53,20 @@ function canceled(codes: string[]) {
 describe("DynamoRepository", () => {
   beforeEach(() => ddb.reset());
 
+  describe("設定", () => {
+    it("保存されていない項目は既定値で補う", async () => {
+      ddb.on(GetCommand).resolves({ Item: { moderation: "post", uploadPoints: 3 } });
+      expect(await repo.getSettings()).toEqual({ ...DEFAULT_SETTINGS, moderation: "post", uploadPoints: 3 });
+    });
+
+    it("クイズの点数の表示が未保存なら、以前一緒に伏せていた showPoints の値を引き継ぐ", async () => {
+      ddb.on(GetCommand).resolves({ Item: { showPoints: false } });
+      expect(await repo.getSettings()).toMatchObject({ showPoints: false, showQuizPoints: false });
+      ddb.on(GetCommand).resolves({ Item: { showPoints: false, showQuizPoints: true } });
+      expect(await repo.getSettings()).toMatchObject({ showPoints: false, showQuizPoints: true });
+    });
+  });
+
   describe("registerUser", () => {
     it("トークン紐づけ・ユーザ作成・二つ名ロックを 1 トランザクションで書く", async () => {
       ddb.on(TransactWriteCommand).resolves({});
