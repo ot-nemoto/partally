@@ -456,7 +456,7 @@ tr.dimmed td {
   font-weight: 700;
 }
 
-/* ポイントに比例した横棒。1 位を最長にし、左端（0）からそろえて伸ばす */
+/* ポイントに比例した横棒。1 位を最長にし、左端（0）からそろえて伸ばす（推移の再生の棒も同じ見た目） */
 .ranking-bar-cell {
   width: 45%;
   min-width: 3rem;
@@ -466,15 +466,129 @@ tr.dimmed td {
   height: 0.9rem;
 }
 
-.ranking-bar {
+.ranking-bar,
+.race-bar {
   height: 100%;
   min-width: 2px;
   border-radius: 0 4px 4px 0;
   background: linear-gradient(90deg, var(--accent), var(--gold));
 }
 
-tr.dimmed .ranking-bar {
+/* 推移の再生では、ポイントが変わったときに棒の長さを滑らかに変える */
+.race-bar {
+  display: block;
+  transition: width 0.3s linear;
+}
+
+tr.dimmed .ranking-bar,
+.race-row.dimmed .race-bar {
   opacity: 0.35;
+}
+
+/* ---- 順位の推移の再生（バーチャートレース） ---- */
+
+.race-start {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.75rem;
+}
+
+.race-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.race-time {
+  font-size: 2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.race-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.race-progress {
+  height: 3px;
+  margin: 0.5rem 0 0.75rem;
+  background: var(--border);
+}
+
+.race-progress > div {
+  height: 100%;
+  background: var(--accent);
+}
+
+/* 行は重ねて置き、translateY で順位の位置へ動かす */
+.race-board {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+}
+
+.race-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: 2rem minmax(4rem, 9rem) 1fr 3rem;
+  align-items: center;
+  gap: 0.5rem;
+  transition:
+    transform 0.4s ease,
+    opacity 0.4s ease;
+}
+
+/* スマホでは名前を詰めて、棒を長く見せる */
+@media (max-width: 520px) {
+  .race-row {
+    grid-template-columns: 1.5rem 5rem 1fr 2.25rem;
+    gap: 0.375rem;
+  }
+}
+
+.race-rank {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 1〜3 位の順位を目立たせる（表と同じ。紐づけを解除した人は付けない） */
+.race-rank.podium {
+  color: var(--gold);
+  font-weight: 700;
+}
+
+.race-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.race-track {
+  height: 1.1rem;
+}
+
+.race-points {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.race-row.dimmed {
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .race-row,
+  .race-bar {
+    transition: none;
+  }
 }
 
 .ranking-chart {
@@ -544,23 +658,14 @@ tr.dimmed .ranking-bar {
 }
 
 /* 選んでいない人の線。細い灰色で背景にし、選んだ人の色付きの線を目立たせる。
-   透明度はグループにまとめて付け、凡例の色見本とそろえる */
-:root {
-  --context-opacity: 0.35;
-}
-
+   透明度はグループにまとめて付ける（線ごとに付けると重なった所が濃くなる） */
 .chart-wrap .context-lines {
-  opacity: var(--context-opacity);
+  opacity: 0.35;
 }
 
 .chart-wrap .series-line.context {
   stroke: var(--muted);
   stroke-width: 1;
-}
-
-.swatch-context {
-  background: var(--muted);
-  opacity: var(--context-opacity);
 }
 
 /* カーソルを合わせた人の線は太くし、ほかの色付きの線と名前を薄くする */
