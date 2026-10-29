@@ -9,6 +9,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
 import { NumberField } from "../../components/NumberField";
 import { PageTitle } from "../../components/PageTitle";
+import { SwitchField } from "../../components/SwitchField";
 
 const MODERATION_OPTIONS: { value: ModerationMode; label: string; description: string }[] = [
   {
@@ -89,10 +90,24 @@ export function AdminSettings() {
 
   return (
     <section>
-      <PageTitle en="Setting" ja="設定" />
+      {/* 項目が多くても保存できるよう、タイトルと保存ボタンはスクロールしても画面の上に残す */}
+      <div className="settings-bar">
+        <PageTitle en="Setting" ja="設定" />
+        {settings && (
+          <button type="submit" form="settings-form" className="primary" disabled={!changed || incomplete}>
+            保存
+          </button>
+        )}
+        {/* 保存の結果を読み上げるため、中身が空でも置いておく */}
+        <div className="settings-status" role="status">
+          {error && <p className="error">{error}</p>}
+          {incomplete && <p className="error">空欄の項目に数値を入れてください。</p>}
+          {message && <p className="small">{message}</p>}
+        </div>
+      </div>
       {!settings && !error && <p className="muted">読み込み中…</p>}
       {settings && (
-        <form className="settings-form" onSubmit={save}>
+        <form id="settings-form" className="settings-form" onSubmit={save}>
           <div className="card settings">
             <h2>写真の公開方法</h2>
             {MODERATION_OPTIONS.map((o) => (
@@ -127,33 +142,18 @@ export function AdminSettings() {
               max={POINTS_MAX}
               onChange={(v) => update("favoritePoints", v)}
             />
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={settings.showPoints}
-                onChange={(e) => update("showPoints", e.target.checked)}
-              />
-              <span>
-                <strong>参加者のホーム画面にポイントを表示する</strong>
-                <span className="muted small">
-                  オフにすると、参加者には自分のポイント・お気に入りに選ばれた数・写真ごとの ♥
-                  の数が見えなくなります（発表まで伏せたいとき）。集計は続き、管理画面のユーザ一覧では見られます。
-                </span>
-              </span>
-            </label>
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={settings.showQuizPoints}
-                onChange={(e) => update("showQuizPoints", e.target.checked)}
-              />
-              <span>
-                <strong>参加者のホーム画面にクイズの点数を表示する</strong>
-                <span className="muted small">
-                  オフにすると、参加者には自分のクイズの点数が見えなくなります。合計のポイントにはクイズの点数も含まれます。
-                </span>
-              </span>
-            </label>
+            <SwitchField
+              label="参加者のホーム画面にポイントを表示する"
+              description="オフにすると、参加者には自分のポイント・お気に入りに選ばれた数・写真ごとの ♥ の数が見えなくなります（発表まで伏せたいとき）。集計は続き、管理画面のユーザ一覧では見られます。"
+              checked={settings.showPoints}
+              onChange={(v) => update("showPoints", v)}
+            />
+            <SwitchField
+              label="参加者のホーム画面にクイズの点数を表示する"
+              description="オフにすると、参加者には自分のクイズの点数が見えなくなります。合計のポイントにはクイズの点数も含まれます。"
+              checked={settings.showQuizPoints}
+              onChange={(v) => update("showQuizPoints", v)}
+            />
             <p className="muted small">
               ポイントは現在の設定で毎回計算します。変更すると、これまでの分も含めて全員のポイントが変わります。
             </p>
@@ -161,19 +161,12 @@ export function AdminSettings() {
 
           <div className="card settings">
             <h2>お気に入り</h2>
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={settings.favoritesEnabled}
-                onChange={(e) => update("favoritesEnabled", e.target.checked)}
-              />
-              <span>
-                <strong>お気に入りの選択を受け付ける</strong>
-                <span className="muted small">
-                  オフにすると、お気に入りの追加・解除ができなくなります（締め切り）。付いたポイントは残ります。
-                </span>
-              </span>
-            </label>
+            <SwitchField
+              label="お気に入りの選択を受け付ける"
+              description="オフにすると、お気に入りの追加・解除ができなくなります（締め切り）。付いたポイントは残ります。"
+              checked={settings.favoritesEnabled}
+              onChange={(v) => update("favoritesEnabled", v)}
+            />
             <NumberField
               label="1 人が選べるお気に入りの数"
               value={settings.favoriteLimit}
@@ -189,36 +182,25 @@ export function AdminSettings() {
             <h2>参加者への公開</h2>
             {PUBLISH_OPTIONS.map((o) => (
               <fieldset key={o.visible} className="publish-option">
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={settings[o.visible]}
-                    onChange={(e) => update(o.visible, e.target.checked)}
-                  />
-                  <span>
-                    <strong>参加者に{o.label}を見せる</strong>
-                    <span className="muted small">{o.description}</span>
-                  </span>
-                </label>
+                <SwitchField
+                  label={`参加者に${o.label}を見せる`}
+                  description={o.description}
+                  checked={settings[o.visible]}
+                  onChange={(v) => update(o.visible, v)}
+                />
                 <div className="publish-sub">
-                  <label className="checkbox">
-                    <input
-                      type="checkbox"
-                      checked={settings[o.hideNames]}
-                      disabled={!settings[o.visible]}
-                      onChange={(e) => update(o.hideNames, e.target.checked)}
-                    />
-                    <span>名前を伏せる（全員を「???」と表示）</span>
-                  </label>
-                  <label className="checkbox">
-                    <input
-                      type="checkbox"
-                      checked={settings[o.hidePoints]}
-                      disabled={!settings[o.visible]}
-                      onChange={(e) => update(o.hidePoints, e.target.checked)}
-                    />
-                    <span>ポイントを伏せる（棒・線の形だけを見せる）</span>
-                  </label>
+                  <SwitchField
+                    label="名前を伏せる（全員を「???」と表示）"
+                    checked={settings[o.hideNames]}
+                    disabled={!settings[o.visible]}
+                    onChange={(v) => update(o.hideNames, v)}
+                  />
+                  <SwitchField
+                    label="ポイントを伏せる（棒・線の形だけを見せる）"
+                    checked={settings[o.hidePoints]}
+                    disabled={!settings[o.visible]}
+                    onChange={(v) => update(o.hidePoints, v)}
+                  />
                 </div>
               </fieldset>
             ))}
@@ -227,18 +209,8 @@ export function AdminSettings() {
               ホーム画面でポイントを表示しない設定でも、ここで「ポイントを伏せる」にしない限り、ポイントは見えます。
             </p>
           </div>
-
-          {error && <p className="error">{error}</p>}
-          {incomplete && <p className="error">空欄の項目に数値を入れてください。</p>}
-          {message && <p className="small">{message}</p>}
-          <div className="buttons">
-            <button type="submit" className="primary" disabled={!changed || incomplete}>
-              保存
-            </button>
-          </div>
         </form>
       )}
-      {!settings && error && <p className="error">{error}</p>}
     </section>
   );
 }
