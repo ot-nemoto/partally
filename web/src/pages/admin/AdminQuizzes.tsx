@@ -127,22 +127,21 @@ export function AdminQuizzes() {
     <section className="admin-quizzes">
       <PageTitle en="Quiz" ja="クイズ">
         <div className="title-actions">
-          {quizzes && quizzes.length > 0 && (
-            <fieldset className="status-filter">
-              <legend>表示</legend>
-              {STATUSES.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  className={shown.has(s) ? "on" : undefined}
-                  aria-pressed={shown.has(s)}
-                  onClick={() => toggleShown(s)}
-                >
-                  {STATUS_LABEL[s]}（{counts[s]}）
-                </button>
-              ))}
-            </fieldset>
-          )}
+          {/* 読み込みの前後で固定した行の高さが変わらないよう、問題が無くても出しておく */}
+          <fieldset className="status-filter">
+            <legend>表示</legend>
+            {STATUSES.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className={shown.has(s) ? "on" : undefined}
+                aria-pressed={shown.has(s)}
+                onClick={() => toggleShown(s)}
+              >
+                {STATUS_LABEL[s]}（{counts[s]}）
+              </button>
+            ))}
+          </fieldset>
           <button type="button" className="primary" onClick={() => setEditing("new")}>
             問題を作る
           </button>
