@@ -288,23 +288,25 @@ input {
   padding-bottom: calc(5rem + env(safe-area-inset-bottom));
 }
 
+/* タブは等分し、「更新」は文字の幅だけにする。タブが 5 つでも折り返さないよう、狭い画面では文字を小さくする */
 .tabbar {
   position: fixed;
   right: 0;
   bottom: 0;
   left: 0;
-  display: grid;
-  grid-auto-columns: 1fr;
-  grid-auto-flow: column;
+  display: flex;
   padding-bottom: env(safe-area-inset-bottom);
   border-top: 1px solid var(--border);
   background: var(--surface);
 }
 
 .tabbar a {
-  padding: 0.85rem 0.25rem;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.85rem 0.125rem;
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: min(0.85rem, 3.3vw);
+  white-space: nowrap;
   text-align: center;
   text-decoration: none;
 }
@@ -316,13 +318,15 @@ input {
 
 /* 自動では取り直さないので、どの画面からでも押せるようタブバーに置く */
 .tabbar-reload {
+  flex: none;
   min-height: auto;
-  padding: 0.85rem 0.25rem;
+  padding: 0.85rem 0.625rem;
+  white-space: nowrap;
   border: none;
   border-radius: 0;
   background: none;
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: min(0.85rem, 3.3vw);
 }
 
 /* ---- 管理画面 ---- */
@@ -1345,4 +1349,43 @@ textarea {
 
 .quiz-result p {
   margin: 0;
+}
+
+/* ---- 参加者の順位 ---- */
+
+/* ランキングと推移の切り替え */
+.segmented {
+  display: flex;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.segmented button {
+  flex: 1;
+  border: none;
+  border-radius: 0;
+  font-size: 0.9rem;
+}
+
+.segmented button.active {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+/* 管理画面の設定: 見せる設定の下に、伏せ方を字下げして並べる */
+.publish-option {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.publish-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.25rem 0 0.5rem 1.75rem;
+  font-size: 0.9rem;
 }

@@ -724,6 +724,9 @@ export class DynamoRepository implements Repository {
         .filter((key) => Item?.[key] !== undefined)
         .map((key) => [key, Item![key]]),
     );
+    // クイズの点数は以前 showPoints で一緒に伏せていた。別の設定にする前に伏せていたなら、伏せたままにする
+    if (stored.showQuizPoints === undefined && stored.showPoints !== undefined)
+      stored.showQuizPoints = stored.showPoints;
     return { ...DEFAULT_SETTINGS, ...stored };
   }
 

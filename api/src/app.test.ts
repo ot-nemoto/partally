@@ -543,6 +543,13 @@ describe("API", () => {
         favoriteLimit: 10,
         favoritePoints: 1,
         showPoints: true,
+        showQuizPoints: true,
+        rankingVisible: false,
+        rankingHideNames: false,
+        rankingHidePoints: false,
+        trendVisible: false,
+        trendHideNames: false,
+        trendHidePoints: false,
       });
 
       await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post", uploadPoints: 3 });
@@ -695,6 +702,103 @@ describe("API", () => {
       expect(res.body.ranking[0].history.at(-2).points).toBe(4);
       expect(res.body.ranking[0].userId).toBe(a.userId);
       expect(res.body.ranking[1].userId).toBe(b.userId);
+    });
+
+    it("参加者のランキング・トレンドは、見せる設定のときだけ返す（既定は見せない）", async () => {
+      const { a, admin } = await setup();
+      expect((await a.request("GET", "/api/ranking")).status).toBe(404);
+      expect((await a.request("GET", "/api/trend")).status).toBe(404);
+
+      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, rankingVisible: true, trendVisible: true });
+      const ranking = await a.request("GET", "/api/ranking");
+      expect(ranking.status).toBe(200);
+      expect(ranking.body).toMatchObject({ hideNames: false, hidePoints: false });
+      expect(ranking.body.ranking.map((r: any) => [r.rank, r.name, r.points, r.history])).toEqual([
+        [1, "田中", 2, []],
+        [2, "鈴木", 1, []],
+      ]);
+      const trend = await a.request("GET", "/api/trend");
+      expect(trend.body.ranking[0].history.at(-1).points).toBe(2);
+      // ログインしていなければ見られない
+      expect((await createClient(app)("GET", "/api/ranking")).status).toBe(401);
+    });
+
+    it("参加者のランキングで名前・ポイントを伏せると、名前・ID・実際の値を返さない", async () => {
+      const { a, admin } = await setup();
+      await admin("PUT", "/api/admin/settings", {
+        ...DEFAULT_SETTINGS,
+        uploadPoints: 3,
+        rankingVisible: true,
+        rankingHideNames: true,
+        rankingHidePoints: true,
+        trendVisible: true,
+        trendHidePoints: true,
+      });
+      const ranking = (await a.request("GET", "/api/ranking")).body;
+      expect(ranking).toMatchObject({ hideNames: true, hidePoints: true });
+      // 田中 6 点・鈴木 3 点 → 1 位を 100 とした割合
+      expect(ranking.ranking.map((r: any) => [r.rank, r.userId, r.name, r.epithet, r.displayName, r.points])).toEqual([
+        [1, "r1", "???", "???", "???", 100],
+        [2, "r2", "???", "???", "???", 50],
+      ]);
+      const text = JSON.stringify(ranking);
+      expect(text).not.toContain("田中");
+      expect(text).not.toContain(a.userId);
+
+      // 名前を伏せると、登録した時刻（推移の始まり）も全員そろえる
+      const hiddenTrend = await admin("PUT", "/api/admin/settings", {
+        ...DEFAULT_SETTINGS,
+        uploadPoints: 3,
+        rankingVisible: true,
+        rankingHideNames: true,
+        rankingHidePoints: true,
+        trendVisible: true,
+        trendHideNames: true,
+      });
+      expect(hiddenTrend.status).toBe(200);
+      const starts = (await a.request("GET", "/api/trend")).body.ranking.map((r: any) => r.history[0].at);
+      expect(new Set(starts).size).toBe(1);
+      await admin("PUT", "/api/admin/settings", {
+        ...DEFAULT_SETTINGS,
+        uploadPoints: 3,
+        rankingVisible: true,
+        rankingHideNames: true,
+        rankingHidePoints: true,
+        trendVisible: true,
+        trendHidePoints: true,
+      });
+
+      // トレンドはポイントだけを伏せる（名前は見える）。推移も割合にする
+      const trend = (await a.request("GET", "/api/trend")).body;
+      expect(trend).toMatchObject({ hideNames: false, hidePoints: true });
+      expect(trend.ranking.map((r: any) => [r.name, r.history.at(-1).points])).toEqual([
+        ["田中", 100],
+        ["鈴木", 50],
+      ]);
+    });
+
+    it("参加者のランキングには、紐づけを解除した人を出さず、順位を付け直す", async () => {
+      const { a, b, admin } = await setup();
+      const c = await participant("佐藤");
+      await uploadAs(c.request);
+      await uploadAs(c.request);
+      await uploadAs(c.request);
+      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, rankingVisible: true });
+      expect((await admin("POST", `/api/admin/users/${c.userId}/unbind`)).status).toBe(200);
+
+      // 管理画面には解除した人も残る
+      const all = (await admin("GET", "/api/admin/ranking")).body.ranking;
+      expect(all.map((r: any) => [r.rank, r.name])).toEqual([
+        [1, "佐藤"],
+        [2, "田中"],
+        [3, "鈴木"],
+      ]);
+      const ranking = (await a.request("GET", "/api/ranking")).body.ranking;
+      expect(ranking.map((r: any) => [r.rank, r.name, r.points])).toEqual([
+        [1, "田中", 2],
+        [2, "鈴木", 1],
+      ]);
+      expect(b.userId).toBe(ranking[1].userId);
     });
 
     it("ランキングは管理者のログインが必要", async () => {
@@ -878,19 +982,27 @@ describe("API", () => {
       expect((await admin("DELETE", `/api/admin/quizzes/${quiz.quizId}`)).status).toBe(404);
     });
 
-    it("ポイントを伏せている間は、参加者にクイズの点数を返さない", async () => {
+    it("クイズの点数は写真のポイントとは別に伏せられる", async () => {
       const admin = await adminClient();
       const a = await participant("田中");
       const quiz = await createQuiz(admin);
       await admin("POST", `/api/admin/quizzes/${quiz.quizId}/open`);
       await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: quiz.choices[0].choiceId });
       await admin("POST", `/api/admin/quizzes/${quiz.quizId}/close`);
-      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, showPoints: false });
 
-      const user = (await me(a.request)).user;
+      // クイズの点数だけを伏せる。合計のポイント（クイズの分を含む）は見える
+      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, showQuizPoints: false });
+      let user = (await me(a.request)).user;
       expect(user.quizAnswered).toBe(1);
       expect(user).not.toHaveProperty("quizPoints");
+      expect(user.points).toBe(10);
+
+      // 写真のポイントだけを伏せる。クイズの点数は見える
+      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, showPoints: false });
+      user = (await me(a.request)).user;
       expect(user).not.toHaveProperty("points");
+      expect(user.quizPoints).toBe(10);
+
       const users = (await admin("GET", "/api/admin/users")).body.users;
       expect(users[0]).toMatchObject({ quizPoints: 10, points: 10 });
     });
