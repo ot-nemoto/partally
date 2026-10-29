@@ -497,7 +497,6 @@ tr.dimmed .ranking-bar,
   position: sticky;
   top: 0;
   z-index: 1;
-  margin: -0.5rem 0 0;
   padding-top: 0.5rem;
   background: var(--surface);
 }
@@ -533,9 +532,11 @@ tr.dimmed .ranking-bar,
 }
 
 /* 行は重ねて置き、translateY で順位の位置へ動かす */
+/* 高さはその時点で登録済みの人数に合わせ、人が増えると伸ばす */
 .race-board {
   position: relative;
   overflow: hidden;
+  transition: height 0.4s ease;
 }
 
 .race-row {
@@ -591,6 +592,7 @@ tr.dimmed .ranking-bar,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .race-board,
   .race-row,
   .race-bar {
     transition: none;
