@@ -493,6 +493,15 @@ tr.dimmed .ranking-bar,
   margin-bottom: 0.75rem;
 }
 
+.race-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: -0.5rem 0 0;
+  padding-top: 0.5rem;
+  background: var(--surface);
+}
+
 .race-head {
   display: flex;
   flex-wrap: wrap;
