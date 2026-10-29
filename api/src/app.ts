@@ -767,7 +767,12 @@ function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
 
 /** ポイントは保存せず、現在の設定で毎回計算する（設定を変えると全員に同じ基準で反映される） */
 export function calculatePoints(user: UserRecord, settings: Settings, quiz: QuizStats): number {
-  return user.approvedCount * settings.uploadPoints + user.favoritesReceived * settings.favoritePoints + quiz.points;
+  return (
+    user.approvedCount * settings.uploadPoints +
+    user.favoritesReceived * settings.favoritePoints +
+    user.favoritesGiven * settings.favoriteGivenPoints +
+    quiz.points
+  );
 }
 
 export interface RankingSource {
@@ -783,7 +788,7 @@ export interface RankingSource {
 
 /**
  * ランキングと累計ポイントの推移を作る。ポイントは保存していないので、今残っているデータから
- * 時刻つきの出来事（写真の公開・お気に入りに選ばれた・クイズの締め切り）を組み立て、現在の設定で数える。
+ * 時刻つきの出来事（写真の公開・お気に入りに選ばれた・お気に入りを選んだ・クイズの締め切り）を組み立て、現在の設定で数える。
  * 削除した写真や外したお気に入りは含めないので、推移の最後はユーザ管理と同じポイントになる
  * （GSI の反映待ちでずれることがあるため、最後の点は calculatePoints の値にそろえる）
  */
@@ -799,7 +804,11 @@ export function buildRanking(source: RankingSource): RankingResponse {
   for (const photo of photos) add(photo.uploaderId, photo.reviewedAt ?? photo.createdAt, settings.uploadPoints);
   for (const favorite of favorites) {
     const photo = photosById.get(favorite.photoId);
-    if (photo) add(photo.uploaderId, favorite.createdAt, settings.favoritePoints);
+    // 公開中の写真へのお気に入りだけを、選ばれた人と選んだ人（選んだ時刻）の両方に数える
+    if (photo) {
+      add(photo.uploaderId, favorite.createdAt, settings.favoritePoints);
+      add(favorite.userId, favorite.createdAt, settings.favoriteGivenPoints);
+    }
   }
   // クイズの点数は締め切った時刻に入る（scoreQuizAnswers と同じ answerPoints で数える）
   for (const { quiz, answers } of quizzes) {

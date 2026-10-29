@@ -84,6 +84,7 @@ export const DEFAULT_SETTINGS: Settings = {
   favoritesEnabled: true,
   favoriteLimit: 10,
   favoritePoints: 1,
+  favoriteGivenPoints: 10,
   showPoints: true,
   showQuizPoints: true,
   // 参加者へのランキング・トレンドは、管理者が見せると決めるまで出さない
