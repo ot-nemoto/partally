@@ -4,13 +4,11 @@ import { formatTime, needsDate, valueAt } from "./rankingHistory";
 
 /** 最初に点が入る少し前から今までを再生する時間 */
 const RACE_MS = 20_000;
-/** 棒を出す人数 */
-const RACE_ROWS = 10;
 /** 1 行の高さ（px）。並び替えは行の高さぶん縦に動かして見せる */
 const ROW_HEIGHT = 40;
 
 /**
- * 順位の推移を再生するバーチャートレース。時刻を進めながら、その時点の上位を横棒で並べる。
+ * 順位の推移を再生するバーチャートレース。時刻を進めながら、その時点で登録済みの全員を横棒で並べる。
  * 抜いた・抜かれたで行が上下に動き、最後は今のランキングと同じ並びで止まる
  */
 export function RankingRace({ data, onClose }: { data: RankingResponse; onClose: () => void }) {
@@ -73,27 +71,30 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
 
   return (
     <div className="race card">
-      <div className="race-head">
-        <span className="race-time">{formatTime(time, withDate)}</span>
-        <div className="race-actions">
-          {done ? (
-            <>
-              <button type="button" className="primary" onClick={() => setRound((r) => r + 1)}>
-                もう一度
-              </button>
+      {/* 全員を並べると長くなるので、時刻とボタンはスクロールしても画面の上に残す */}
+      <div className="race-sticky">
+        <div className="race-head">
+          <span className="race-time">{formatTime(time, withDate)}</span>
+          <div className="race-actions">
+            {done ? (
+              <>
+                <button type="button" className="primary" onClick={() => setRound((r) => r + 1)}>
+                  もう一度
+                </button>
+                <button type="button" onClick={onClose}>
+                  表に戻る
+                </button>
+              </>
+            ) : (
               <button type="button" onClick={onClose}>
-                表に戻る
+                停止
               </button>
-            </>
-          ) : (
-            <button type="button" onClick={onClose}>
-              停止
-            </button>
-          )}
+            )}
+          </div>
         </div>
-      </div>
-      <div className="race-progress" aria-hidden="true">
-        <div style={{ width: `${progress * 100}%` }} />
+        <div className="race-progress" aria-hidden="true">
+          <div style={{ width: `${progress * 100}%` }} />
+        </div>
       </div>
       {/*
         行は常に同じ順で描き、位置だけを変えて動かす（並べ替えると動きが付かない）。
@@ -101,19 +102,20 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
       */}
       <div
         className="race-board"
-        style={{ height: RACE_ROWS * ROW_HEIGHT }}
+        style={{ height: data.ranking.length * ROW_HEIGHT }}
         role="img"
         aria-label="順位の推移のアニメーション。終わると今のランキングと同じ並びになります"
       >
         {data.ranking.map((entry) => {
           const pos = positions.get(entry.userId);
-          const shown = pos !== undefined && pos.index < RACE_ROWS;
+          // 登録前の人は一番下に隠しておき、登録したら下から現れる
+          const shown = pos !== undefined;
           return (
             <div
               key={entry.userId}
               className={`race-row${entry.status === "unbound" ? " dimmed" : ""}`}
               style={{
-                transform: `translateY(${Math.min(pos?.index ?? RACE_ROWS, RACE_ROWS) * ROW_HEIGHT}px)`,
+                transform: `translateY(${(pos?.index ?? data.ranking.length) * ROW_HEIGHT}px)`,
                 opacity: shown ? 1 : 0,
                 height: ROW_HEIGHT,
               }}
