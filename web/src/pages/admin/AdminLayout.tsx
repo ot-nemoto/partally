@@ -65,10 +65,10 @@ export function AdminLayout() {
 function AdminNav({ className }: { className: string }) {
   return (
     <nav className={`admin-nav ${className}`} lang="en">
+      <NavLink to="/admin/tokens">QR</NavLink>
       <NavLink to="/admin/users">User</NavLink>
       <NavLink to="/admin/ranking">Ranking</NavLink>
       <NavLink to="/admin/trend">Trend</NavLink>
-      <NavLink to="/admin/tokens">QR</NavLink>
       <NavLink to="/admin/photos">Photo</NavLink>
       <NavLink to="/admin/quizzes">Quiz</NavLink>
       <NavLink to="/admin/settings">Setting</NavLink>
