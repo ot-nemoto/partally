@@ -572,12 +572,12 @@ tr.dimmed .ranking-bar,
   font-weight: 700;
 }
 
-/* 名前の上に称号（二つ名）を小さく添える。2 段にして行の高さは変えない */
+/* 名前の上に称号（二つ名）を小さく添える。文字を大きくする設定（20px）でも 2 段が行に収まる行間にする */
 .race-name {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  line-height: 1.2;
+  line-height: 1.1;
 }
 
 .race-epithet,
