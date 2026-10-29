@@ -331,7 +331,11 @@ input {
 
 /* ---- 管理画面 ---- */
 
+/* ヘッダーはスクロールしても画面の上に残す（高さは --admin-header-height として下の固定行が使う） */
 .admin-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -341,28 +345,45 @@ input {
   background: var(--surface);
 }
 
+/* キーボードで移った項目が、固定したヘッダーに隠れないようにする */
+:root:has(.admin-header) {
+  scroll-padding-top: calc(var(--admin-header-height, 0px) + 1rem);
+}
+
 /* ヘッダーの「ADMIN」（装飾は .gradient-title） */
 .admin-brand {
   font-size: 1.25rem;
   letter-spacing: 0.08em;
 }
 
-.admin-header nav {
+.admin-nav {
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem 1rem;
+}
+
+.admin-nav-inline {
   flex: 1;
 }
 
-/* スマホ幅では、ADMIN と更新・ログアウトを 1 段目、メニューを 2 段目にする */
+.admin-nav-below {
+  display: none;
+}
+
+/*
+  スマホ幅では、ADMIN と更新・ログアウトを 1 段目（固定）、メニューを 2 段目（一緒にスクロール）にする。
+  固定する部分で画面が狭くならないよう、メニューはヘッダーの外に出す
+*/
 @media (max-width: 640px) {
-  .admin-header {
-    gap: 0.5rem 1rem;
+  .admin-nav-inline {
+    display: none;
   }
 
-  .admin-header nav {
-    order: 3;
-    flex: 1 1 100%;
+  .admin-nav-below {
+    display: flex;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
   }
 
   /* ボタンの数や並びに関係なく、ADMIN が残りの幅を取ってボタンを右に寄せる */
@@ -371,13 +392,13 @@ input {
   }
 }
 
-.admin-header nav a {
+.admin-nav a {
   color: var(--muted);
   text-decoration: none;
   white-space: nowrap;
 }
 
-.admin-header nav a.active {
+.admin-nav a.active {
   color: var(--accent);
   font-weight: 600;
 }
@@ -499,7 +520,8 @@ tr.dimmed .ranking-bar,
 
 .race-sticky {
   position: sticky;
-  top: 0;
+  /* 管理画面の固定したヘッダーのすぐ下に並べる */
+  top: var(--admin-header-height, 0px);
   z-index: 1;
   padding-top: 0.5rem;
   background: var(--surface);
@@ -1117,7 +1139,8 @@ button.more {
 /* 設定のタイトルと保存ボタン。スクロールしても画面の上に残す */
 .settings-bar {
   position: sticky;
-  top: 0;
+  /* 管理画面の固定したヘッダーのすぐ下に並べる */
+  top: var(--admin-header-height, 0px);
   z-index: 2;
   display: flex;
   flex-wrap: wrap;
@@ -1145,7 +1168,7 @@ button.more {
 
 /* キーボードで移った項目が、固定したタイトルの行に隠れないようにする */
 :root:has(.settings-bar) {
-  scroll-padding-top: 6rem;
+  scroll-padding-top: calc(var(--admin-header-height, 0px) + 6rem);
 }
 
 .settings-status p {
