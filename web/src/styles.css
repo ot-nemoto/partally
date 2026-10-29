@@ -1042,6 +1042,40 @@ button.more {
   margin-bottom: 1rem;
 }
 
+/* 一覧に出す状態の切り替え（複数選べる）。押されているものを強調する */
+.status-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  border: none;
+}
+
+.status-filter legend {
+  float: left;
+  margin-right: 0.25rem;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.status-filter button {
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.status-filter button.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
 .tabs button.active {
   border-color: var(--accent);
   color: var(--accent);
@@ -1373,56 +1407,6 @@ textarea {
 
 .quiz-open {
   border-color: var(--accent);
-}
-
-/* 締め切った問題は折りたたみ、見出しに問題文を 1 行で出す。
-   details の中身にはカードの flex の間隔が効かないので、要素の間を margin で空ける */
-.quiz-closed {
-  display: block;
-}
-
-.quiz-closed > :not(summary) {
-  margin-top: 0.75rem;
-  margin-bottom: 0;
-}
-
-.quiz-closed summary {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  cursor: pointer;
-  list-style: none;
-}
-
-.quiz-closed summary::-webkit-details-marker {
-  display: none;
-}
-
-.quiz-closed summary .quiz-card-header::after {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 0.8rem;
-  content: "▸ 開く";
-}
-
-.quiz-closed[open] summary .quiz-card-header::after {
-  content: "▾ 閉じる";
-}
-
-.quiz-summary-text {
-  overflow: hidden;
-  color: var(--muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 開いたら問題文を他のカードと同じ見た目で全文出す */
-.quiz-closed[open] .quiz-summary-text {
-  color: var(--text);
-  font-size: 1.1rem;
-  font-weight: 600;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 .status {

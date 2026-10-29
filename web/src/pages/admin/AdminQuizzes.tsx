@@ -18,6 +18,20 @@ import { PageTitle } from "../../components/PageTitle";
 import { useOnReload } from "../../hooks/useReload";
 
 const STATUS_LABEL: Record<QuizStatus, string> = { draft: "下書き", open: "出題中", closed: "締め切り" };
+/** 表示・非表示を切り替えるボタンの並び */
+const STATUSES: QuizStatus[] = ["open", "draft", "closed"];
+/** どの状態を一覧に出すかを、このブラウザに覚えておく */
+const SHOWN_KEY = "partally.admin.quizStatuses";
+
+function loadShown(): Set<QuizStatus> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SHOWN_KEY) ?? "null");
+    if (Array.isArray(saved)) return new Set(STATUSES.filter((s) => saved.includes(s)));
+  } catch {
+    // 読めない・壊れているときは全部出す
+  }
+  return new Set(STATUSES);
+}
 
 export function AdminQuizzes() {
   const [quizzes, setQuizzes] = useState<QuizDto[]>();
@@ -25,6 +39,23 @@ export function AdminQuizzes() {
   const [editing, setEditing] = useState<QuizDto | "new">();
   const [results, setResults] = useState<QuizDto>();
   const [busy, setBusy] = useState(false);
+  const [shown, setShown] = useState(loadShown);
+
+  function changeShown(next: Set<QuizStatus>) {
+    setShown(next);
+    try {
+      localStorage.setItem(SHOWN_KEY, JSON.stringify([...next]));
+    } catch {
+      // 覚えられなくても、この画面の間は切り替わる
+    }
+  }
+
+  function toggleShown(status: QuizStatus) {
+    const next = new Set(shown);
+    if (next.has(status)) next.delete(status);
+    else next.add(status);
+    changeShown(next);
+  }
 
   const load = useCallback(async () => {
     try {
@@ -65,16 +96,13 @@ export function AdminQuizzes() {
   };
 
   const hasOpen = quizzes?.some((q) => q.status === "open") ?? false;
-  // 「第 N 問」は作成順の番号。新しい問題を上にする
-  const sorted = (quizzes ?? []).map((quiz, i) => ({ quiz, number: i + 1 })).reverse();
-
-  const header = (q: QuizDto, number: number) => (
-    <>
-      <span className="muted small">第 {number} 問</span>
-      <span className={`status status-${q.status}`}>{STATUS_LABEL[q.status]}</span>
-      {q.status !== "draft" && <span className="muted small">回答 {q.answerCount} 人</span>}
-    </>
-  );
+  // 「第 N 問」は作成順の番号。新しい問題を上にし、選んだ状態の問題だけを出す
+  const numbered = (quizzes ?? []).map((quiz, i) => ({ quiz, number: i + 1 }));
+  const sorted = numbered.filter(({ quiz }) => shown.has(quiz.status)).reverse();
+  const counts: Record<QuizStatus, number> = { open: 0, draft: 0, closed: 0 };
+  for (const { quiz } of numbered) counts[quiz.status]++;
+  // 前に隠した状態が残っていても気づけるよう、隠している問題の数を出す
+  const hiddenCount = numbered.length - sorted.length;
 
   return (
     <section className="admin-quizzes">
@@ -89,73 +117,87 @@ export function AdminQuizzes() {
           "締め切った時点の回答で、選んだ選択肢の点数がポイントに入ります（正解はアプリには出さないので、司会から発表してください）。"
         }
       </p>
+      {quizzes && quizzes.length > 0 && (
+        <fieldset className="status-filter">
+          <legend>表示</legend>
+          {STATUSES.map((s) => (
+            <button
+              key={s}
+              type="button"
+              className={shown.has(s) ? "on" : undefined}
+              aria-pressed={shown.has(s)}
+              onClick={() => toggleShown(s)}
+            >
+              {STATUS_LABEL[s]}（{counts[s]}）
+            </button>
+          ))}
+        </fieldset>
+      )}
       {error && <p className="error">{error}</p>}
       {quizzes?.length === 0 && <p className="muted">まだ問題がありません。</p>}
-      {sorted.map(({ quiz: q, number }) => {
-        const body = (
-          <>
-            <ul className="quiz-admin-choices">
-              {q.choices.map((ch) => (
-                <li key={ch.choiceId}>
-                  <span>{ch.text}</span>
-                  <span className="muted small">{ch.points} 点</span>
-                  {q.status !== "draft" && <span className="num">{ch.answerCount} 人</span>}
-                </li>
-              ))}
-            </ul>
-            <div className="actions">
-              {q.status === "draft" && (
-                <button type="button" className="primary" onClick={() => open(q)} disabled={busy || hasOpen}>
-                  出題
-                </button>
-              )}
-              {q.status === "open" && (
-                <button type="button" className="primary" onClick={() => close(q)} disabled={busy}>
-                  締め切る
-                </button>
-              )}
-              {q.status !== "draft" && (
-                <button type="button" onClick={() => setResults(q)}>
-                  回答者を見る
-                </button>
-              )}
-              <button type="button" onClick={() => setEditing(q)} disabled={busy}>
-                編集
+      {hiddenCount > 0 && <p className="muted small">{hiddenCount} 問を非表示にしています。</p>}
+      {quizzes && quizzes.length > 0 && sorted.length === 0 && (
+        <p className="muted">
+          {shown.size === 0 ? "表示する状態を選んでください。" : "選んだ状態の問題はありません。"}
+        </p>
+      )}
+      {sorted.map(({ quiz: q, number }) => (
+        <article key={q.quizId} className={`card quiz-card quiz-${q.status}`}>
+          <header className="quiz-card-header">
+            <span className="muted small">第 {number} 問</span>
+            <span className={`status status-${q.status}`}>{STATUS_LABEL[q.status]}</span>
+            {q.status !== "draft" && <span className="muted small">回答 {q.answerCount} 人</span>}
+          </header>
+          <p className="quiz-text">{q.text}</p>
+          <ul className="quiz-admin-choices">
+            {q.choices.map((ch) => (
+              <li key={ch.choiceId}>
+                <span>{ch.text}</span>
+                <span className="muted small">{ch.points} 点</span>
+                {q.status !== "draft" && <span className="num">{ch.answerCount} 人</span>}
+              </li>
+            ))}
+          </ul>
+          <div className="actions">
+            {q.status === "draft" && (
+              <button type="button" className="primary" onClick={() => open(q)} disabled={busy || hasOpen}>
+                出題
               </button>
-              {q.status !== "open" && (
-                <button type="button" className="danger" onClick={() => remove(q)} disabled={busy}>
-                  削除
-                </button>
-              )}
-            </div>
-            {q.status === "draft" && hasOpen && <p className="muted small">出題中の問題を締め切ると出題できます。</p>}
-          </>
-        );
-        // 締め切った問題は折りたたみ、見出しに番号・回答数・問題文だけを出す
-        if (q.status === "closed") {
-          return (
-            <details key={q.quizId} className="card quiz-card quiz-closed">
-              <summary>
-                <span className="quiz-card-header">{header(q, number)}</span>
-                <span className="quiz-summary-text">{q.text}</span>
-              </summary>
-              {body}
-            </details>
-          );
-        }
-        return (
-          <article key={q.quizId} className={`card quiz-card quiz-${q.status}`}>
-            <header className="quiz-card-header">{header(q, number)}</header>
-            <p className="quiz-text">{q.text}</p>
-            {body}
-          </article>
-        );
-      })}
+            )}
+            {q.status === "open" && (
+              <button type="button" className="primary" onClick={() => close(q)} disabled={busy}>
+                締め切る
+              </button>
+            )}
+            {q.status !== "draft" && (
+              <button type="button" onClick={() => setResults(q)}>
+                回答者を見る
+              </button>
+            )}
+            <button type="button" onClick={() => setEditing(q)} disabled={busy}>
+              編集
+            </button>
+            {q.status !== "open" && (
+              <button type="button" className="danger" onClick={() => remove(q)} disabled={busy}>
+                削除
+              </button>
+            )}
+          </div>
+          {q.status === "draft" && hasOpen && (
+            <p className="muted small">
+              出題中の問題を締め切ると出題できます。
+              {!shown.has("open") && "（出題中の問題は非表示にしています）"}
+            </p>
+          )}
+        </article>
+      ))}
       {editing && (
         <QuizFormDialog
           quiz={editing === "new" ? undefined : editing}
           onClose={() => setEditing(undefined)}
           onSaved={() => {
+            // 新しく作った問題は下書きなので、下書きを隠していても見えるようにする
+            if (editing === "new" && !shown.has("draft")) changeShown(new Set([...shown, "draft"]));
             setEditing(undefined);
             void load();
           }}
