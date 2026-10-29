@@ -5,6 +5,7 @@ import {
   type CurrentQuizDto,
   formatDisplayName,
   issueTokensRequestSchema,
+  type ParticipantRankingResponse,
   type PhotoDto,
   type PhotoStatus,
   photoStatusSchema,
@@ -294,6 +295,44 @@ export function createApp(deps: AppDeps) {
     await next();
   };
 
+  /** ランキングと推移を今のデータから組み立てる（管理画面と参加者の画面で共通） */
+  async function loadRanking(settings: Settings) {
+    const [users, quizzes, photos] = await Promise.all([
+      repo.listUsers(),
+      quizzesWithAnswers(),
+      listAllApprovedPhotos(),
+    ]);
+    // 選ばれていない写真は読まない
+    const chosen = photos.filter((p) => p.favoriteCount > 0);
+    const favorites: FavoriteRecord[] = [];
+    for (let i = 0; i < chosen.length; i += RANKING_FAVORITE_CONCURRENCY) {
+      const batch = chosen.slice(i, i + RANKING_FAVORITE_CONCURRENCY);
+      for (const list of await Promise.all(batch.map((p) => repo.listFavoritesOfPhoto(p.photoId)))) {
+        favorites.push(...list);
+      }
+    }
+    return buildRanking({ users, settings, quizzes, photos, favorites, now: now().toISOString() });
+  }
+
+  // 参加者に見せるランキング・推移。見せない設定のときは無いものとして扱う。
+  // 合計・順位は写真・お気に入り・クイズのすべてのポイントで出す（ホーム画面の表示設定とは別）
+  app.get("/ranking", requireUser, async (c) => {
+    const settings = await repo.getSettings();
+    if (!settings.rankingVisible) return fail(c, 404, "not_found");
+    const ranking = await loadRanking(settings);
+    // 横棒だけなので推移は返さない
+    const entries = ranking.ranking.map((e) => ({ ...e, history: [] }));
+    return c.json(
+      toParticipantRanking({ ...ranking, ranking: entries }, settings.rankingHideNames, settings.rankingHidePoints),
+    );
+  });
+
+  app.get("/trend", requireUser, async (c) => {
+    const settings = await repo.getSettings();
+    if (!settings.trendVisible) return fail(c, 404, "not_found");
+    return c.json(toParticipantRanking(await loadRanking(settings), settings.trendHideNames, settings.trendHidePoints));
+  });
+
   app.get("/me", requireUser, async (c) => {
     // 写真用の署名付き Cookie は有効期間が短いので、アプリを開くたびに更新する
     setPhotoCookies(c);
@@ -454,24 +493,7 @@ export function createApp(deps: AppDeps) {
     return c.json({ users: users.map((u) => toUserDto(u, settings, quizStats.get(u.userId) ?? NO_QUIZ_STATS)) });
   });
 
-  app.get("/admin/ranking", async (c) => {
-    const [users, settings, quizzes, photos] = await Promise.all([
-      repo.listUsers(),
-      repo.getSettings(),
-      quizzesWithAnswers(),
-      listAllApprovedPhotos(),
-    ]);
-    // 選ばれていない写真は読まない
-    const chosen = photos.filter((p) => p.favoriteCount > 0);
-    const favorites: FavoriteRecord[] = [];
-    for (let i = 0; i < chosen.length; i += RANKING_FAVORITE_CONCURRENCY) {
-      const batch = chosen.slice(i, i + RANKING_FAVORITE_CONCURRENCY);
-      for (const list of await Promise.all(batch.map((p) => repo.listFavoritesOfPhoto(p.photoId)))) {
-        favorites.push(...list);
-      }
-    }
-    return c.json(buildRanking({ users, settings, quizzes, photos, favorites, now: now().toISOString() }));
-  });
+  app.get("/admin/ranking", async (c) => c.json(await loadRanking(await repo.getSettings())));
 
   app.patch("/admin/users/:userId", async (c) => {
     const body = await parseBody(c, updateUserRequestSchema);
@@ -838,12 +860,48 @@ function toUserDto(user: UserRecord, settings: Settings, quiz: QuizStats): UserD
   };
 }
 
-/** 参加者本人に返すユーザ情報。ポイントを伏せている間は、ポイントとその元になる選ばれた数・クイズの点数を含めない */
+/**
+ * 参加者本人に返すユーザ情報。ポイントを伏せている間は、ポイントとその元になる選ばれた数を含めない。
+ * クイズの点数を伏せている間は、クイズの点数を含めない
+ */
 function toParticipantUserDto(user: UserRecord, settings: Settings, quiz: QuizStats): UserDto {
-  const dto = toUserDto(user, settings, quiz);
-  if (settings.showPoints) return dto;
-  const { points: _points, favoritesReceived: _favoritesReceived, quizPoints: _quizPoints, ...rest } = dto;
-  return rest;
+  const { points, favoritesReceived, quizPoints, ...rest } = toUserDto(user, settings, quiz);
+  return {
+    ...rest,
+    ...(settings.showPoints ? { points, favoritesReceived } : {}),
+    ...(settings.showQuizPoints ? { quizPoints } : {}),
+  };
+}
+
+/** 名前を伏せたときの名前・称号 */
+export const HIDDEN_NAME = "???";
+
+/**
+ * 参加者に返すランキング・推移。名前を伏せるときは名前・称号・ユーザ ID を返さない（ID は順番の番号に置き換える）。
+ * ポイントを伏せるときは、最大値を 100 とした割合（小数第 1 位まで）に置き換える。順位は元のポイントで決まったまま
+ */
+export function toParticipantRanking(
+  ranking: RankingResponse,
+  hideNames: boolean,
+  hidePoints: boolean,
+): ParticipantRankingResponse {
+  let max = 0;
+  for (const e of ranking.ranking) {
+    max = Math.max(max, e.points);
+    for (const h of e.history) max = Math.max(max, h.points);
+  }
+  const scale = (points: number) => (hidePoints ? (max > 0 ? Math.round((points / max) * 1000) / 10 : 0) : points);
+  return {
+    generatedAt: ranking.generatedAt,
+    hideNames,
+    hidePoints,
+    ranking: ranking.ranking.map((e, i) => ({
+      ...e,
+      ...(hideNames ? { userId: `r${i + 1}`, name: HIDDEN_NAME, epithet: HIDDEN_NAME, displayName: HIDDEN_NAME } : {}),
+      points: scale(e.points),
+      history: e.history.map((h) => ({ at: h.at, points: scale(h.points) })),
+    })),
+  };
 }
 
 function toQuizDto(quiz: QuizRecord, answers: QuizAnswerRecord[]): QuizDto {

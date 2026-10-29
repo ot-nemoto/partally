@@ -1,6 +1,6 @@
 import type { RankingResponse } from "@partally/shared";
 import { useEffect, useMemo, useState } from "react";
-import { formatTime, needsDate, valueAt } from "./rankingHistory";
+import { formatTime, needsDate, valueAt } from "../../rankingHistory";
 
 /** 最初に点が入る少し前から今までを再生する時間 */
 const RACE_MS = 20_000;

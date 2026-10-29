@@ -15,6 +15,7 @@ import { Home } from "./pages/Home";
 import { Mine } from "./pages/Mine";
 import { QrLanding } from "./pages/QrLanding";
 import { Quiz } from "./pages/Quiz";
+import { Standings } from "./pages/Standings";
 
 export function App() {
   return (
@@ -24,6 +25,7 @@ export function App() {
         <Route path="/gallery" element={<Gallery />} />
         <Route path="/mine" element={<Mine />} />
         <Route path="/quiz" element={<Quiz />} />
+        <Route path="/standings" element={<Standings />} />
         {/* 以前あった「お気に入り」タブ。開いたままの画面や履歴から来てもギャラリーへ */}
         <Route path="/favorites" element={<Navigate to="/gallery" replace />} />
       </Route>
