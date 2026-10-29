@@ -1139,6 +1139,15 @@ button.more {
   flex-basis: 100%;
 }
 
+.settings-status:empty {
+  display: none;
+}
+
+/* キーボードで移った項目が、固定したタイトルの行に隠れないようにする */
+:root:has(.settings-bar) {
+  scroll-padding-top: 6rem;
+}
+
 .settings-status p {
   margin: 0;
 }
@@ -1169,7 +1178,8 @@ button.more {
   padding: 0;
   border: none;
   border-radius: 999px;
-  background: var(--border);
+  /* オフでも背景（カード）と見分けられる濃さにする */
+  background: var(--muted);
   cursor: pointer;
   appearance: none;
   transition: background 0.2s;
@@ -1201,9 +1211,36 @@ button.more {
   cursor: default;
 }
 
+/* 押せないスイッチは、横の文字も薄くする */
+.settings .checkbox:has(input:disabled) {
+  color: var(--muted);
+}
+
 .settings .checkbox input.switch:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* 強制カラー（Windows のハイコントラストなど）では背景色が消えるので、枠と色の名前で描く */
+@media (forced-colors: active) {
+  .settings .checkbox input.switch {
+    border: 1px solid ButtonText;
+    background: Canvas;
+  }
+
+  .settings .checkbox input.switch::before {
+    top: 2px;
+    left: 2px;
+    background: ButtonText;
+  }
+
+  .settings .checkbox input.switch:checked {
+    background: Highlight;
+  }
+
+  .settings .checkbox input.switch:checked::before {
+    background: HighlightText;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
