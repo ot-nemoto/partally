@@ -5,7 +5,7 @@ import { formatTime, needsDate, valueAt } from "./rankingHistory";
 /** 最初に点が入る少し前から今までを再生する時間 */
 const RACE_MS = 20_000;
 /** 1 行の高さ（px）。並び替えは行の高さぶん縦に動かして見せる */
-const ROW_HEIGHT = 40;
+const ROW_HEIGHT = 44;
 
 /**
  * 順位の推移を再生するバーチャートレース。時刻を進めながら、その時点で登録済みの全員を横棒で並べる。
@@ -134,7 +134,8 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
                 {pos?.rank}
               </span>
               <span className="race-name" title={entry.displayName}>
-                {entry.name}
+                <span className="race-epithet">〈{entry.epithet}〉</span>
+                <span className="race-person">{entry.name}</span>
               </span>
               <span className="race-track">
                 {(pos?.points ?? 0) > 0 && (

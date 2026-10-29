@@ -218,6 +218,8 @@ export interface RankingEntryDto {
   userId: string;
   /** 称号を付けない名前（グラフの線の終わりなど、狭い所に出す） */
   name: string;
+  /** 称号（二つ名） */
+  epithet: string;
   displayName: string;
   status: UserStatus;
   /** ユーザ管理と同じく、現在の設定で計算したポイント */
