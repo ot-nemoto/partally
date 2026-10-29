@@ -54,6 +54,8 @@ export function AdminQuizzes() {
   }
 
   function toggleShown(status: QuizStatus) {
+    // 切り替えはスクロールしても画面の上に残るので、切り替えたら一覧の先頭から見せる
+    window.scrollTo({ top: 0 });
     changeShown((prev) => {
       const next = new Set(prev);
       if (next.has(status)) next.delete(status);
@@ -124,9 +126,26 @@ export function AdminQuizzes() {
   return (
     <section className="admin-quizzes">
       <PageTitle en="Quiz" ja="クイズ">
-        <button type="button" className="primary" onClick={() => setEditing("new")}>
-          問題を作る
-        </button>
+        <div className="title-actions">
+          {/* 読み込みの前後で固定した行の高さが変わらないよう、問題が無くても出しておく */}
+          <fieldset className="status-filter">
+            <legend>表示</legend>
+            {STATUSES.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className={shown.has(s) ? "on" : undefined}
+                aria-pressed={shown.has(s)}
+                onClick={() => toggleShown(s)}
+              >
+                {STATUS_LABEL[s]}（{counts[s]}）
+              </button>
+            ))}
+          </fieldset>
+          <button type="button" className="primary" onClick={() => setEditing("new")}>
+            問題を作る
+          </button>
+        </div>
       </PageTitle>
       <p className="muted small">
         {"「出題」を押すと参加者の画面に問題が出ます。出題中にできるのは 1 問だけです。"}
@@ -134,22 +153,6 @@ export function AdminQuizzes() {
           "締め切った時点の回答で、選んだ選択肢の点数がポイントに入ります（正解はアプリには出さないので、司会から発表してください）。"
         }
       </p>
-      {quizzes && quizzes.length > 0 && (
-        <fieldset className="status-filter">
-          <legend>表示</legend>
-          {STATUSES.map((s) => (
-            <button
-              key={s}
-              type="button"
-              className={shown.has(s) ? "on" : undefined}
-              aria-pressed={shown.has(s)}
-              onClick={() => toggleShown(s)}
-            >
-              {STATUS_LABEL[s]}（{counts[s]}）
-            </button>
-          ))}
-        </fieldset>
-      )}
       {error && <p className="error">{error}</p>}
       {quizzes?.length === 0 && <p className="muted">まだ問題がありません。</p>}
       {hiddenCount > 0 && <p className="muted small">{hiddenCount} 問を非表示にしています。</p>}

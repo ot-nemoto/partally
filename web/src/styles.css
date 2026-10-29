@@ -1359,13 +1359,13 @@ textarea {
   max-width: 44rem;
 }
 
-/* 一覧に出す状態の切り替え（複数選べる）。押されているものを強調する */
+/* 一覧に出す状態の切り替え（複数選べる）。タイトルの行に置き、押されているものを強調する */
 .status-filter {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  margin: 0 0 1rem;
+  margin: 0;
   padding: 0;
   border: none;
 }
