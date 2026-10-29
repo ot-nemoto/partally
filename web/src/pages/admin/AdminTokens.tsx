@@ -32,6 +32,8 @@ export function AdminTokens() {
       load();
     } catch (err) {
       setError(errorMessage(err));
+      // 発行はタイトルの行から下までスクロールした所でも押せるので、エラーが見えるよう画面の上へ戻す
+      window.scrollTo({ top: 0 });
     } finally {
       setIssuing(false);
     }

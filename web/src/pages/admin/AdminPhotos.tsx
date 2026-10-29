@@ -83,7 +83,11 @@ export function AdminPhotos() {
               key={t.status}
               type="button"
               className={t.status === status ? "active" : undefined}
-              onClick={() => setStatus(t.status)}
+              onClick={() => {
+                // タブはスクロールしても画面の上に残るので、切り替えたら一覧の先頭から見せる
+                window.scrollTo({ top: 0 });
+                setStatus(t.status);
+              }}
             >
               {t.label}
             </button>
