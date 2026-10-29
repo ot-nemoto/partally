@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 // ADMIN と見出し（PageTitle）の英字の書体。同じオリジンから配信し（外部への通信で表示を待たせない）、
 // 管理画面を開いたときだけ読み込む。読み込むまでは system-ui で表示する
@@ -25,23 +25,35 @@ export function AdminLayout() {
     navigate("/admin/login", { replace: true });
   }
 
+  // 固定したヘッダーの高さを CSS 変数にし、その下に固定する行（Settings の保存・推移の再生）の位置を合わせる
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!ready || !el) return;
+    const root = document.documentElement;
+    const observer = new ResizeObserver(() =>
+      root.style.setProperty("--admin-header-height", `${el.getBoundingClientRect().height}px`),
+    );
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--admin-header-height");
+    };
+  }, [ready]);
+
   if (!ready) return <main className="page muted">読み込み中…</main>;
 
   return (
     <div className="admin">
-      <header className="admin-header">
+      {/*
+        ヘッダーはスクロールしても画面の上に残す。スマホ幅ではメニューを下の段に分け、固定するのは上の段だけにする
+        （メニューはどちらか一方だけが表示され、もう一方は読み上げからも外れる）
+      */}
+      <header className="admin-header" ref={headerRef}>
         <strong className="admin-brand gradient-title" lang="en">
           ADMIN
         </strong>
-        <nav lang="en">
-          <NavLink to="/admin/users">User</NavLink>
-          <NavLink to="/admin/ranking">Ranking</NavLink>
-          <NavLink to="/admin/trend">Trend</NavLink>
-          <NavLink to="/admin/tokens">QR</NavLink>
-          <NavLink to="/admin/photos">Photo</NavLink>
-          <NavLink to="/admin/quizzes">Quiz</NavLink>
-          <NavLink to="/admin/settings">Setting</NavLink>
-        </nav>
+        <AdminNav className="admin-nav-inline" />
         {!onSettings && (
           <button type="button" className="link" onClick={() => setReloadCount((n) => n + 1)}>
             ↻ 更新
@@ -51,11 +63,26 @@ export function AdminLayout() {
           ログアウト
         </button>
       </header>
+      <AdminNav className="admin-nav-below" />
       <main className="admin-main">
         <ReloadProvider value={reloadCount}>
           <Outlet />
         </ReloadProvider>
       </main>
     </div>
+  );
+}
+
+function AdminNav({ className }: { className: string }) {
+  return (
+    <nav className={`admin-nav ${className}`} lang="en">
+      <NavLink to="/admin/users">User</NavLink>
+      <NavLink to="/admin/ranking">Ranking</NavLink>
+      <NavLink to="/admin/trend">Trend</NavLink>
+      <NavLink to="/admin/tokens">QR</NavLink>
+      <NavLink to="/admin/photos">Photo</NavLink>
+      <NavLink to="/admin/quizzes">Quiz</NavLink>
+      <NavLink to="/admin/settings">Setting</NavLink>
+    </nav>
   );
 }
