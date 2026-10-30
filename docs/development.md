@@ -33,7 +33,7 @@ npm run dev:web   # http://localhost:5173 （/api・/photos・/prizes は API �
 
 - 管理画面: http://localhost:5173/admin （パスワードは `admin`。`ADMIN_PASSWORD` で変えられる）
 - 参加者: `dev:api` のログに出る `http://localhost:5173/q/...` を開く
-- スマホから試すときは、`WEB_ORIGIN=http://<PC の IP>:5173 npm run dev:api` で起動し、ログに出る URL を開く
+- スマホから試すときは、`WEB_ORIGIN=http://<PC の IP>:5173 npm run dev:api` と `npm run dev -w web -- --host` で起動し（`--host` で画面をほかの端末から開けるようにする）、ログに出る URL を開く
 
 画面に関わる変更は、ローカルで API と画面を起動して、ブラウザで動きを確かめます。
 
@@ -41,7 +41,7 @@ npm run dev:web   # http://localhost:5173 （/api・/photos・/prizes は API �
 
 | 変数 | 既定値 | 説明 |
 |---|---|---|
-| `PORT` | `8787` | API のポート |
+| `PORT` | `8787` | API のポート。変えるときは、画面のプロキシ先（`web/vite.config.ts` の `api`）も合わせて変える |
 | `WEB_ORIGIN` | `http://localhost:5173` | 起動ログに出すお試し用 QR URL・管理画面 URL のオリジン |
 | `ADMIN_PASSWORD` | `admin` | ローカルの管理者パスワード |
 
@@ -57,7 +57,7 @@ npm run build     # 画面のビルド
 
 PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`・`npm test`・`npm run build`）を手元で通します。
 
-- テストは各パッケージの `src/**/*.test.ts` にあります。API のテストはメモリ上のリポジトリ・ストレージで動かし、DynamoDB・S3・CloudFront を呼ぶ部分は `aws-sdk-client-mock` で確かめます。
+- テストは `packages/shared`・`api` では `src/**/*.test.ts`、`infra` では `test/*.test.ts` にあります。API のテストはメモリ上のリポジトリ・ストレージで動かし、DynamoDB・S3・CloudFront を呼ぶ部分は `aws-sdk-client-mock` で確かめます。
 - 画面（`web`）には自動テストがありません。画面の計算のうち、テストしたいもの（景品の順位の数え方など）は `packages/shared` に置いてテストします。
 
 ## コードの約束事
@@ -75,7 +75,7 @@ PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`
 
 | ワークフロー | いつ動くか | 何をするか |
 |---|---|---|
-| `ci.yml` | `develop` 宛ての PR、`develop` への push、手動実行 | lint・型チェック・テスト・ビルド。`develop` への push と手動実行では、続けて本番へデプロイする |
+| `ci.yml` | `develop` 宛ての PR、`develop` への push、手動実行 | lint・型チェック・テスト・ビルド。`develop` への push と、`develop` を選んだ手動実行では、続けて本番へデプロイする |
 | `auto-pr-to-master.yml` | 毎朝 | `develop` → `master` の PR を作り、Issue のラベルから `bump:patch` / `bump:minor` を付ける |
 | `bump-version.yml` | 上の PR のラベル | バージョンを上げる（Issue に `enhancement` があれば minor、なければ patch） |
 | `release.yml` | `master` へのマージ | タグと GitHub Release を作る |

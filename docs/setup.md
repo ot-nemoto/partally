@@ -309,9 +309,16 @@ aws ce update-cost-allocation-tags-status --region us-east-1 \
 
 予算アラートは通知するだけで、リソースを止めたり課金を制限したりはしない。
 
-セッション署名鍵を置く SSM パラメータ名は環境変数ではなく `infra/cdk.json` の `context.sessionSecretParam`（既定 `/partally/session-secret`）で指定する。
+SSM パラメータ名は環境変数ではなく `infra/cdk.json` の context で指定する。
+
+| context | 既定値 | 説明 |
+|---|---|---|
+| `sessionSecretParam` | `/partally/session-secret` | セッション署名鍵（手順 2 で作成） |
+| `cloudfrontPrivateKeyParam` | `/partally/cloudfront-private-key` | CloudFront 署名用の秘密鍵（デプロイ時に自動作成） |
 
 ### Lambda 実行時（CDK が自動で設定するため、手動での設定は不要）
+
+API の Lambda には次のすべてを、写真の取り込み・初期化の Lambda には `TABLE_NAME`・`PHOTO_BUCKET`・`DISTRIBUTION_ID`・`NODE_OPTIONS` だけを設定する。
 
 | 変数 | 説明 |
 |---|---|
@@ -327,7 +334,7 @@ aws ce update-cost-allocation-tags-status --region us-east-1 \
 
 - 管理者パスワードは Lambda の環境変数（と CloudFormation テンプレート）に平文で入る。
 - 予算アラートは `Project=partally` タグで絞り込む。タグでの絞り込みには、請求コンソールで `Project` をコスト配分タグとして有効化しておく必要がある。
-- DynamoDB テーブルは誤削除防止のため、スタックを削除しても残る（`RETAIN`）。
+- DynamoDB テーブルと写真バケットは誤削除防止のため、スタックを削除しても残る（`RETAIN`）。消し方は「[後片付け](#後片付け)」を参照。
 
 ---
 
