@@ -131,7 +131,7 @@ flowchart LR
   | 公開済み | `photos/approved/<photoId>/{full\|thumb}.jpg` | サーバのみ | 署名付き Cookie / URL |
 
   署名付き POST は有効期限内なら何度でも使えるため、参加者が書き込める受け口と、検閲・公開する領域を分ける。これにより、検閲後に同じフォームで画像を差し替えることはできない。
-- 景品の画像は `prizes/<imageId>.jpg` に、管理者が署名付き POST で直接置く（ブラウザで長辺 1200px の JPEG に縮小、2MB まで）。景品の保存時にアップロード済みかを確かめて景品に付け、差し替え・削除のときに古い画像を消す。画像を差し替えると ID ごと変わるので、同じ URL の中身は変わらない。
+- 景品の画像は、管理者が署名付き POST で受け口 `uploads/prizes/<imageId>.jpg` に置き（ブラウザで長辺 1200px の JPEG に縮小、2MB まで）、景品を保存したときにサーバが `prizes/<imageId>.jpg` へ移して景品に付ける。景品に付けなかった画像は受け口のライフサイクルで 1 日後に消え、移した後は受け口から消すので同じ画像を 2 つの景品に付けることもない。差し替え・削除のときは古い画像を消す。画像を差し替えると ID ごと変わるので、同じ URL の中身は変わらない。署名付き URL の期限は 1 時間ごとの区切りにそろえ、同じ時間帯は同じ URL にしてブラウザのキャッシュを使う。
 - 署名はカスタムポリシーで、Resource のホスト部をワイルドカード（`https://*/photos/approved/*` など）にする。API がディストリビューションのドメインを知らなくてよく、鍵グループはこのディストリビューション専用なので他所では使えない。
 - 写真は **必ず CloudFront 経由で配信** する（S3 から直接配信すると転送料が発生するため）。
 - SPA フォールバックは「403/404 をカスタムエラーで index.html に返す」方式だと `/api` や `/photos` のエラーまで書き換わるため、CloudFront Function をデフォルトビヘイビアにのみ適用する。
@@ -473,8 +473,8 @@ sequenceDiagram
 | POST | `/api/admin/quizzes/{quizId}/open` | 出題。下書きでなければ・別の問題が出題中なら 409 |
 | POST | `/api/admin/quizzes/{quizId}/close` | 締め切り。出題中でなければ 409 |
 | GET | `/api/admin/prizes` | 景品の一覧（作成順、画像の署名付き URL 付き） |
-| POST | `/api/admin/prizes/image-upload` | 景品の画像を 1 枚アップロードする署名付き POST と `imageId` を発行 |
-| POST | `/api/admin/prizes` | 景品を登録する `{name, quantity, positions, imageId?}`。割り当てが数量を超える・順位が重複するときは 400。`imageId` はアップロード済みで、他の景品が使っていないこと（違えば 400） |
+| POST | `/api/admin/prizes/image-upload` | 景品の画像を 1 枚、受け口へアップロードする署名付き POST と `imageId` を発行 |
+| POST | `/api/admin/prizes` | 景品を登録する `{name, quantity, positions, imageId?}`。割り当てが数量を超える・順位が重複するときは 400。`imageId` は受け口にアップロード済みであること（無い・別の景品で使った画像は 400）。保存時に配信する領域へ移す |
 | PUT | `/api/admin/prizes/{prizeId}` | 景品を直す（登録と同じ形）。`imageId` を省くと画像を外す。差し替え・外した画像は消す |
 | DELETE | `/api/admin/prizes/{prizeId}` | 景品を削除（画像も消す） |
 | GET / PUT | `/api/admin/settings` | 設定（公開方法・ポイント・お気に入り）の取得・更新。PUT は全項目を送る（後から追加した `showPoints`・`showQuizPoints`・`favoriteGivenPoints`・参加者への公開の項目（`prizesVisible` を含む）は省略可で、省略時は今の値を残す） |
