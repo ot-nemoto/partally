@@ -55,6 +55,17 @@ export const PHOTO_THUMB_MAX_EDGE = 400;
 export const photoStatusSchema = z.enum(["pending", "approved", "rejected"]);
 
 export const POINTS_MAX = 100;
+
+/** 同じポイントのときに比べる項目（既定の優先順に並べている） */
+export const TIE_BREAK_KEYS = ["upload", "favoriteGiven", "favoriteReceived", "quiz"] as const;
+
+/** 優先順の項目の名前（管理画面・参加者の画面の案内に出す） */
+export const TIE_BREAK_LABEL: Record<(typeof TIE_BREAK_KEYS)[number], string> = {
+  upload: "写真のアップロード",
+  favoriteGiven: "お気に入りを選んだ",
+  favoriteReceived: "お気に入りに選ばれた",
+  quiz: "クイズ",
+};
 export const FAVORITE_LIMIT_MAX = 100;
 
 const points = z.number().int().min(0).max(POINTS_MAX);
@@ -76,6 +87,12 @@ export const updateSettingsRequestSchema = z.object({
   trendHideNames: z.boolean().optional(),
   trendHidePoints: z.boolean().optional(),
   prizesVisible: z.boolean().optional(),
+  tieBreakOrder: z
+    .array(z.enum(TIE_BREAK_KEYS))
+    .refine((v) => v.length === TIE_BREAK_KEYS.length && new Set(v).size === v.length, {
+      message: "優先順は 4 つの項目をすべて 1 回ずつ並べてください",
+    })
+    .optional(),
 });
 
 export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;

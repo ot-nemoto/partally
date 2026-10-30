@@ -1,4 +1,9 @@
-import { formatPositionLabel, type ParticipantRankingResponse, prizesForDisplay } from "@partally/shared";
+import {
+  formatPositionLabel,
+  type ParticipantRankingResponse,
+  prizesForDisplay,
+  TIE_BREAK_LABEL,
+} from "@partally/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../api";
 import { useParticipant } from "../components/ParticipantLayout";
@@ -56,9 +61,10 @@ export function Standings() {
 
 /**
  * 景品ごとに、画像・名前と何位の人に渡すかを見せる（順位ごとに並べるとランキングに見えるため）。
- * 順位は上から何番目の人か（同点は先に登録した人を上にする）
+ * 順位は上から何番目の人か（同点は設定の優先順、それも同じなら先に登録した人を上にする）
  */
 function PrizesView() {
+  const { rules } = useParticipant();
   const { prizes, state } = usePrizes("/prizes");
   if (state === "hidden") return <p className="muted">今は公開されていません。</p>;
   if (state === "error") return <p className="error">景品を読み込めませんでした。下の「更新」を押してください。</p>;
@@ -79,7 +85,10 @@ function PrizesView() {
           </li>
         ))}
       </ul>
-      <p className="muted small">同じポイントの人は、先に登録した人を上として数えます。</p>
+      <p className="muted small">
+        同じポイントの人は、{(rules.tieBreakOrder ?? []).map((key) => TIE_BREAK_LABEL[key]).join(" → ")}
+        のポイントが多い人を上として数えます（すべて同じなら先に登録した人が上）。
+      </p>
     </>
   );
 }

@@ -23,6 +23,7 @@ import {
   randomEpithet,
   registerRequestSchema,
   type Settings,
+  type TieBreakKey,
   type TokenDto,
   type UserDto,
   updateSettingsRequestSchema,
@@ -883,14 +884,20 @@ function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
   else map.set(key, [value]);
 }
 
+/** 項目ごとのポイント。同じポイントのときの順位の決め方（tieBreakOrder）でも使う */
+function pointsByKey(user: UserRecord, settings: Settings, quiz: QuizStats): Record<TieBreakKey, number> {
+  return {
+    upload: user.approvedCount * settings.uploadPoints,
+    favoriteGiven: user.favoritesGiven * settings.favoriteGivenPoints,
+    favoriteReceived: user.favoritesReceived * settings.favoritePoints,
+    quiz: quiz.points,
+  };
+}
+
 /** ポイントは保存せず、現在の設定で毎回計算する（設定を変えると全員に同じ基準で反映される） */
 export function calculatePoints(user: UserRecord, settings: Settings, quiz: QuizStats): number {
-  return (
-    user.approvedCount * settings.uploadPoints +
-    user.favoritesReceived * settings.favoritePoints +
-    user.favoritesGiven * settings.favoriteGivenPoints +
-    quiz.points
-  );
+  const byKey = pointsByKey(user, settings, quiz);
+  return byKey.upload + byKey.favoriteGiven + byKey.favoriteReceived + byKey.quiz;
 }
 
 export interface RankingSource {
@@ -936,7 +943,9 @@ export function buildRanking(source: RankingSource): RankingResponse {
   const quizStats = quizStatsByUser(quizzes);
 
   const entries = users.map((user) => {
-    const points = calculatePoints(user, settings, quizStats.get(user.userId) ?? NO_QUIZ_STATS);
+    const quiz = quizStats.get(user.userId) ?? NO_QUIZ_STATS;
+    const points = calculatePoints(user, settings, quiz);
+    const byKey = pointsByKey(user, settings, quiz);
     const history: RankingPointDto[] = [{ at: user.createdAt, points: 0 }];
     let total = 0;
     for (const event of (events.get(user.userId) ?? []).sort((a, b) => a.at.localeCompare(b.at))) {
@@ -947,16 +956,26 @@ export function buildRanking(source: RankingSource): RankingResponse {
       else history.push({ at: event.at, points: total });
     }
     history.push({ at: now, points });
-    return { user, points, history };
+    return { user, points, byKey, history };
   });
 
-  // ポイントの高い順。同点は先に登録した人を上にする（順位は同じ）
-  entries.sort((a, b) => b.points - a.points || a.user.createdAt.localeCompare(b.user.createdAt));
+  // ポイントの高い順。同点は設定の優先順の項目のポイントが多い人を上にし、それも同じなら同じ順位にする
+  // （並びは先に登録した人を上にする）
+  const compareTie = (a: (typeof entries)[number], b: (typeof entries)[number]) => {
+    for (const key of settings.tieBreakOrder) {
+      const diff = b.byKey[key] - a.byKey[key];
+      if (diff !== 0) return diff;
+    }
+    return 0;
+  };
+  entries.sort((a, b) => b.points - a.points || compareTie(a, b) || a.user.createdAt.localeCompare(b.user.createdAt));
   const ranking: RankingEntryDto[] = [];
   entries.forEach((entry, i) => {
     const prev = ranking[i - 1];
+    const before = entries[i - 1];
+    const tied = prev && before && before.points === entry.points && compareTie(before, entry) === 0;
     ranking.push({
-      rank: prev && prev.points === entry.points ? prev.rank : i + 1,
+      rank: tied ? prev.rank : i + 1,
       userId: entry.user.userId,
       name: entry.user.name,
       epithet: entry.user.epithet,
@@ -1004,7 +1023,7 @@ function toParticipantUserDto(user: UserRecord, settings: Settings, quiz: QuizSt
 export const HIDDEN_NAME = "???";
 
 /**
- * 参加者に返すランキング・推移。紐づけを解除した人は除き、順位を付け直す（同点は同じ順位）。
+ * 参加者に返すランキング・推移。紐づけを解除した人は除き、順位を付け直す（元の順位が同じ人は同じ順位）。
  * 名前を伏せるときは名前・称号・ユーザ ID を返さず（ID は順番の番号に置き換える）、
  * 登録した時刻から人が分からないよう、推移の始まり（登録時の 0）を全員そろえる。
  * ポイントを伏せるときは、最大値を 100 とした割合（小数第 1 位まで）に置き換える
@@ -1029,7 +1048,8 @@ export function toParticipantRanking(
     const prev = result[i - 1];
     result.push({
       ...e,
-      rank: prev && entries[i - 1]?.points === e.points ? prev.rank : i + 1,
+      // 元の順位が同じ人（ポイントも優先順の項目もすべて同じ人）だけ同じ順位にする
+      rank: prev && entries[i - 1]?.rank === e.rank ? prev.rank : i + 1,
       ...(hideNames ? { userId: `r${i + 1}`, name: HIDDEN_NAME, epithet: HIDDEN_NAME, displayName: HIDDEN_NAME } : {}),
       points: scale(e.points),
       history: e.history.map((h, j) => ({ at: hideNames && j === 0 ? start : h.at, points: scale(h.points) })),

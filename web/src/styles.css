@@ -1152,6 +1152,30 @@ button.more {
 
 /* ---- 管理画面の設定 ---- */
 
+/* 同じポイントのときの優先順。項目ごとに上下のボタンで並べ替える */
+.tie-break-order {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tie-break-order li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tie-break-label {
+  flex: 1;
+}
+
+.tie-break-order button {
+  min-width: 2.5rem;
+}
+
 .settings-form {
   max-width: 36rem;
 }

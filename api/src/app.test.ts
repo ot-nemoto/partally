@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildRanking, createApp, scoreQuizAnswers } from "./app.js";
+import { buildRanking, createApp, scoreQuizAnswers, toParticipantRanking } from "./app.js";
 import { ingestUpload } from "./ingest.js";
 import { MemoryRepository } from "./memory-repository.js";
 import { MemoryPhotoStorage } from "./memory-storage.js";
@@ -390,6 +390,21 @@ describe("API", () => {
       expect((await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post" })).status).toBe(200);
       expect((await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "x" })).status).toBe(400);
       expect((await admin("PUT", "/api/admin/settings", { moderation: "post" })).status).toBe(400);
+      // 同じポイントのときの優先順は、4 つの項目をすべて 1 回ずつ並べたものだけ
+      const order = (tieBreakOrder: unknown) =>
+        admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post", tieBreakOrder }).then(
+          (r) => r.status,
+        );
+      expect(await order(["quiz", "upload", "favoriteReceived", "favoriteGiven"])).toBe(200);
+      expect(await order(["quiz", "upload", "favoriteReceived"])).toBe(400);
+      expect(await order(["quiz", "quiz", "favoriteReceived", "favoriteGiven"])).toBe(400);
+      expect(await order(["quiz", "upload", "favoriteReceived", "x"])).toBe(400);
+      expect((await admin("GET", "/api/admin/settings")).body.settings.tieBreakOrder).toEqual([
+        "quiz",
+        "upload",
+        "favoriteReceived",
+        "favoriteGiven",
+      ]);
 
       const { request } = await registerUser();
       const { photoId } = await upload(request);
@@ -552,6 +567,7 @@ describe("API", () => {
         trendHideNames: false,
         trendHidePoints: false,
         prizesVisible: false,
+        tieBreakOrder: ["upload", "favoriteGiven", "favoriteReceived", "quiz"],
       });
 
       await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post", uploadPoints: 3 });
@@ -1355,7 +1371,7 @@ describe("buildRanking", () => {
     expect(result.ranking[2]!.history.map((h) => h.points)).toEqual([0, 2, 2]);
   });
 
-  it("同点は同じ順位で、次の順位は人数分飛ばす。同点の中は先に登録した人が上", () => {
+  it("合計も優先順の項目もすべて同じなら同じ順位で、次の順位は人数分飛ばす。同じ順位の中は先に登録した人が上", () => {
     const result = buildRanking({
       users: [user("u3", "佐藤"), user("u1", "田中", { approvedCount: 1 }), user("u2", "鈴木", { approvedCount: 1 })],
       settings: DEFAULT_SETTINGS,
@@ -1371,5 +1387,69 @@ describe("buildRanking", () => {
     ]);
     // 推移の元データが無くても、最後の点はユーザのカウンタから計算したポイント
     expect(result.ranking[0]!.history.at(-1)).toEqual({ at: "2026-01-01T03:00:00.000Z", points: 1 });
+  });
+
+  // 合計はどちらも 10 点。u1 は写真で 10 点、u2 はお気に入りを選んで 10 点、u3 はクイズで 10 点
+  const tied = () => [
+    user("u1", "田中", { approvedCount: 10 }),
+    user("u2", "鈴木", { favoritesGiven: 1 }),
+    user("u3", "佐藤"),
+  ];
+  const quizFor = (userId: string) => [
+    { quiz, answers: [{ quizId: "Q1", userId, choiceId: "A", answeredAt: "2026-01-01T01:00:00.000Z" }] },
+  ];
+  const rankOf = (settings: typeof DEFAULT_SETTINGS) =>
+    buildRanking({
+      users: tied(),
+      settings: { ...settings, uploadPoints: 1, favoriteGivenPoints: 10 },
+      quizzes: quizFor("u3"),
+      photos: [],
+      favorites: [],
+      now: "2026-01-01T03:00:00.000Z",
+    }).ranking.map((r) => [r.rank, r.userId, r.points]);
+
+  it("同じポイントは、既定では写真のアップロード → お気に入りを選んだ → 選ばれた → クイズの順に比べ、順位も分ける", () => {
+    expect(rankOf(DEFAULT_SETTINGS)).toEqual([
+      [1, "u1", 10],
+      [2, "u2", 10],
+      [3, "u3", 10],
+    ]);
+  });
+
+  it("優先順を並べ替えると、その順に比べる", () => {
+    expect(
+      rankOf({ ...DEFAULT_SETTINGS, tieBreakOrder: ["quiz", "favoriteGiven", "upload", "favoriteReceived"] }),
+    ).toEqual([
+      [1, "u3", 10],
+      [2, "u2", 10],
+      [3, "u1", 10],
+    ]);
+  });
+
+  it("参加者向けに紐づけを解除した人を除いても、元の順位が同じ人だけを同じ順位にする", () => {
+    const ranking = buildRanking({
+      users: [
+        user("u1", "田中", { approvedCount: 10 }),
+        user("u2", "鈴木", { approvedCount: 10, status: "unbound" }),
+        user("u3", "佐藤", { approvedCount: 10 }),
+        user("u4", "高橋", { favoritesGiven: 1 }),
+      ],
+      settings: { ...DEFAULT_SETTINGS, uploadPoints: 1, favoriteGivenPoints: 10 },
+      quizzes: [],
+      photos: [],
+      favorites: [],
+      now: "2026-01-01T03:00:00.000Z",
+    });
+    expect(ranking.ranking.map((r) => [r.rank, r.userId])).toEqual([
+      [1, "u1"],
+      [1, "u2"],
+      [1, "u3"],
+      [4, "u4"],
+    ]);
+    expect(toParticipantRanking(ranking, false, false).ranking.map((r) => [r.rank, r.userId])).toEqual([
+      [1, "u1"],
+      [1, "u3"],
+      [3, "u4"],
+    ]);
   });
 });

@@ -4,6 +4,7 @@ import {
   POINTS_MAX,
   type Settings,
   type SettingsResponse,
+  TIE_BREAK_LABEL,
 } from "@partally/shared";
 import { type FormEvent, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
@@ -67,6 +68,16 @@ export function AdminSettings() {
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
     setSettings((prev) => (prev ? { ...prev, [key]: value } : prev));
     setMessage(undefined);
+  }
+
+  /** 同じポイントのときの優先順で、i 番目の項目を上（-1）か下（+1）へ 1 つ動かす */
+  function moveTieBreak(i: number, step: -1 | 1) {
+    if (!settings) return;
+    const order = [...settings.tieBreakOrder];
+    const j = i + step;
+    if (j < 0 || j >= order.length) return;
+    [order[i], order[j]] = [order[j]!, order[i]!];
+    update("tieBreakOrder", order);
   }
 
   async function save(e: FormEvent) {
@@ -181,6 +192,38 @@ export function AdminSettings() {
             <p className="muted small">
               減らしても選択済みのお気に入りはそのまま残り、上限を下回るまで新しく選べません。
             </p>
+          </div>
+
+          <div className="card settings">
+            <h2>同じポイントのときの順位</h2>
+            <p className="muted small">
+              合計が同じ人は、上の項目のポイントが多い人を上の順位にします。同じなら次の項目で比べ、すべて同じなら同じ順位です（並びは先に登録した人を上にします）。景品もこの順位で渡します。
+            </p>
+            <ol className="tie-break-order">
+              {settings.tieBreakOrder.map((key, i) => (
+                <li key={key}>
+                  <span className="tie-break-label">
+                    {i + 1}. {TIE_BREAK_LABEL[key]}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => moveTieBreak(i, -1)}
+                    disabled={i === 0}
+                    aria-label={`${TIE_BREAK_LABEL[key]}を上へ`}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveTieBreak(i, 1)}
+                    disabled={i === settings.tieBreakOrder.length - 1}
+                    aria-label={`${TIE_BREAK_LABEL[key]}を下へ`}
+                  >
+                    ↓
+                  </button>
+                </li>
+              ))}
+            </ol>
           </div>
 
           <div className="card settings">
