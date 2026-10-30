@@ -59,6 +59,11 @@ describe("DynamoRepository", () => {
   beforeEach(() => ddb.reset());
 
   describe("設定", () => {
+    it("保存済みの優先順は、知らない項目・重複を除き、足りない項目を既定の順で後ろに補う", async () => {
+      ddb.on(GetCommand).resolves({ Item: { tieBreakOrder: ["quiz", "x", "quiz", "upload"] } });
+      expect((await repo.getSettings()).tieBreakOrder).toEqual(["quiz", "upload", "favoriteGiven", "favoriteReceived"]);
+    });
+
     it("保存されていない項目は既定値で補う", async () => {
       ddb.on(GetCommand).resolves({ Item: { moderation: "post", uploadPoints: 3 } });
       expect(await repo.getSettings()).toEqual({ ...DEFAULT_SETTINGS, moderation: "post", uploadPoints: 3 });

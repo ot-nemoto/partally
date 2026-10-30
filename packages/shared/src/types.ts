@@ -1,3 +1,5 @@
+import type { TIE_BREAK_KEYS } from "./schemas.js";
+
 export type UserStatus = "active" | "unbound";
 export type TokenStatus = "unbound" | "bound";
 
@@ -151,7 +153,15 @@ export interface Settings {
   trendHidePoints: boolean;
   /** 参加者に景品（何位で何がもらえるか）を見せるか */
   prizesVisible: boolean;
+  /**
+   * 合計が同じ人の順位の決め方。先頭の項目のポイントが多い人を上にし、同じなら次の項目で比べる。
+   * すべて同じなら同じ順位（並びは先に登録した人を上にする）
+   */
+  tieBreakOrder: TieBreakKey[];
 }
+
+/** 同じポイントのときに比べる項目（一覧は TIE_BREAK_KEYS） */
+export type TieBreakKey = (typeof TIE_BREAK_KEYS)[number];
 
 /** 参加者に見せるポイントのルール（設定のうち公開してよい部分） */
 export type Rules = Omit<Settings, "moderation">;

@@ -1,4 +1,11 @@
-import type { PhotoStatus, QuizStatus, Settings, TokenStatus, UserStatus } from "@partally/shared";
+import {
+  type PhotoStatus,
+  type QuizStatus,
+  type Settings,
+  TIE_BREAK_KEYS,
+  type TokenStatus,
+  type UserStatus,
+} from "@partally/shared";
 
 export interface TokenRecord {
   token: string;
@@ -106,6 +113,7 @@ export const DEFAULT_SETTINGS: Settings = {
   trendHideNames: false,
   trendHidePoints: false,
   prizesVisible: false,
+  tieBreakOrder: [...TIE_BREAK_KEYS],
 };
 
 export interface UserChanges {

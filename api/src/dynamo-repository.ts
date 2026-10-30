@@ -14,7 +14,7 @@ import {
   TransactWriteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-import type { PhotoStatus, Settings } from "@partally/shared";
+import { type PhotoStatus, type Settings, TIE_BREAK_KEYS, type TieBreakKey } from "@partally/shared";
 import {
   DEFAULT_SETTINGS,
   EpithetTakenError,
@@ -800,6 +800,14 @@ export class DynamoRepository implements Repository {
     // クイズの点数は以前 showPoints で一緒に伏せていた。別の設定にする前に伏せていたなら、伏せたままにする
     if (stored.showQuizPoints === undefined && stored.showPoints !== undefined)
       stored.showQuizPoints = stored.showPoints;
+    // 優先順は、知らない項目を除き、足りない項目を既定の順で後ろに補う（項目を足しても保存済みの設定で保存できなくならないように）
+    if (Array.isArray(stored.tieBreakOrder)) {
+      const known = (stored.tieBreakOrder as unknown[]).filter((k): k is TieBreakKey =>
+        (TIE_BREAK_KEYS as readonly unknown[]).includes(k),
+      );
+      const unique = [...new Set(known)];
+      stored.tieBreakOrder = [...unique, ...TIE_BREAK_KEYS.filter((k) => !unique.includes(k))];
+    }
     return { ...DEFAULT_SETTINGS, ...stored };
   }
 
