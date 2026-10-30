@@ -21,8 +21,11 @@ const MAX_BYTES: Record<PhotoKind, number> = { full: PHOTO_FULL_MAX_BYTES, thumb
 export const UPLOAD_EXPIRES_SECONDS = 300;
 /** 公開済み写真のブラウザ・CloudFront キャッシュ時間。削除後もこの時間はブラウザに残り得る */
 const APPROVED_CACHE_CONTROL = "max-age=3600";
-/** 景品の画像は差し替えると ID ごと変わるので、同じ URL の中身は変わらない */
-const PRIZE_CACHE_CONTROL = "max-age=86400";
+/**
+ * 景品の画像は、ブラウザ・CloudFront が使うたびに元のファイルがあるかを確かめる（変わっていなければ 304 で中身は送らない）。
+ * 削除・差し替えのすぐ後から、消した画像を出さないようにするため
+ */
+const PRIZE_CACHE_CONTROL = "no-cache";
 
 /** S3 のキー。配信する領域は CloudFront のパス（/photos/...）と一致させ、パスの書き換えを不要にする */
 export function photoKey(area: PhotoArea, photoId: string, kind: PhotoKind): string {
@@ -175,6 +178,16 @@ export class S3PhotoStorage implements PhotoStorage {
       new DeleteObjectsCommand({
         Bucket: this.bucket,
         Delete: { Objects: [{ Key: prizeImageKey(imageId) }], Quiet: true },
+      }),
+    );
+    // CloudFront に残っている分も消す（no-cache より前に置いた画像は、キャッシュが長く残るため）
+    await this.cloudfront.send(
+      new CreateInvalidationCommand({
+        DistributionId: this.distributionId,
+        InvalidationBatch: {
+          CallerReference: `prize-${imageId}-${Date.now()}`,
+          Paths: { Quantity: 1, Items: [prizeImagePath(imageId)] },
+        },
       }),
     );
   }

@@ -187,7 +187,7 @@ export function createApp(deps: AppDeps) {
 
   /**
    * 景品の画像は管理画面でも参加者の画面でも署名付き URL で渡す。期限を 1 時間ごとの区切りにそろえ、
-   * 同じ時間帯は同じ URL にしてブラウザのキャッシュを使えるようにする（期限までは 1〜2 時間残る）
+   * 同じ時間帯は同じ URL にして、ブラウザが持っている画像を確かめるだけで使えるようにする（期限までは 1〜2 時間残る）
    */
   const toPrizeDto = (prize: PrizeRecord): PrizeDto => ({
     prizeId: prize.prizeId,
