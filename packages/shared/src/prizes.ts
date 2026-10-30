@@ -22,24 +22,29 @@ export function parsePositions(text: string): { positions: number[] } | { error:
 
 /** 順位の一覧を、続いている所は範囲にまとめて書く（[1, 2, 3, 5] → 「1-3, 5」） */
 export function formatPositions(positions: number[]): string {
-  const sorted = [...positions].sort((a, b) => a - b);
-  const parts: string[] = [];
-  for (let i = 0; i < sorted.length; i++) {
-    const from = sorted[i]!;
-    let to = from;
-    while (sorted[i + 1] === to + 1) to = sorted[++i]!;
-    parts.push(to === from ? String(from) : `${from}-${to}`);
-  }
-  return parts.join(", ");
+  return positionRanges(positions)
+    .map(([from, to]) => (to === from ? String(from) : `${from}-${to}`))
+    .join(", ");
 }
 
 /** 参加者に見せる順位の書き方。続いている所は範囲にする（[1, 2, 3, 5] → 「1〜3 位・5 位」） */
 export function formatPositionLabel(positions: number[]): string {
-  return formatPositions(positions)
-    .split(", ")
-    .filter(Boolean)
-    .map((part) => `${part.replace("-", "〜")} 位`)
+  return positionRanges(positions)
+    .map(([from, to]) => (to === from ? `${from} 位` : `${from}〜${to} 位`))
     .join("・");
+}
+
+/** 順位を小さい順に並べ、続いている所を [始め, 終わり] にまとめる */
+function positionRanges(positions: number[]): [number, number][] {
+  const sorted = [...positions].sort((a, b) => a - b);
+  const ranges: [number, number][] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const from = sorted[i]!;
+    let to = from;
+    while (sorted[i + 1] === to + 1) to = sorted[++i]!;
+    ranges.push([from, to]);
+  }
+  return ranges;
 }
 
 /**

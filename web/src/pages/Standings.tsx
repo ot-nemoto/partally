@@ -69,10 +69,13 @@ function PrizesView() {
     <>
       <ul className="prize-list">
         {shown.map((p) => (
-          <li key={p.prizeId} className="card prize-card">
+          <li key={p.prizeId} className="card prize-list-item">
             <PrizeImage prize={p} />
-            <h2>{p.name}</h2>
-            <p className="prize-positions">{formatPositionLabel(p.positions)}</p>
+            <h3>{p.name}</h3>
+            {/* 上位（1〜3 位）を含む景品は順位を金色にする */}
+            <p className={`prize-positions${Math.min(...p.positions) <= 3 ? " top" : ""}`}>
+              {formatPositionLabel(p.positions)}
+            </p>
           </li>
         ))}
       </ul>

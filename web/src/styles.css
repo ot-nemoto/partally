@@ -1584,7 +1584,7 @@ table.prize-table td {
   list-style: none;
 }
 
-.prize-list .prize-card {
+.prize-list-item {
   display: grid;
   grid-template-columns: 6rem 1fr;
   grid-template-rows: auto 1fr;
@@ -1594,12 +1594,12 @@ table.prize-table td {
   padding: 0.75rem;
 }
 
-.prize-list .prize-image {
+.prize-list-item .prize-image {
   grid-row: 1 / 3;
   aspect-ratio: 1;
 }
 
-.prize-list .prize-card h2 {
+.prize-list-item h3 {
   margin: 0;
   font-size: 1.05rem;
   overflow-wrap: anywhere;
@@ -1607,8 +1607,11 @@ table.prize-table td {
 
 .prize-positions {
   margin: 0;
-  color: var(--gold);
   font-weight: 700;
+}
+
+.prize-positions.top {
+  color: var(--gold);
 }
 
 /* ---- 参加者の順位 ---- */
