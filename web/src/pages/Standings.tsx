@@ -26,7 +26,7 @@ export function Standings() {
 
   return (
     <section className="ranking">
-      <h1>順位</h1>
+      <h1>イベント情報</h1>
       {views.length > 1 && (
         <div className="segmented" role="tablist">
           {views.map((v) => (
