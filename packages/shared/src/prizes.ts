@@ -22,15 +22,41 @@ export function parsePositions(text: string): { positions: number[] } | { error:
 
 /** 順位の一覧を、続いている所は範囲にまとめて書く（[1, 2, 3, 5] → 「1-3, 5」） */
 export function formatPositions(positions: number[]): string {
+  return positionRanges(positions)
+    .map(([from, to]) => (to === from ? String(from) : `${from}-${to}`))
+    .join(", ");
+}
+
+/** 参加者に見せる順位の書き方。続いている所は範囲にする（[1, 2, 3, 5] → 「1〜3 位・5 位」） */
+export function formatPositionLabel(positions: number[]): string {
+  return positionRanges(positions)
+    .map(([from, to]) => (to === from ? `${from} 位` : `${from}〜${to} 位`))
+    .join("・");
+}
+
+/** 順位を小さい順に並べ、続いている所を [始め, 終わり] にまとめる */
+function positionRanges(positions: number[]): [number, number][] {
   const sorted = [...positions].sort((a, b) => a - b);
-  const parts: string[] = [];
+  const ranges: [number, number][] = [];
   for (let i = 0; i < sorted.length; i++) {
     const from = sorted[i]!;
     let to = from;
     while (sorted[i + 1] === to + 1) to = sorted[++i]!;
-    parts.push(to === from ? String(from) : `${from}-${to}`);
+    ranges.push([from, to]);
   }
-  return parts.join(", ");
+  return ranges;
+}
+
+/**
+ * 参加者に見せる景品。どの順位にも割り当てていない景品は除き、上位の景品から並べる
+ * （渡す順位の最も小さい順。同じなら渡す人数の少ない順＝その順位向けの景品を先に。それも同じなら元の並び＝登録した順）
+ */
+export function prizesForDisplay(prizes: PrizeDto[]): PrizeDto[] {
+  return prizes
+    .filter((p) => p.positions.length > 0)
+    .map((p) => ({ prize: p, top: Math.min(...p.positions) }))
+    .sort((a, b) => a.top - b.top || a.prize.positions.length - b.prize.positions.length)
+    .map(({ prize }) => prize);
 }
 
 /** 順位（上から何番目の人か）ごとの景品。景品は登録した順 */

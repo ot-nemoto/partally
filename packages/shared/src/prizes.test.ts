@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatPositionLabel,
   formatPositions,
   type PrizeDto,
   parsePositions,
   prizePositions,
   prizeRequestSchema,
   prizesByPosition,
+  prizesForDisplay,
   type RankingEntryDto,
 } from "./index.js";
 
@@ -47,6 +49,27 @@ describe("prizesByPosition", () => {
       [1, ["A", "B"]],
       [2, ["A"]],
     ]);
+  });
+});
+
+describe("formatPositionLabel", () => {
+  it("参加者向けに「1〜3 位・5 位」のように書く", () => {
+    expect(formatPositionLabel([5, 1, 2, 3])).toBe("1〜3 位・5 位");
+    expect(formatPositionLabel([4])).toBe("4 位");
+    expect(formatPositionLabel([])).toBe("");
+  });
+});
+
+describe("prizesForDisplay", () => {
+  it("割り当てていない景品を除き、渡す順位の最も小さい順・渡す人数の少ない順・元の並びにする", () => {
+    const list = prizesForDisplay([
+      prize("A", [3]),
+      prize("B", []),
+      prize("C", [1, 5]),
+      prize("D", [2, 1]),
+      prize("E", [1]),
+    ]);
+    expect(list.map((p) => p.prizeId)).toEqual(["E", "C", "D", "A"]);
   });
 });
 
