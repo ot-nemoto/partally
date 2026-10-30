@@ -12,6 +12,8 @@ const KINDS: PhotoKind[] = ["full", "thumb"];
 export class MemoryPhotoStorage implements PhotoStorage {
   readonly objects = new Map<string, StoredObject>();
   readonly invalidated: string[] = [];
+  /** 消した（CloudFront のキャッシュも無効化した）景品の画像 */
+  readonly removedPrizeImages: string[] = [];
 
   /** @param uploadUrl 署名付き POST の代わりに使うアップロード先（ローカル開発サーバのエンドポイント） */
   constructor(private readonly uploadUrl = "/__dev/upload") {}
@@ -70,5 +72,6 @@ export class MemoryPhotoStorage implements PhotoStorage {
 
   async removePrizeImage(imageId: string) {
     this.objects.delete(prizeImageKey(imageId));
+    this.removedPrizeImages.push(imageId);
   }
 }

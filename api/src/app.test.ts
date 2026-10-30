@@ -1161,6 +1161,8 @@ describe("API", () => {
       expect((await admin("DELETE", `/api/admin/prizes/${prizeId}`)).status).toBe(200);
       expect(served(thirdImage)).toBe(false);
       expect((await admin("GET", "/api/admin/prizes")).body.prizes.map((p: any) => p.name)).toEqual(["お菓子"]);
+      // 差し替え・外す・削除のたびに、CloudFront のキャッシュも消している
+      expect(storage.removedPrizeImages).toEqual([imageId, newImageId, thirdImage]);
       expect((await admin("DELETE", `/api/admin/prizes/${prizeId}`)).status).toBe(404);
       expect(
         (await admin("PUT", `/api/admin/prizes/${prizeId}`, { name: "x", quantity: 1, positions: [] })).status,
