@@ -896,7 +896,10 @@ function pointsByKey(user: UserRecord, settings: Settings, quiz: QuizStats): Rec
 
 /** ポイントは保存せず、現在の設定で毎回計算する（設定を変えると全員に同じ基準で反映される） */
 export function calculatePoints(user: UserRecord, settings: Settings, quiz: QuizStats): number {
-  const byKey = pointsByKey(user, settings, quiz);
+  return sumPoints(pointsByKey(user, settings, quiz));
+}
+
+function sumPoints(byKey: Record<TieBreakKey, number>): number {
   return byKey.upload + byKey.favoriteGiven + byKey.favoriteReceived + byKey.quiz;
 }
 
@@ -943,9 +946,8 @@ export function buildRanking(source: RankingSource): RankingResponse {
   const quizStats = quizStatsByUser(quizzes);
 
   const entries = users.map((user) => {
-    const quiz = quizStats.get(user.userId) ?? NO_QUIZ_STATS;
-    const points = calculatePoints(user, settings, quiz);
-    const byKey = pointsByKey(user, settings, quiz);
+    const byKey = pointsByKey(user, settings, quizStats.get(user.userId) ?? NO_QUIZ_STATS);
+    const points = sumPoints(byKey);
     const history: RankingPointDto[] = [{ at: user.createdAt, points: 0 }];
     let total = 0;
     for (const event of (events.get(user.userId) ?? []).sort((a, b) => a.at.localeCompare(b.at))) {

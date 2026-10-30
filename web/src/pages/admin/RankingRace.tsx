@@ -53,9 +53,9 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
   }, [round, startTime, endTime]);
   const done = time >= endTime;
 
-  // その時点のポイントの高い順。同点は今のランキングの並び（同じポイントのときの優先順を反映済み）で上下を決め、
-  // 今のランキングでも同じ順位の人だけを同じ順位にする。最後は今のランキングと同じ並び・順位になる。
-  // 登録前の人は出さない
+  // その時点のポイントの高い順。同点は今のランキングの並び（同じポイントのときの優先順を反映済み）で上下を決める。
+  // 途中の時点の項目ごとのポイントは分からないので、再生中は同点を同じ順位にし、最後だけ今のランキングの順位
+  // （優先順で分けた順位）にそろえる。登録前の人は出さない
   const standings = entries
     .map(({ entry, history }, order) => ({ entry, order, points: valueAt(history, time) }))
     .filter((s): s is typeof s & { points: number } => s.points !== undefined)
@@ -63,7 +63,7 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
   const positions = new Map<string, { index: number; rank: number; points: number }>();
   standings.forEach((s, index) => {
     const prev = standings[index - 1];
-    const tied = prev && prev.points === s.points && prev.entry.rank === s.entry.rank;
+    const tied = prev && prev.points === s.points && (!done || prev.entry.rank === s.entry.rank);
     const rank = tied ? (positions.get(prev.entry.userId)?.rank ?? index + 1) : index + 1;
     positions.set(s.entry.userId, { index, rank, points: s.points });
   });

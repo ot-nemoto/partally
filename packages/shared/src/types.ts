@@ -1,3 +1,5 @@
+import type { TIE_BREAK_KEYS } from "./schemas.js";
+
 export type UserStatus = "active" | "unbound";
 export type TokenStatus = "unbound" | "bound";
 
@@ -158,8 +160,8 @@ export interface Settings {
   tieBreakOrder: TieBreakKey[];
 }
 
-/** 同じポイントのときに比べる項目 */
-export type TieBreakKey = "upload" | "favoriteGiven" | "favoriteReceived" | "quiz";
+/** 同じポイントのときに比べる項目（一覧は TIE_BREAK_KEYS） */
+export type TieBreakKey = (typeof TIE_BREAK_KEYS)[number];
 
 /** 参加者に見せるポイントのルール（設定のうち公開してよい部分） */
 export type Rules = Omit<Settings, "moderation">;

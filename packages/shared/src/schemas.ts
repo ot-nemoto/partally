@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { EPITHET_MAX_LENGTH } from "./epithet.js";
+import type { TieBreakKey } from "./types.js";
 
 export const NAME_MAX_LENGTH = 20;
 export const TOKEN_ISSUE_MAX = 200;
@@ -60,7 +61,7 @@ export const POINTS_MAX = 100;
 export const TIE_BREAK_KEYS = ["upload", "favoriteGiven", "favoriteReceived", "quiz"] as const;
 
 /** 優先順の項目の名前（管理画面・参加者の画面の案内に出す） */
-export const TIE_BREAK_LABEL: Record<(typeof TIE_BREAK_KEYS)[number], string> = {
+export const TIE_BREAK_LABEL: Record<TieBreakKey, string> = {
   upload: "写真のアップロード",
   favoriteGiven: "お気に入りを選んだ",
   favoriteReceived: "お気に入りに選ばれた",
@@ -90,7 +91,7 @@ export const updateSettingsRequestSchema = z.object({
   tieBreakOrder: z
     .array(z.enum(TIE_BREAK_KEYS))
     .refine((v) => v.length === TIE_BREAK_KEYS.length && new Set(v).size === v.length, {
-      message: "優先順は 4 つの項目をすべて 1 回ずつ並べてください",
+      message: `優先順は ${TIE_BREAK_KEYS.length} つの項目をすべて 1 回ずつ並べてください`,
     })
     .optional(),
 });

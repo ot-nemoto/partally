@@ -85,10 +85,12 @@ function PrizesView() {
           </li>
         ))}
       </ul>
-      <p className="muted small">
-        同じポイントの人は、{(rules.tieBreakOrder ?? []).map((key) => TIE_BREAK_LABEL[key]).join(" → ")}
-        のポイントが多い人を上として数えます（すべて同じなら先に登録した人が上）。
-      </p>
+      {rules.tieBreakOrder?.length > 0 && (
+        <p className="muted small">
+          同じポイントの人は、{rules.tieBreakOrder.map((key) => TIE_BREAK_LABEL[key]).join(" → ")}
+          のポイントが多い人を上として数えます（すべて同じなら先に登録した人が上）。
+        </p>
+      )}
     </>
   );
 }
