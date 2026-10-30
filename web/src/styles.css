@@ -1185,7 +1185,7 @@ button.more {
 }
 
 /* 指でつかんだときに画面がスクロールしないようにする */
-.drag-handle {
+.sortable-list .drag-handle {
   display: flex;
   align-items: center;
   align-self: stretch;
@@ -1196,7 +1196,7 @@ button.more {
   user-select: none;
 }
 
-.dragging .drag-handle {
+.sortable-list li.dragging .drag-handle {
   cursor: grabbing;
 }
 
