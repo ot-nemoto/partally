@@ -13,6 +13,7 @@ describe("parsePositions", () => {
   it("区切り・範囲・全角を読み、小さい順・重複なしにする", () => {
     expect(parsePositions("3, 1、５〜７ 6")).toEqual({ positions: [1, 3, 5, 6, 7] });
     expect(parsePositions("10-12")).toEqual({ positions: [10, 11, 12] });
+    expect(parsePositions("5‐6, 8―9")).toEqual({ positions: [5, 6, 8, 9] });
     expect(parsePositions("  ")).toEqual({ positions: [] });
   });
 

@@ -3,7 +3,7 @@ import { buildRanking, createApp, scoreQuizAnswers } from "./app.js";
 import { ingestUpload } from "./ingest.js";
 import { MemoryRepository } from "./memory-repository.js";
 import { MemoryPhotoStorage } from "./memory-storage.js";
-import { photoKey } from "./photo-storage.js";
+import { photoKey, prizeImageKey } from "./photo-storage.js";
 import { DEFAULT_SETTINGS, type UserRecord } from "./repository.js";
 import type { UrlSigner } from "./url-signer.js";
 
@@ -1093,6 +1093,9 @@ describe("API", () => {
       return res.body.imageId as string;
     }
 
+    /** 配信する領域に画像があるか */
+    const served = (imageId: string) => storage.get(prizeImageKey(imageId)) !== undefined;
+
     it("登録・更新・削除ができ、順位は小さい順に並べ、画像は署名付き URL で返す", async () => {
       const admin = await adminClient();
       const imageId = await uploadImage(admin);
@@ -1110,6 +1113,9 @@ describe("API", () => {
         imageUrl: `/prizes/${imageId}.jpg?signed`,
       });
       const prizeId = created.body.prize.prizeId;
+      // 受け口から配信する領域へ移している
+      expect(served(imageId)).toBe(true);
+      expect(storage.get(prizeImageKey(imageId, "uploads"))).toBeUndefined();
 
       // 別の景品は同じ順位にも割り当てられ、画像なしでもよい
       const other = await admin("POST", "/api/admin/prizes", { name: "お菓子", quantity: 10, positions: [1, 2] });
@@ -1132,8 +1138,8 @@ describe("API", () => {
       });
       expect(updated.status).toBe(200);
       expect(updated.body.prize).toMatchObject({ name: "テレビ", quantity: 2, positions: [2] });
-      expect(await storage.hasPrizeImage(imageId)).toBe(false);
-      expect(await storage.hasPrizeImage(newImageId)).toBe(true);
+      expect(served(imageId)).toBe(false);
+      expect(served(newImageId)).toBe(true);
 
       // 画像を外しても消す
       const removed = await admin("PUT", `/api/admin/prizes/${prizeId}`, {
@@ -1142,7 +1148,7 @@ describe("API", () => {
         positions: [],
       });
       expect(removed.body.prize.imageUrl).toBeUndefined();
-      expect(await storage.hasPrizeImage(newImageId)).toBe(false);
+      expect(served(newImageId)).toBe(false);
 
       // 削除すると画像も消す
       const thirdImage = await uploadImage(admin);
@@ -1153,7 +1159,7 @@ describe("API", () => {
         imageId: thirdImage,
       });
       expect((await admin("DELETE", `/api/admin/prizes/${prizeId}`)).status).toBe(200);
-      expect(await storage.hasPrizeImage(thirdImage)).toBe(false);
+      expect(served(thirdImage)).toBe(false);
       expect((await admin("GET", "/api/admin/prizes")).body.prizes.map((p: any) => p.name)).toEqual(["お菓子"]);
       expect((await admin("DELETE", `/api/admin/prizes/${prizeId}`)).status).toBe(404);
       expect(

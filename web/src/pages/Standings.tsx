@@ -1,15 +1,11 @@
-import {
-  type ParticipantRankingResponse,
-  type PrizeDto,
-  type PrizesResponse,
-  prizesByPosition,
-} from "@partally/shared";
+import { type ParticipantRankingResponse, prizesByPosition } from "@partally/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../api";
 import { useParticipant } from "../components/ParticipantLayout";
 import { PrizeChips } from "../components/PrizeChips";
 import { RankingBars } from "../components/RankingBars";
 import { MAX_LINES, RankingChart } from "../components/RankingChart";
+import { usePrizes } from "../hooks/usePrizes";
 import { useOnReload } from "../hooks/useReload";
 
 type View = "ranking" | "trend" | "prizes";
@@ -58,30 +54,9 @@ export function Standings() {
   );
 }
 
-/** 見せる設定の景品を読む。見せない設定（404）や読めなかったときは undefined */
-function usePrizes(enabled: boolean) {
-  const [prizes, setPrizes] = useState<PrizeDto[]>();
-  const [state, setState] = useState<"loading" | "ok" | "hidden" | "error">("loading");
-  const load = useCallback(() => {
-    if (!enabled) return;
-    api<PrizesResponse>("GET", "/prizes")
-      .then((res) => {
-        setPrizes(res.prizes);
-        setState("ok");
-      })
-      .catch((e) => {
-        setPrizes(undefined);
-        setState(e instanceof ApiError && e.status === 404 ? "hidden" : "error");
-      });
-  }, [enabled]);
-  useEffect(load, [load]);
-  useOnReload(load);
-  return { prizes, state };
-}
-
 /** 何位で何がもらえるか。順位は上から何番目の人か（同点は先に登録した人を上にする） */
 function PrizesView() {
-  const { prizes, state } = usePrizes(true);
+  const { prizes, state } = usePrizes("/prizes");
   if (state === "hidden") return <p className="muted">今は公開されていません。</p>;
   if (state === "error") return <p className="error">景品を読み込めませんでした。下の「更新」を押してください。</p>;
   if (!prizes) return <p className="muted">読み込み中…</p>;
@@ -103,7 +78,7 @@ function PrizesView() {
 }
 
 function StandingsView({ view, withPrizes }: { view: Exclude<View, "prizes">; withPrizes: boolean }) {
-  const { prizes } = usePrizes(withPrizes && view === "ranking");
+  const { prizes } = usePrizes("/prizes", withPrizes && view === "ranking");
   const [data, setData] = useState<ParticipantRankingResponse>();
   const [error, setError] = useState<string>();
   const [hidden, setHidden] = useState(false);

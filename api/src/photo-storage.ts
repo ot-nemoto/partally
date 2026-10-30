@@ -40,11 +40,12 @@ export function parsePhotoKey(key: string): { area: PhotoArea; photoId: string; 
 }
 
 /**
- * 景品の画像のキー。管理者が署名付き POST で直接置く（参加者の写真のような取り込み処理は通さない）。
- * CloudFront の /prizes/* から署名付き URL で配信する
+ * 景品の画像のキー。管理者は署名付き POST で受け口（uploads/prizes/）に置き、景品を保存したときに
+ * サーバが配信する領域（prizes/）へ移す。景品に付けなかった画像は受け口のライフサイクルで 1 日後に消える。
+ * 配信は CloudFront の /prizes/* から署名付き URL で行う
  */
-export function prizeImageKey(imageId: string): string {
-  return `prizes/${imageId}.jpg`;
+export function prizeImageKey(imageId: string, area: "uploads" | "prizes" = "prizes"): string {
+  return area === "uploads" ? `uploads/prizes/${imageId}.jpg` : `prizes/${imageId}.jpg`;
 }
 
 export function prizeImagePath(imageId: string): string {
@@ -62,10 +63,13 @@ export interface PhotoStorage {
   /** CDN に残っている公開済み写真のキャッシュを消す */
   invalidate(photoId: string): Promise<void>;
 
-  /** 景品の画像を直接アップロードするための署名付き POST を発行する */
+  /** 景品の画像を受け口へ直接アップロードするための署名付き POST を発行する */
   createPrizeImageUpload(imageId: string): Promise<PresignedPost>;
-  /** 景品の画像がアップロード済みか */
-  hasPrizeImage(imageId: string): Promise<boolean>;
+  /**
+   * 受け口の景品の画像を配信する領域へ移す。受け口に無ければ（アップロードしていない・別の景品で使った）false。
+   * 移した後は受け口から消すので、同じ画像を 2 つの景品に付けることはできない
+   */
+  attachPrizeImage(imageId: string): Promise<boolean>;
   removePrizeImage(imageId: string): Promise<void>;
 }
 
@@ -136,20 +140,34 @@ export class S3PhotoStorage implements PhotoStorage {
   async createPrizeImageUpload(imageId: string) {
     const { url, fields } = await createPresignedPost(this.s3, {
       Bucket: this.bucket,
-      Key: prizeImageKey(imageId),
-      Fields: { "Content-Type": "image/jpeg", "Cache-Control": PRIZE_CACHE_CONTROL },
+      Key: prizeImageKey(imageId, "uploads"),
+      Fields: { "Content-Type": "image/jpeg" },
       Conditions: [
         ["content-length-range", 1, PRIZE_IMAGE_MAX_BYTES],
         ["eq", "$Content-Type", "image/jpeg"],
-        ["eq", "$Cache-Control", PRIZE_CACHE_CONTROL],
       ],
       Expires: UPLOAD_EXPIRES_SECONDS,
     });
     return { url, fields };
   }
 
-  async hasPrizeImage(imageId: string) {
-    return (await this.getUploader(prizeImageKey(imageId))) !== undefined;
+  async attachPrizeImage(imageId: string) {
+    const from = prizeImageKey(imageId, "uploads");
+    if ((await this.getUploader(from)) === undefined) return false;
+    await this.s3.send(
+      new CopyObjectCommand({
+        Bucket: this.bucket,
+        CopySource: `${this.bucket}/${from}`,
+        Key: prizeImageKey(imageId),
+        MetadataDirective: "REPLACE",
+        ContentType: "image/jpeg",
+        CacheControl: PRIZE_CACHE_CONTROL,
+      }),
+    );
+    await this.s3.send(
+      new DeleteObjectsCommand({ Bucket: this.bucket, Delete: { Objects: [{ Key: from }], Quiet: true } }),
+    );
+    return true;
   }
 
   async removePrizeImage(imageId: string) {

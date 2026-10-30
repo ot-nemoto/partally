@@ -185,7 +185,10 @@ export function createApp(deps: AppDeps) {
     return { ...dto, thumbUrl: url("thumb"), fullUrl: url("full") };
   };
 
-  /** 景品の画像は管理画面でも参加者の画面でも署名付き URL で渡す */
+  /**
+   * 景品の画像は管理画面でも参加者の画面でも署名付き URL で渡す。期限を 1 時間ごとの区切りにそろえ、
+   * 同じ時間帯は同じ URL にしてブラウザのキャッシュを使えるようにする（期限までは 1〜2 時間残る）
+   */
   const toPrizeDto = (prize: PrizeRecord): PrizeDto => ({
     prizeId: prize.prizeId,
     name: prize.name,
@@ -193,7 +196,10 @@ export function createApp(deps: AppDeps) {
     positions: prize.positions,
     imageId: prize.imageId,
     imageUrl: prize.imageId
-      ? signer.signPath(prizeImagePath(prize.imageId), new Date(now().getTime() + SIGNED_URL_TTL_MS))
+      ? signer.signPath(
+          prizeImagePath(prize.imageId),
+          new Date((Math.floor(now().getTime() / SIGNED_URL_TTL_MS) + 2) * SIGNED_URL_TTL_MS),
+        )
       : undefined,
     createdAt: prize.createdAt,
   });
@@ -718,20 +724,26 @@ export function createApp(deps: AppDeps) {
     return c.json({ imageId, upload: await storage.createPrizeImageUpload(imageId) });
   });
 
-  /** 付けようとしている画像が、アップロード済みか（別の景品の画像を指していないか）を確かめる */
-  const checkPrizeImage = async (c: Context, imageId: string | undefined, current?: string) => {
+  /** 新しく付ける画像を受け口から配信する領域へ移す。受け口に無ければ 400 のレスポンスを返す */
+  const attachPrizeImage = async (c: Context, imageId: string | undefined, current?: string) => {
     if (imageId === undefined || imageId === current) return undefined;
-    if (!(await storage.hasPrizeImage(imageId))) return fail(c, 400, "bad_request", "画像がアップロードされていません");
-    if ((await repo.listPrizes()).some((p) => p.imageId === imageId)) {
-      return fail(c, 400, "bad_request", "画像が別の景品で使われています");
+    if (await storage.attachPrizeImage(imageId)) return undefined;
+    return fail(c, 400, "bad_request", "画像がアップロードされていないか、別の景品で使われています");
+  };
+
+  /** 使わなくなった画像を消す。景品は保存できているので、消せなくても失敗にはしない（残った画像は Reset で消える） */
+  const removePrizeImage = async (imageId: string) => {
+    try {
+      await storage.removePrizeImage(imageId);
+    } catch (e) {
+      console.error(`景品の画像 ${imageId} を消せませんでした`, e);
     }
-    return undefined;
   };
 
   app.post("/admin/prizes", async (c) => {
     const body = await parseBody(c, prizeRequestSchema);
     if (!body.ok) return body.response;
-    const invalid = await checkPrizeImage(c, body.data.imageId);
+    const invalid = await attachPrizeImage(c, body.data.imageId);
     if (invalid) return invalid;
     const timestamp = now().toISOString();
     const prize: PrizeRecord = {
@@ -743,7 +755,12 @@ export function createApp(deps: AppDeps) {
       createdAt: timestamp,
       updatedAt: timestamp,
     };
-    await repo.createPrize(prize);
+    try {
+      await repo.createPrize(prize);
+    } catch (e) {
+      if (prize.imageId) await removePrizeImage(prize.imageId);
+      throw e;
+    }
     return c.json({ prize: toPrizeDto(prize) }, 201);
   });
 
@@ -752,7 +769,7 @@ export function createApp(deps: AppDeps) {
     if (!body.ok) return body.response;
     const prize = await repo.getPrize(c.req.param("prizeId"));
     if (!prize) return fail(c, 404, "not_found");
-    const invalid = await checkPrizeImage(c, body.data.imageId, prize.imageId);
+    const invalid = await attachPrizeImage(c, body.data.imageId, prize.imageId);
     if (invalid) return invalid;
     try {
       const updated = await repo.updatePrize(
@@ -766,9 +783,11 @@ export function createApp(deps: AppDeps) {
         now().toISOString(),
       );
       // 差し替えた・外した画像は、保存できてから消す
-      if (prize.imageId && prize.imageId !== updated.imageId) await storage.removePrizeImage(prize.imageId);
+      if (prize.imageId && prize.imageId !== updated.imageId) await removePrizeImage(prize.imageId);
       return c.json({ prize: toPrizeDto(updated) });
     } catch (e) {
+      // 保存できなかったら、新しく移した画像を消す
+      if (body.data.imageId && body.data.imageId !== prize.imageId) await removePrizeImage(body.data.imageId);
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
       throw e;
     }
@@ -783,7 +802,7 @@ export function createApp(deps: AppDeps) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
       throw e;
     }
-    if (prize.imageId) await storage.removePrizeImage(prize.imageId);
+    if (prize.imageId) await removePrizeImage(prize.imageId);
     return c.json({});
   });
 

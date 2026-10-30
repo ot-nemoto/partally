@@ -57,11 +57,15 @@ export class MemoryPhotoStorage implements PhotoStorage {
   }
 
   async createPrizeImageUpload(imageId: string): Promise<PresignedPost> {
-    return { url: this.uploadUrl, fields: { key: prizeImageKey(imageId), "Content-Type": "image/jpeg" } };
+    return { url: this.uploadUrl, fields: { key: prizeImageKey(imageId, "uploads"), "Content-Type": "image/jpeg" } };
   }
 
-  async hasPrizeImage(imageId: string) {
-    return this.objects.has(prizeImageKey(imageId));
+  async attachPrizeImage(imageId: string) {
+    const obj = this.objects.get(prizeImageKey(imageId, "uploads"));
+    if (!obj) return false;
+    this.objects.set(prizeImageKey(imageId), obj);
+    this.objects.delete(prizeImageKey(imageId, "uploads"));
+    return true;
   }
 
   async removePrizeImage(imageId: string) {

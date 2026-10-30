@@ -1,10 +1,9 @@
-import type { PrizeDto, PrizesResponse, RankingResponse } from "@partally/shared";
-import { useCallback, useEffect, useState } from "react";
-import { api } from "../../api";
+import type { RankingResponse } from "@partally/shared";
+import { useState } from "react";
 import { PageTitle } from "../../components/PageTitle";
 import { RankingBars } from "../../components/RankingBars";
+import { usePrizes } from "../../hooks/usePrizes";
 import { useRanking } from "../../hooks/useRanking";
-import { useOnReload } from "../../hooks/useReload";
 import { RankingRace } from "./RankingRace";
 
 /**
@@ -16,14 +15,7 @@ export function AdminRanking() {
   /** 再生中のデータ。押した時点のものを使い、途中で「更新」しても再生を止めない */
   const [race, setRace] = useState<RankingResponse>();
   // 各行にその順位の景品を添える。読めなくてもランキングは出す
-  const [prizes, setPrizes] = useState<PrizeDto[]>();
-  const loadPrizes = useCallback(() => {
-    api<PrizesResponse>("GET", "/admin/prizes")
-      .then((res) => setPrizes(res.prizes))
-      .catch(() => setPrizes(undefined));
-  }, []);
-  useEffect(loadPrizes, [loadPrizes]);
-  useOnReload(loadPrizes);
+  const { prizes } = usePrizes("/admin/prizes");
 
   return (
     <section className="ranking">

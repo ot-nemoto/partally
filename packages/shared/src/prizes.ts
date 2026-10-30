@@ -6,7 +6,7 @@ import type { PrizeDto, RankingEntryDto } from "./types.js";
  * 全角数字も読める。小さい順・重複なしにして返す
  */
 export function parsePositions(text: string): { positions: number[] } | { error: string } {
-  const normalized = text.normalize("NFKC").replace(/[〜~ー−–—]/g, "-");
+  const normalized = text.normalize("NFKC").replace(/[〜~ー‐‑‒–—―−]/g, "-");
   const positions = new Set<number>();
   for (const part of normalized.split(/[,、\s]+/).filter(Boolean)) {
     const m = /^(\d+)(?:-(\d+))?$/.exec(part);
