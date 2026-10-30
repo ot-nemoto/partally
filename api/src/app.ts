@@ -736,7 +736,7 @@ export function createApp(deps: AppDeps) {
     try {
       await storage.removePrizeImage(imageId);
     } catch (e) {
-      console.error(`景品の画像 ${imageId} を消せませんでした`, e);
+      console.error(`景品の画像 ${imageId} の削除か、CloudFront のキャッシュの無効化に失敗しました`, e);
     }
   };
 

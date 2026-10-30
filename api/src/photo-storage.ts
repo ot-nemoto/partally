@@ -22,10 +22,10 @@ export const UPLOAD_EXPIRES_SECONDS = 300;
 /** 公開済み写真のブラウザ・CloudFront キャッシュ時間。削除後もこの時間はブラウザに残り得る */
 const APPROVED_CACHE_CONTROL = "max-age=3600";
 /**
- * 景品の画像は、ブラウザ・CloudFront が使うたびに元のファイルがあるかを確かめる（変わっていなければ 304 で中身は送らない）。
- * 削除・差し替えのすぐ後から、消した画像を出さないようにするため
+ * 景品の画像は、ブラウザには使うたびに CloudFront へ確かめさせ（変わっていなければ 304 で中身は送らない）、
+ * CloudFront には 1 日置く。消すときは CloudFront の分を無効化するので、削除・差し替えのすぐ後から見えなくなる
  */
-const PRIZE_CACHE_CONTROL = "no-cache";
+const PRIZE_CACHE_CONTROL = "max-age=0, must-revalidate, s-maxage=86400";
 
 /** S3 のキー。配信する領域は CloudFront のパス（/photos/...）と一致させ、パスの書き換えを不要にする */
 export function photoKey(area: PhotoArea, photoId: string, kind: PhotoKind): string {
@@ -180,7 +180,7 @@ export class S3PhotoStorage implements PhotoStorage {
         Delete: { Objects: [{ Key: prizeImageKey(imageId) }], Quiet: true },
       }),
     );
-    // CloudFront に残っている分も消す（no-cache より前に置いた画像は、キャッシュが長く残るため）
+    // CloudFront に残っている分も消す（ブラウザは使うたびに CloudFront へ確かめるので、ここで見えなくなる）
     await this.cloudfront.send(
       new CreateInvalidationCommand({
         DistributionId: this.distributionId,
