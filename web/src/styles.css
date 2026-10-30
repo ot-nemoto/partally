@@ -1152,8 +1152,8 @@ button.more {
 
 /* ---- 管理画面の設定 ---- */
 
-/* 同じポイントのときの優先順。項目ごとに上下のボタンで並べ替える */
-.tie-break-order {
+/* 並べ替えのリスト（同じポイントのときの優先順など）。左のつかむ所をドラッグするか ↑↓ のボタンで並べ替える */
+.sortable-list {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -1162,17 +1162,49 @@ button.more {
   list-style: none;
 }
 
-.tie-break-order li {
+.sortable-list li {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  padding: 0.25rem 0.5rem 0.25rem 0;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
 }
 
-.tie-break-label {
+.sortable-list li.dragging {
+  position: relative;
+  z-index: 1;
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.15);
+}
+
+/* ドラッグ中だけ、ほかの行を空く位置へ滑らかに動かす（落とした瞬間は動かさずに新しい並びにする） */
+.sortable-list.sorting li:not(.dragging) {
+  transition: transform 0.15s ease;
+}
+
+/* 指でつかんだときに画面がスクロールしないようにする */
+.drag-handle {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  padding: 0 0.5rem;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.dragging .drag-handle {
+  cursor: grabbing;
+}
+
+.sortable-label {
   flex: 1;
 }
 
-.tie-break-order button {
+.sortable-list button {
   min-width: 2.5rem;
 }
 
