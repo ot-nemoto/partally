@@ -8,6 +8,7 @@ import {
   NotFoundError,
   type Page,
   type PhotoRecord,
+  type PrizeRecord,
   QuizAlreadyOpenError,
   type QuizAnswerRecord,
   type QuizRecord,
@@ -30,6 +31,7 @@ export class MemoryRepository implements Repository {
   /** キーは `${userId}#${quizId}` */
   private quizAnswers = new Map<string, QuizAnswerRecord>();
   private openQuizId: string | undefined;
+  private prizes = new Map<string, PrizeRecord>();
   private settings: Settings = { ...DEFAULT_SETTINGS };
   private labelCounter = 0;
 
@@ -286,6 +288,37 @@ export class MemoryRepository implements Repository {
 
   async listQuizAnswersByQuiz(quizId: string) {
     return [...this.quizAnswers.values()].filter((a) => a.quizId === quizId).map(clone);
+  }
+
+  async createPrize(prize: PrizeRecord) {
+    this.prizes.set(prize.prizeId, clone(prize));
+  }
+
+  async getPrize(prizeId: string) {
+    return clone(this.prizes.get(prizeId));
+  }
+
+  async listPrizes() {
+    return [...this.prizes.values()]
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.prizeId.localeCompare(b.prizeId))
+      .map(clone);
+  }
+
+  async updatePrize(
+    prizeId: string,
+    changes: Pick<PrizeRecord, "name" | "quantity" | "positions" | "imageId">,
+    updatedAt: string,
+  ) {
+    const prize = this.prizes.get(prizeId);
+    if (!prize) throw new NotFoundError();
+    const updated: PrizeRecord = { ...prize, ...clone(changes), updatedAt };
+    if (changes.imageId === undefined) delete updated.imageId;
+    this.prizes.set(prizeId, updated);
+    return clone(updated);
+  }
+
+  async deletePrize(prizeId: string) {
+    if (!this.prizes.delete(prizeId)) throw new NotFoundError();
   }
 
   async getSettings() {

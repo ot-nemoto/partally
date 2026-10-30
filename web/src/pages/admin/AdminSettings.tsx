@@ -209,6 +209,14 @@ export function AdminSettings() {
                 </div>
               </fieldset>
             ))}
+            <fieldset className="publish-option">
+              <SwitchField
+                label="参加者に景品を見せる"
+                description="何位で何がもらえるかの一覧です（景品は Prize で登録）。ランキングも見せていれば、各行にその順位の景品を添えます。"
+                checked={settings.prizesVisible}
+                onChange={(v) => update("prizesVisible", v)}
+              />
+            </fieldset>
             <p className="muted small">
               参加者の画面の「順位」タブに出ます。合計と順位は、写真・お気に入り・クイズのすべてのポイントで計算します。
               ホーム画面でポイントを表示しない設定でも、ここで「ポイントを伏せる」にしない限り、ポイントは見えます。

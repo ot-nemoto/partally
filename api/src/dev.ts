@@ -43,11 +43,14 @@ root.post("/__dev/upload", async (c) => {
 });
 
 // CloudFront の代わりに写真を配信する（ローカルでは署名を確認しない）
-root.get("/photos/*", (c) => {
-  const data = storage.get(c.req.path.slice(1));
-  if (!data) return c.text("not found", 404);
-  return c.body(data, 200, { "content-type": "image/jpeg" });
-});
+const serveImage = (path: string) => {
+  const data = storage.get(path.slice(1));
+  return data
+    ? new Response(data, { headers: { "content-type": "image/jpeg" } })
+    : new Response("not found", { status: 404 });
+};
+root.get("/photos/*", (c) => serveImage(c.req.path));
+root.get("/prizes/*", (c) => serveImage(c.req.path));
 
 root.route("/", api);
 

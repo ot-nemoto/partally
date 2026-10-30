@@ -11,7 +11,7 @@ export default defineConfig({
   },
   server: {
     // ローカル開発では API（npm run dev:api）へプロキシし、本番の CloudFront と同じく同一オリジンにする。
-    // /photos は写真の配信、/__dev は S3 への署名付き POST の代わり
-    proxy: { "/api": api, "/photos": api, "/__dev": api },
+    // /photos・/prizes は写真・景品の画像の配信、/__dev は S3 への署名付き POST の代わり
+    proxy: { "/api": api, "/photos": api, "/prizes": api, "/__dev": api },
   },
 });

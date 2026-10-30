@@ -77,7 +77,7 @@ describe("PartallyStack", () => {
   it("CloudFront の写真パスは鍵グループによる署名が必要", () => {
     const dists = template.findResources("AWS::CloudFront::Distribution");
     const config = Object.values(dists)[0]!.Properties.DistributionConfig;
-    for (const pattern of ["/photos/approved/*", "/photos/pending/*"]) {
+    for (const pattern of ["/photos/approved/*", "/photos/pending/*", "/prizes/*"]) {
       const behavior = config.CacheBehaviors.find((b: any) => b.PathPattern === pattern);
       expect(behavior.TrustedKeyGroups).toHaveLength(1);
     }

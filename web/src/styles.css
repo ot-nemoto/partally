@@ -398,9 +398,9 @@ input {
 /*
   スマホ幅では、ADMIN と更新・ログアウトを 1 段目（固定）、メニューを 2 段目（一緒にスクロール）にする。
   固定する部分で画面が狭くならないよう、メニューはヘッダーの外に出す。
-  更新のあるページで 1 段に収まらなくなる幅（約 680px）より少し広めに切り替える
+  更新のあるページで 1 段に収まらなくなる幅（約 730px）より少し広めに切り替える
 */
-@media (max-width: 720px) {
+@media (max-width: 780px) {
   .admin-nav-inline {
     display: none;
   }
@@ -1469,6 +1469,152 @@ textarea {
 
 .quiz-result p {
   margin: 0;
+}
+
+/* ---- 景品 ---- */
+
+.admin-prizes {
+  max-width: 52rem;
+}
+
+.admin-prizes h2 {
+  margin: 1.5rem 0 0.75rem;
+  font-size: 1.1rem;
+}
+
+.prize-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 1rem;
+}
+
+.prize-card {
+  margin: 0;
+}
+
+.prize-card h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+
+.prize-card-body p {
+  margin: 0.25rem 0 0;
+}
+
+/* 景品の画像は形がまちまちなので、枠に収めて余白は背景で埋める */
+.prize-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 0.5rem;
+  background: var(--bg);
+  object-fit: contain;
+}
+
+.prize-image.placeholder {
+  font-size: 2.5rem;
+}
+
+.prize-image.small {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  aspect-ratio: auto;
+  border-radius: 0.25rem;
+  object-fit: cover;
+}
+
+.prize-image.small.placeholder {
+  font-size: 1.1rem;
+}
+
+.prize-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prize-chips li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+table.prize-table td {
+  white-space: normal;
+}
+
+.prize-table .prize-chips {
+  margin: 0;
+}
+
+.prize-dialog {
+  max-width: 30rem;
+}
+
+.prize-image-field {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.prize-image-field .prize-image {
+  width: 8rem;
+}
+
+.prize-image-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+/* 参加者の画面の景品の一覧。順位を左に、景品を右に並べる */
+.prize-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prize-list li.card {
+  flex-direction: row;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+  padding: 0.75rem 1rem;
+}
+
+.prize-position {
+  flex: none;
+  min-width: 3.5rem;
+  font-weight: 700;
+}
+
+.prize-position.rank-1,
+.prize-position.rank-2,
+.prize-position.rank-3 {
+  color: var(--gold);
+}
+
+.prize-list .prize-chips {
+  margin: 0;
+}
+
+.prize-list .prize-chips li {
+  font-size: 0.95rem;
+}
+
+.prize-list .prize-image.small {
+  width: 3rem;
+  height: 3rem;
 }
 
 /* ---- 参加者の順位 ---- */

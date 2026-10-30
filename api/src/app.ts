@@ -8,7 +8,9 @@ import {
   type ParticipantRankingResponse,
   type PhotoDto,
   type PhotoStatus,
+  type PrizeDto,
   photoStatusSchema,
+  prizeRequestSchema,
   type QuizDto,
   qrLoginRequestSchema,
   quizAnswerRequestSchema,
@@ -31,7 +33,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { ulid } from "ulid";
 import type { z } from "zod";
-import { type PhotoStorage, photoPath } from "./photo-storage.js";
+import { type PhotoStorage, photoPath, prizeImagePath } from "./photo-storage.js";
 import {
   EpithetTakenError,
   FavoriteLimitError,
@@ -39,6 +41,7 @@ import {
   InvalidStateError,
   NotFoundError,
   type PhotoRecord,
+  type PrizeRecord,
   QuizAlreadyOpenError,
   type QuizAnswerRecord,
   type QuizChoice,
@@ -181,6 +184,19 @@ export function createApp(deps: AppDeps) {
         : signer.signPath(photoPath(area, photo.photoId, kind), expiresAt);
     return { ...dto, thumbUrl: url("thumb"), fullUrl: url("full") };
   };
+
+  /** 景品の画像は管理画面でも参加者の画面でも署名付き URL で渡す */
+  const toPrizeDto = (prize: PrizeRecord): PrizeDto => ({
+    prizeId: prize.prizeId,
+    name: prize.name,
+    quantity: prize.quantity,
+    positions: prize.positions,
+    imageId: prize.imageId,
+    imageUrl: prize.imageId
+      ? signer.signPath(prizeImagePath(prize.imageId), new Date(now().getTime() + SIGNED_URL_TTL_MS))
+      : undefined,
+    createdAt: prize.createdAt,
+  });
 
   /** 一覧に出てくるアップロード者だけを取得する */
   const uploadersOf = async (photos: PhotoRecord[]) =>
@@ -331,6 +347,13 @@ export function createApp(deps: AppDeps) {
     const settings = await repo.getSettings();
     if (!settings.trendVisible) return fail(c, 404, "not_found");
     return c.json(toParticipantRanking(await loadRanking(settings), settings.trendHideNames, settings.trendHidePoints));
+  });
+
+  // 参加者に見せる景品。見せない設定のときは無いものとして扱う
+  app.get("/prizes", requireUser, async (c) => {
+    const settings = await repo.getSettings();
+    if (!settings.prizesVisible) return fail(c, 404, "not_found");
+    return c.json({ prizes: (await repo.listPrizes()).map(toPrizeDto) });
   });
 
   app.get("/me", requireUser, async (c) => {
@@ -686,6 +709,82 @@ export function createApp(deps: AppDeps) {
       if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state", "出題中の問題ではありません");
       throw e;
     }
+  });
+
+  app.get("/admin/prizes", async (c) => c.json({ prizes: (await repo.listPrizes()).map(toPrizeDto) }));
+
+  app.post("/admin/prizes/image-upload", async (c) => {
+    const imageId = newId();
+    return c.json({ imageId, upload: await storage.createPrizeImageUpload(imageId) });
+  });
+
+  /** 付けようとしている画像が、アップロード済みか（別の景品の画像を指していないか）を確かめる */
+  const checkPrizeImage = async (c: Context, imageId: string | undefined, current?: string) => {
+    if (imageId === undefined || imageId === current) return undefined;
+    if (!(await storage.hasPrizeImage(imageId))) return fail(c, 400, "bad_request", "画像がアップロードされていません");
+    if ((await repo.listPrizes()).some((p) => p.imageId === imageId)) {
+      return fail(c, 400, "bad_request", "画像が別の景品で使われています");
+    }
+    return undefined;
+  };
+
+  app.post("/admin/prizes", async (c) => {
+    const body = await parseBody(c, prizeRequestSchema);
+    if (!body.ok) return body.response;
+    const invalid = await checkPrizeImage(c, body.data.imageId);
+    if (invalid) return invalid;
+    const timestamp = now().toISOString();
+    const prize: PrizeRecord = {
+      prizeId: newId(),
+      name: body.data.name,
+      quantity: body.data.quantity,
+      positions: [...body.data.positions].sort((a, b) => a - b),
+      imageId: body.data.imageId,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    await repo.createPrize(prize);
+    return c.json({ prize: toPrizeDto(prize) }, 201);
+  });
+
+  app.put("/admin/prizes/:prizeId", async (c) => {
+    const body = await parseBody(c, prizeRequestSchema);
+    if (!body.ok) return body.response;
+    const prize = await repo.getPrize(c.req.param("prizeId"));
+    if (!prize) return fail(c, 404, "not_found");
+    const invalid = await checkPrizeImage(c, body.data.imageId, prize.imageId);
+    if (invalid) return invalid;
+    try {
+      const updated = await repo.updatePrize(
+        prize.prizeId,
+        {
+          name: body.data.name,
+          quantity: body.data.quantity,
+          positions: [...body.data.positions].sort((a, b) => a - b),
+          imageId: body.data.imageId,
+        },
+        now().toISOString(),
+      );
+      // 差し替えた・外した画像は、保存できてから消す
+      if (prize.imageId && prize.imageId !== updated.imageId) await storage.removePrizeImage(prize.imageId);
+      return c.json({ prize: toPrizeDto(updated) });
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      throw e;
+    }
+  });
+
+  app.delete("/admin/prizes/:prizeId", async (c) => {
+    const prize = await repo.getPrize(c.req.param("prizeId"));
+    if (!prize) return fail(c, 404, "not_found");
+    try {
+      await repo.deletePrize(prize.prizeId);
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      throw e;
+    }
+    if (prize.imageId) await storage.removePrizeImage(prize.imageId);
+    return c.json({});
   });
 
   app.get("/admin/settings", async (c) => c.json({ settings: await repo.getSettings() }));

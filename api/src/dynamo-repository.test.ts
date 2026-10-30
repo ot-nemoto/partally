@@ -1,4 +1,8 @@
-import { DynamoDBClient, TransactionCanceledException } from "@aws-sdk/client-dynamodb";
+import {
+  ConditionalCheckFailedException,
+  DynamoDBClient,
+  TransactionCanceledException,
+} from "@aws-sdk/client-dynamodb";
 import {
   BatchWriteCommand,
   DeleteCommand,
@@ -19,6 +23,7 @@ import {
   InvalidStateError,
   NotFoundError,
   type PhotoRecord,
+  type PrizeRecord,
   QuizAlreadyOpenError,
   type QuizRecord,
   TokenNotAvailableError,
@@ -475,6 +480,50 @@ describe("DynamoRepository", () => {
       const [draftOnly, any] = ddb.commandCalls(UpdateCommand).map((c) => c.args[0].input.ConditionExpression);
       expect(draftOnly).toBe("attribute_exists(PK) AND #status = :draft");
       expect(any).toBe("attribute_exists(PK)");
+    });
+  });
+
+  describe("景品", () => {
+    const prize: PrizeRecord = {
+      prizeId: "P1",
+      name: "TV",
+      quantity: 2,
+      positions: [1, 3],
+      imageId: "I1",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    it("作成順に並べるため GSI1 に入れ、一覧は GSI1 から読む", async () => {
+      ddb.on(PutCommand).resolves({});
+      await repo.createPrize(prize);
+      expect(ddb.commandCalls(PutCommand)[0]!.args[0].input).toMatchObject({
+        Item: {
+          PK: "PRIZE#P1",
+          SK: "META",
+          GSI1PK: "PRIZES",
+          GSI1SK: "2026-01-01T00:00:00.000Z#P1",
+          positions: [1, 3],
+        },
+        ConditionExpression: "attribute_not_exists(PK)",
+      });
+      ddb.on(QueryCommand).resolves({ Items: [{ PK: "PRIZE#P1", SK: "META", ...prize }] });
+      expect(await repo.listPrizes()).toEqual([prize]);
+    });
+
+    it("画像を外す更新は imageId を消し、無い景品の更新・削除は NotFoundError", async () => {
+      ddb.on(UpdateCommand).resolves({ Attributes: { ...prize, imageId: undefined, name: "テレビ" } });
+      const updated = await repo.updatePrize("P1", { name: "テレビ", quantity: 2, positions: [1] }, "t");
+      expect(updated.imageId).toBeUndefined();
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input.UpdateExpression).toMatch(/ REMOVE imageId$/);
+
+      const failed = new ConditionalCheckFailedException({ message: "failed", $metadata: {} });
+      ddb.on(UpdateCommand).rejects(failed);
+      await expect(repo.updatePrize("P1", { name: "x", quantity: 1, positions: [] }, "t")).rejects.toBeInstanceOf(
+        NotFoundError,
+      );
+      ddb.on(DeleteCommand).rejects(failed);
+      await expect(repo.deletePrize("P1")).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 

@@ -3,6 +3,7 @@ import { ParticipantLayout } from "./components/ParticipantLayout";
 import { AdminLayout } from "./pages/admin/AdminLayout";
 import { AdminLogin } from "./pages/admin/AdminLogin";
 import { AdminPhotos } from "./pages/admin/AdminPhotos";
+import { AdminPrizes } from "./pages/admin/AdminPrizes";
 import { AdminQuizzes } from "./pages/admin/AdminQuizzes";
 import { AdminRanking } from "./pages/admin/AdminRanking";
 import { AdminSettings } from "./pages/admin/AdminSettings";
@@ -40,6 +41,7 @@ export function App() {
         <Route path="tokens" element={<AdminTokens />} />
         <Route path="photos" element={<AdminPhotos />} />
         <Route path="quizzes" element={<AdminQuizzes />} />
+        <Route path="prizes" element={<AdminPrizes />} />
         <Route path="settings" element={<AdminSettings />} />
       </Route>
       <Route path="*" element={<NotFound />} />

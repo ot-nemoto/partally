@@ -61,7 +61,7 @@ describe("resetAll", () => {
 
     expect(cloudfront.commandCalls(CreateInvalidationCommand)[0]!.args[0].input).toMatchObject({
       DistributionId: "DIST",
-      InvalidationBatch: { Paths: { Quantity: 1, Items: ["/photos/*"] } },
+      InvalidationBatch: { Paths: { Quantity: 2, Items: ["/photos/*", "/prizes/*"] } },
     });
   });
 

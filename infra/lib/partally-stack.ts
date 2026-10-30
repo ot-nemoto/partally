@@ -173,6 +173,8 @@ function handler(event) {
         // 公開済みは署名付き Cookie、検閲待ちは署名付き URL が無いと 403 になる
         "/photos/approved/*": photoBehavior,
         "/photos/pending/*": photoBehavior,
+        // 景品の画像は管理画面と（見せる設定のときの）参加者の画面に署名付き URL で渡す
+        "/prizes/*": photoBehavior,
       },
     });
 

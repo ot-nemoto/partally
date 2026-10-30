@@ -1,5 +1,5 @@
 import type { PresignedPost } from "@partally/shared";
-import { type PhotoArea, type PhotoKind, type PhotoStorage, photoKey } from "./photo-storage.js";
+import { type PhotoArea, type PhotoKind, type PhotoStorage, photoKey, prizeImageKey } from "./photo-storage.js";
 
 interface StoredObject {
   data: Uint8Array<ArrayBuffer>;
@@ -54,5 +54,17 @@ export class MemoryPhotoStorage implements PhotoStorage {
 
   async invalidate(photoId: string) {
     this.invalidated.push(photoId);
+  }
+
+  async createPrizeImageUpload(imageId: string): Promise<PresignedPost> {
+    return { url: this.uploadUrl, fields: { key: prizeImageKey(imageId), "Content-Type": "image/jpeg" } };
+  }
+
+  async hasPrizeImage(imageId: string) {
+    return this.objects.has(prizeImageKey(imageId));
+  }
+
+  async removePrizeImage(imageId: string) {
+    this.objects.delete(prizeImageKey(imageId));
   }
 }

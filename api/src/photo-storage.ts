@@ -1,7 +1,12 @@
 import { CloudFrontClient, CreateInvalidationCommand } from "@aws-sdk/client-cloudfront";
 import { CopyObjectCommand, DeleteObjectsCommand, HeadObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
-import { PHOTO_FULL_MAX_BYTES, PHOTO_THUMB_MAX_BYTES, type PresignedPost } from "@partally/shared";
+import {
+  PHOTO_FULL_MAX_BYTES,
+  PHOTO_THUMB_MAX_BYTES,
+  PRIZE_IMAGE_MAX_BYTES,
+  type PresignedPost,
+} from "@partally/shared";
 
 /**
  * - uploads: 参加者が署名付き POST で書き込む受け口。配信しない。取り込み後に消し、残りもライフサイクルで消える
@@ -16,6 +21,8 @@ const MAX_BYTES: Record<PhotoKind, number> = { full: PHOTO_FULL_MAX_BYTES, thumb
 export const UPLOAD_EXPIRES_SECONDS = 300;
 /** 公開済み写真のブラウザ・CloudFront キャッシュ時間。削除後もこの時間はブラウザに残り得る */
 const APPROVED_CACHE_CONTROL = "max-age=3600";
+/** 景品の画像は差し替えると ID ごと変わるので、同じ URL の中身は変わらない */
+const PRIZE_CACHE_CONTROL = "max-age=86400";
 
 /** S3 のキー。配信する領域は CloudFront のパス（/photos/...）と一致させ、パスの書き換えを不要にする */
 export function photoKey(area: PhotoArea, photoId: string, kind: PhotoKind): string {
@@ -32,6 +39,18 @@ export function parsePhotoKey(key: string): { area: PhotoArea; photoId: string; 
   return { area: (m[1] ?? m[2]) as PhotoArea, photoId: m[3]!, kind: m[4] as PhotoKind };
 }
 
+/**
+ * 景品の画像のキー。管理者が署名付き POST で直接置く（参加者の写真のような取り込み処理は通さない）。
+ * CloudFront の /prizes/* から署名付き URL で配信する
+ */
+export function prizeImageKey(imageId: string): string {
+  return `prizes/${imageId}.jpg`;
+}
+
+export function prizeImagePath(imageId: string): string {
+  return `/${prizeImageKey(imageId)}`;
+}
+
 export interface PhotoStorage {
   /** 本体・サムネイルを uploads 領域へ直接アップロードするための署名付き POST を発行する */
   createUploads(photoId: string, uploaderId: string): Promise<Record<PhotoKind, PresignedPost>>;
@@ -42,6 +61,12 @@ export interface PhotoStorage {
   remove(photoId: string, area: PhotoArea): Promise<void>;
   /** CDN に残っている公開済み写真のキャッシュを消す */
   invalidate(photoId: string): Promise<void>;
+
+  /** 景品の画像を直接アップロードするための署名付き POST を発行する */
+  createPrizeImageUpload(imageId: string): Promise<PresignedPost>;
+  /** 景品の画像がアップロード済みか */
+  hasPrizeImage(imageId: string): Promise<boolean>;
+  removePrizeImage(imageId: string): Promise<void>;
 }
 
 export class S3PhotoStorage implements PhotoStorage {
@@ -104,6 +129,34 @@ export class S3PhotoStorage implements PhotoStorage {
       new DeleteObjectsCommand({
         Bucket: this.bucket,
         Delete: { Objects: KINDS.map((kind) => ({ Key: photoKey(area, photoId, kind) })), Quiet: true },
+      }),
+    );
+  }
+
+  async createPrizeImageUpload(imageId: string) {
+    const { url, fields } = await createPresignedPost(this.s3, {
+      Bucket: this.bucket,
+      Key: prizeImageKey(imageId),
+      Fields: { "Content-Type": "image/jpeg", "Cache-Control": PRIZE_CACHE_CONTROL },
+      Conditions: [
+        ["content-length-range", 1, PRIZE_IMAGE_MAX_BYTES],
+        ["eq", "$Content-Type", "image/jpeg"],
+        ["eq", "$Cache-Control", PRIZE_CACHE_CONTROL],
+      ],
+      Expires: UPLOAD_EXPIRES_SECONDS,
+    });
+    return { url, fields };
+  }
+
+  async hasPrizeImage(imageId: string) {
+    return (await this.getUploader(prizeImageKey(imageId))) !== undefined;
+  }
+
+  async removePrizeImage(imageId: string) {
+    await this.s3.send(
+      new DeleteObjectsCommand({
+        Bucket: this.bucket,
+        Delete: { Objects: [{ Key: prizeImageKey(imageId) }], Quiet: true },
       }),
     );
   }
