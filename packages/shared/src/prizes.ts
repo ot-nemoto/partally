@@ -33,6 +33,27 @@ export function formatPositions(positions: number[]): string {
   return parts.join(", ");
 }
 
+/** 参加者に見せる順位の書き方。続いている所は範囲にする（[1, 2, 3, 5] → 「1〜3 位・5 位」） */
+export function formatPositionLabel(positions: number[]): string {
+  return formatPositions(positions)
+    .split(", ")
+    .filter(Boolean)
+    .map((part) => `${part.replace("-", "〜")} 位`)
+    .join("・");
+}
+
+/**
+ * 参加者に見せる景品。どの順位にも割り当てていない景品は除き、上位の景品から並べる
+ * （渡す順位の最も小さい順。同じなら渡す人数の少ない順＝その順位向けの景品を先に。それも同じなら元の並び＝登録した順）
+ */
+export function prizesForDisplay(prizes: PrizeDto[]): PrizeDto[] {
+  return prizes
+    .filter((p) => p.positions.length > 0)
+    .map((p) => ({ prize: p, top: Math.min(...p.positions) }))
+    .sort((a, b) => a.top - b.top || a.prize.positions.length - b.prize.positions.length)
+    .map(({ prize }) => prize);
+}
+
 /** 順位（上から何番目の人か）ごとの景品。景品は登録した順 */
 export function prizesByPosition(prizes: PrizeDto[]): Map<number, PrizeDto[]> {
   const map = new Map<number, PrizeDto[]>();

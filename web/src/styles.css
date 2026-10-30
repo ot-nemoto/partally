@@ -1577,44 +1577,38 @@ table.prize-table td {
   gap: 0.5rem;
 }
 
-/* 参加者の画面の景品の一覧。順位を左に、景品を右に並べる */
+/* 参加者の画面の景品の一覧。景品ごとに、画像を左に小さく、名前と渡す順位を右に並べる */
 .prize-list {
-  margin: 0;
+  margin: 0 0 1rem;
   padding: 0;
   list-style: none;
 }
 
-.prize-list li.card {
-  flex-direction: row;
-  align-items: center;
-  gap: 1rem;
+.prize-list .prize-card {
+  display: grid;
+  grid-template-columns: 6rem 1fr;
+  grid-template-rows: auto 1fr;
+  gap: 0.25rem 1rem;
+  align-items: start;
   margin-bottom: 0.5rem;
-  padding: 0.75rem 1rem;
+  padding: 0.75rem;
 }
 
-.prize-position {
-  flex: none;
-  min-width: 3.5rem;
-  font-weight: 700;
+.prize-list .prize-image {
+  grid-row: 1 / 3;
+  aspect-ratio: 1;
 }
 
-.prize-position.rank-1,
-.prize-position.rank-2,
-.prize-position.rank-3 {
-  color: var(--gold);
-}
-
-.prize-list .prize-chips {
+.prize-list .prize-card h2 {
   margin: 0;
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
 }
 
-.prize-list .prize-chips li {
-  font-size: 0.95rem;
-}
-
-.prize-list .prize-image.small {
-  width: 3rem;
-  height: 3rem;
+.prize-positions {
+  margin: 0;
+  color: var(--gold);
+  font-weight: 700;
 }
 
 /* ---- 参加者の順位 ---- */

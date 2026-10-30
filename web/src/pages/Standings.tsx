@@ -1,8 +1,8 @@
-import { type ParticipantRankingResponse, prizesByPosition } from "@partally/shared";
+import { formatPositionLabel, type ParticipantRankingResponse, prizesForDisplay } from "@partally/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../api";
 import { useParticipant } from "../components/ParticipantLayout";
-import { PrizeChips } from "../components/PrizeChips";
+import { PrizeImage } from "../components/PrizeChips";
 import { RankingBars } from "../components/RankingBars";
 import { MAX_LINES, RankingChart } from "../components/RankingChart";
 import { usePrizes } from "../hooks/usePrizes";
@@ -54,21 +54,25 @@ export function Standings() {
   );
 }
 
-/** 何位で何がもらえるか。順位は上から何番目の人か（同点は先に登録した人を上にする） */
+/**
+ * 景品ごとに、画像・名前と何位の人に渡すかを見せる（順位ごとに並べるとランキングに見えるため）。
+ * 順位は上から何番目の人か（同点は先に登録した人を上にする）
+ */
 function PrizesView() {
   const { prizes, state } = usePrizes("/prizes");
   if (state === "hidden") return <p className="muted">今は公開されていません。</p>;
   if (state === "error") return <p className="error">景品を読み込めませんでした。下の「更新」を押してください。</p>;
   if (!prizes) return <p className="muted">読み込み中…</p>;
-  const byPosition = prizesByPosition(prizes);
-  if (byPosition.size === 0) return <p className="muted">まだ景品はありません。</p>;
+  const shown = prizesForDisplay(prizes);
+  if (shown.length === 0) return <p className="muted">まだ景品はありません。</p>;
   return (
     <>
       <ul className="prize-list">
-        {[...byPosition].map(([position, list]) => (
-          <li key={position} className="card">
-            <span className={`prize-position rank-${position}`}>{position} 位</span>
-            <PrizeChips prizes={list} />
+        {shown.map((p) => (
+          <li key={p.prizeId} className="card prize-card">
+            <PrizeImage prize={p} />
+            <h2>{p.name}</h2>
+            <p className="prize-positions">{formatPositionLabel(p.positions)}</p>
           </li>
         ))}
       </ul>
