@@ -2,6 +2,7 @@ import type { RankingResponse } from "@partally/shared";
 import { useState } from "react";
 import { PageTitle } from "../../components/PageTitle";
 import { RankingBars } from "../../components/RankingBars";
+import { usePrizes } from "../../hooks/usePrizes";
 import { useRanking } from "../../hooks/useRanking";
 import { RankingRace } from "./RankingRace";
 
@@ -13,6 +14,8 @@ export function AdminRanking() {
   const { data, error } = useRanking();
   /** 再生中のデータ。押した時点のものを使い、途中で「更新」しても再生を止めない */
   const [race, setRace] = useState<RankingResponse>();
+  // 各行にその順位の景品を添える。読めなくてもランキングは出す
+  const { prizes } = usePrizes("/admin/prizes");
 
   return (
     <section className="ranking">
@@ -26,7 +29,7 @@ export function AdminRanking() {
       {error && <p className="error">{error}</p>}
       {data && data.ranking.length === 0 && <p className="muted">まだ参加者がいません。</p>}
       {race && <RankingRace data={race} onClose={() => setRace(undefined)} />}
-      {!race && data && data.ranking.length > 0 && <RankingBars ranking={data.ranking} showStatus />}
+      {!race && data && data.ranking.length > 0 && <RankingBars ranking={data.ranking} showStatus prizes={prizes} />}
     </section>
   );
 }

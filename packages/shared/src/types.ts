@@ -149,6 +149,8 @@ export interface Settings {
   trendHideNames: boolean;
   /** 参加者のトレンドでポイントを伏せるか */
   trendHidePoints: boolean;
+  /** 参加者に景品（何位で何がもらえるか）を見せるか */
+  prizesVisible: boolean;
 }
 
 /** 参加者に見せるポイントのルール（設定のうち公開してよい部分） */
@@ -256,4 +258,31 @@ export interface RankingResponse {
 export interface ParticipantRankingResponse extends RankingResponse {
   hideNames: boolean;
   hidePoints: boolean;
+}
+
+/** 景品。positions は渡す順位（上から何番目の人か。同点は先に登録した人を上にする）を小さい順に並べたもの */
+export interface PrizeDto {
+  prizeId: string;
+  name: string;
+  quantity: number;
+  positions: number[];
+  /** 画像の ID。更新で同じ画像のままにするときはこれを送る */
+  imageId?: string;
+  /** 画像の URL（同一オリジンの署名付きパス）。画像が無ければ無い */
+  imageUrl?: string;
+  createdAt: string;
+}
+
+export interface PrizesResponse {
+  prizes: PrizeDto[];
+}
+
+export interface PrizeResponse {
+  prize: PrizeDto;
+}
+
+/** 景品の画像を 1 枚アップロードするための署名付き POST。保存するときに imageId を景品に付ける */
+export interface PrizeImageUploadResponse {
+  imageId: string;
+  upload: PresignedPost;
 }

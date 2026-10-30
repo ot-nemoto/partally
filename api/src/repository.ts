@@ -72,6 +72,17 @@ export interface QuizAnswerRecord {
   answeredAt: string;
 }
 
+export interface PrizeRecord {
+  prizeId: string;
+  name: string;
+  quantity: number;
+  /** 渡す順位（小さい順） */
+  positions: number[];
+  imageId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Page<T> {
   items: T[];
   /** 続きがある場合の位置。次の呼び出しにそのまま渡す */
@@ -94,6 +105,7 @@ export const DEFAULT_SETTINGS: Settings = {
   trendVisible: false,
   trendHideNames: false,
   trendHidePoints: false,
+  prizesVisible: false,
 };
 
 export interface UserChanges {
@@ -281,6 +293,24 @@ export interface Repository {
   getQuizAnswer(userId: string, quizId: string): Promise<QuizAnswerRecord | undefined>;
   listQuizAnswersByUser(userId: string): Promise<QuizAnswerRecord[]>;
   listQuizAnswersByQuiz(quizId: string): Promise<QuizAnswerRecord[]>;
+
+  // ---- 景品 ----
+
+  createPrize(prize: PrizeRecord): Promise<void>;
+  getPrize(prizeId: string): Promise<PrizeRecord | undefined>;
+  /** 作成順（古い順）で返す */
+  listPrizes(): Promise<PrizeRecord[]>;
+  /**
+   * 名前・数量・順位・画像を差し替える。
+   * @throws NotFoundError
+   */
+  updatePrize(
+    prizeId: string,
+    changes: Pick<PrizeRecord, "name" | "quantity" | "positions" | "imageId">,
+    updatedAt: string,
+  ): Promise<PrizeRecord>;
+  /** @throws NotFoundError */
+  deletePrize(prizeId: string): Promise<void>;
 
   // ---- 設定 ----
 

@@ -148,7 +148,9 @@ export function ParticipantLayout() {
         <NavLink to="/gallery">みんなの写真</NavLink>
         <NavLink to="/mine">自分の写真</NavLink>
         {/* ランキング・推移は管理画面で見せる設定にしたときだけ出す */}
-        {(state.rules.rankingVisible || state.rules.trendVisible) && <NavLink to="/standings">順位</NavLink>}
+        {(state.rules.rankingVisible || state.rules.trendVisible || state.rules.prizesVisible) && (
+          <NavLink to="/standings">順位</NavLink>
+        )}
         <button type="button" className="tabbar-reload" onClick={reload} disabled={reloading}>
           {reloading ? "更新中…" : "↻ 更新"}
         </button>

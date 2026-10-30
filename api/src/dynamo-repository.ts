@@ -25,6 +25,7 @@ import {
   type Page,
   type PhotoRecord,
   type PhotoRecordStatus,
+  type PrizeRecord,
   QuizAlreadyOpenError,
   type QuizAnswerRecord,
   type QuizRecord,
@@ -46,6 +47,7 @@ export const keys = {
   quizAnswer: (userId: string, quizId: string) => ({ PK: `USER#${userId}`, SK: `ANSWER#${quizId}` }),
   /** 出題中のクイズ。同時に 1 問だけにするため、このアイテムの有無で排他する */
   openQuiz: { PK: "QUIZ_STATE", SK: "OPEN" },
+  prize: (prizeId: string) => ({ PK: `PRIZE#${prizeId}`, SK: "META" }),
   settings: { PK: "SETTINGS", SK: "GLOBAL" },
   tokenLabelCounter: { PK: "COUNTER", SK: "TOKEN_LABEL" },
 };
@@ -717,6 +719,77 @@ export class DynamoRepository implements Repository {
     }
   }
 
+  async createPrize(prize: PrizeRecord) {
+    await this.client.send(
+      new PutCommand({
+        TableName: this.tableName,
+        Item: prizeItem(prize),
+        ConditionExpression: "attribute_not_exists(PK)",
+      }),
+    );
+  }
+
+  async getPrize(prizeId: string) {
+    const { Item } = await this.client.send(
+      new GetCommand({ TableName: this.tableName, Key: keys.prize(prizeId), ConsistentRead: true }),
+    );
+    return Item ? toPrizeRecord(Item) : undefined;
+  }
+
+  async listPrizes() {
+    return (await this.queryGsi1("PRIZES")).map(toPrizeRecord);
+  }
+
+  async updatePrize(
+    prizeId: string,
+    changes: Pick<PrizeRecord, "name" | "quantity" | "positions" | "imageId">,
+    updatedAt: string,
+  ) {
+    const set = ["#name = :name", "quantity = :quantity", "positions = :positions", "updatedAt = :updatedAt"];
+    const values: Record<string, unknown> = {
+      ":name": changes.name,
+      ":quantity": changes.quantity,
+      ":positions": changes.positions,
+      ":updatedAt": updatedAt,
+    };
+    if (changes.imageId !== undefined) {
+      set.push("imageId = :imageId");
+      values[":imageId"] = changes.imageId;
+    }
+    try {
+      const { Attributes } = await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: keys.prize(prizeId),
+          UpdateExpression: `SET ${set.join(", ")}${changes.imageId === undefined ? " REMOVE imageId" : ""}`,
+          ConditionExpression: "attribute_exists(PK)",
+          ExpressionAttributeNames: { "#name": "name" },
+          ExpressionAttributeValues: values,
+          ReturnValues: "ALL_NEW",
+        }),
+      );
+      return toPrizeRecord(Attributes!);
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) throw new NotFoundError();
+      throw e;
+    }
+  }
+
+  async deletePrize(prizeId: string) {
+    try {
+      await this.client.send(
+        new DeleteCommand({
+          TableName: this.tableName,
+          Key: keys.prize(prizeId),
+          ConditionExpression: "attribute_exists(PK)",
+        }),
+      );
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) throw new NotFoundError();
+      throw e;
+    }
+  }
+
   async getSettings(): Promise<Settings> {
     const { Item } = await this.client.send(new GetCommand({ TableName: this.tableName, Key: keys.settings }));
     const stored = Object.fromEntries(
@@ -872,6 +945,22 @@ function toQuizRecord(item: Record<string, unknown>): QuizRecord {
     updatedAt: item.updatedAt as string,
     openedAt: item.openedAt as string | undefined,
     closedAt: item.closedAt as string | undefined,
+  };
+}
+
+function prizeItem(prize: PrizeRecord) {
+  return { ...keys.prize(prize.prizeId), GSI1PK: "PRIZES", GSI1SK: `${prize.createdAt}#${prize.prizeId}`, ...prize };
+}
+
+function toPrizeRecord(item: Record<string, unknown>): PrizeRecord {
+  return {
+    prizeId: item.prizeId as string,
+    name: item.name as string,
+    quantity: Number(item.quantity ?? 0),
+    positions: ((item.positions ?? []) as unknown[]).map(Number),
+    imageId: item.imageId as string | undefined,
+    createdAt: item.createdAt as string,
+    updatedAt: item.updatedAt as string,
   };
 }
 

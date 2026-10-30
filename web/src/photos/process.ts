@@ -20,6 +20,16 @@ export async function processPhoto(file: File): Promise<ProcessedPhoto> {
   }
 }
 
+/** 画像を 1 枚だけ縮小して JPEG にする（景品の画像など） */
+export async function processImage(file: File, maxEdge: number, quality = 0.85): Promise<Blob> {
+  const bitmap = await decode(file);
+  try {
+    return await toJpeg(bitmap, maxEdge, quality);
+  } finally {
+    bitmap.close();
+  }
+}
+
 async function decode(file: File): Promise<ImageBitmap> {
   try {
     // 向き（EXIF Orientation）を反映してデコードする。Safari は HEIC もここで読める

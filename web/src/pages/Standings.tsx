@@ -1,21 +1,25 @@
-import type { ParticipantRankingResponse } from "@partally/shared";
+import { type ParticipantRankingResponse, prizesByPosition } from "@partally/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../api";
 import { useParticipant } from "../components/ParticipantLayout";
+import { PrizeChips } from "../components/PrizeChips";
 import { RankingBars } from "../components/RankingBars";
 import { MAX_LINES, RankingChart } from "../components/RankingChart";
+import { usePrizes } from "../hooks/usePrizes";
 import { useOnReload } from "../hooks/useReload";
 
-type View = "ranking" | "trend";
+type View = "ranking" | "trend" | "prizes";
+
+const VIEW_LABEL: Record<View, string> = { ranking: "ランキング", trend: "ポイントの推移", prizes: "景品" };
 
 /**
- * 参加者のランキング・ポイントの推移。どちらを見せるか、名前・ポイントを伏せるかは管理画面の設定に従う
- * （伏せる分は API から返らない）。両方見せるときは切り替えて表示する
+ * 参加者のランキング・ポイントの推移・景品。どれを見せるか、名前・ポイントを伏せるかは管理画面の設定に従う
+ * （伏せる分は API から返らない）。複数見せるときは切り替えて表示する
  */
 export function Standings() {
   const { rules } = useParticipant();
-  const views = (["ranking", "trend"] as const).filter((v) =>
-    v === "ranking" ? rules.rankingVisible : rules.trendVisible,
+  const views = (["ranking", "trend", "prizes"] as const).filter((v) =>
+    v === "ranking" ? rules.rankingVisible : v === "trend" ? rules.trendVisible : rules.prizesVisible,
   );
   const [selected, setSelected] = useState<View>();
   const view = selected && views.includes(selected) ? selected : views[0];
@@ -34,17 +38,47 @@ export function Standings() {
               className={view === v ? "active" : undefined}
               onClick={() => setSelected(v)}
             >
-              {v === "ranking" ? "ランキング" : "ポイントの推移"}
+              {VIEW_LABEL[v]}
             </button>
           ))}
         </div>
       )}
-      {view ? <StandingsView key={view} view={view} /> : <p className="muted">今は公開されていません。</p>}
+      {view === "prizes" ? (
+        <PrizesView />
+      ) : view ? (
+        <StandingsView key={view} view={view} withPrizes={rules.prizesVisible} />
+      ) : (
+        <p className="muted">今は公開されていません。</p>
+      )}
     </section>
   );
 }
 
-function StandingsView({ view }: { view: View }) {
+/** 何位で何がもらえるか。順位は上から何番目の人か（同点は先に登録した人を上にする） */
+function PrizesView() {
+  const { prizes, state } = usePrizes("/prizes");
+  if (state === "hidden") return <p className="muted">今は公開されていません。</p>;
+  if (state === "error") return <p className="error">景品を読み込めませんでした。下の「更新」を押してください。</p>;
+  if (!prizes) return <p className="muted">読み込み中…</p>;
+  const byPosition = prizesByPosition(prizes);
+  if (byPosition.size === 0) return <p className="muted">まだ景品はありません。</p>;
+  return (
+    <>
+      <ul className="prize-list">
+        {[...byPosition].map(([position, list]) => (
+          <li key={position} className="card">
+            <span className={`prize-position rank-${position}`}>{position} 位</span>
+            <PrizeChips prizes={list} />
+          </li>
+        ))}
+      </ul>
+      <p className="muted small">同じポイントの人は、先に登録した人を上として数えます。</p>
+    </>
+  );
+}
+
+function StandingsView({ view, withPrizes }: { view: Exclude<View, "prizes">; withPrizes: boolean }) {
+  const { prizes } = usePrizes("/prizes", withPrizes && view === "ranking");
   const [data, setData] = useState<ParticipantRankingResponse>();
   const [error, setError] = useState<string>();
   const [hidden, setHidden] = useState(false);
@@ -85,7 +119,7 @@ function StandingsView({ view }: { view: View }) {
   return (
     <>
       {view === "ranking" ? (
-        <RankingBars ranking={data.ranking} hidePoints={data.hidePoints} />
+        <RankingBars ranking={data.ranking} hidePoints={data.hidePoints} prizes={prizes} />
       ) : (
         <div className="card ranking-chart">
           <h2>累計ポイントの推移</h2>
