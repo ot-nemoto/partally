@@ -1,5 +1,5 @@
 import type { PresignedPost } from "@partally/shared";
-import { type PhotoArea, type PhotoKind, type PhotoStorage, photoKey } from "./photo-storage.js";
+import { type PhotoArea, type PhotoKind, type PhotoStorage, photoKey, prizeImageKey } from "./photo-storage.js";
 
 interface StoredObject {
   data: Uint8Array<ArrayBuffer>;
@@ -12,6 +12,8 @@ const KINDS: PhotoKind[] = ["full", "thumb"];
 export class MemoryPhotoStorage implements PhotoStorage {
   readonly objects = new Map<string, StoredObject>();
   readonly invalidated: string[] = [];
+  /** 消した（CloudFront のキャッシュも無効化した）景品の画像 */
+  readonly removedPrizeImages: string[] = [];
 
   /** @param uploadUrl 署名付き POST の代わりに使うアップロード先（ローカル開発サーバのエンドポイント） */
   constructor(private readonly uploadUrl = "/__dev/upload") {}
@@ -54,5 +56,22 @@ export class MemoryPhotoStorage implements PhotoStorage {
 
   async invalidate(photoId: string) {
     this.invalidated.push(photoId);
+  }
+
+  async createPrizeImageUpload(imageId: string): Promise<PresignedPost> {
+    return { url: this.uploadUrl, fields: { key: prizeImageKey(imageId, "uploads"), "Content-Type": "image/jpeg" } };
+  }
+
+  async attachPrizeImage(imageId: string) {
+    const obj = this.objects.get(prizeImageKey(imageId, "uploads"));
+    if (!obj) return false;
+    this.objects.set(prizeImageKey(imageId), obj);
+    this.objects.delete(prizeImageKey(imageId, "uploads"));
+    return true;
+  }
+
+  async removePrizeImage(imageId: string) {
+    this.objects.delete(prizeImageKey(imageId));
+    this.removedPrizeImages.push(imageId);
   }
 }

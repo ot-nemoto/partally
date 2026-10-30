@@ -1,7 +1,12 @@
 import { CloudFrontClient, CreateInvalidationCommand } from "@aws-sdk/client-cloudfront";
 import { CopyObjectCommand, DeleteObjectsCommand, HeadObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
-import { PHOTO_FULL_MAX_BYTES, PHOTO_THUMB_MAX_BYTES, type PresignedPost } from "@partally/shared";
+import {
+  PHOTO_FULL_MAX_BYTES,
+  PHOTO_THUMB_MAX_BYTES,
+  PRIZE_IMAGE_MAX_BYTES,
+  type PresignedPost,
+} from "@partally/shared";
 
 /**
  * - uploads: 参加者が署名付き POST で書き込む受け口。配信しない。取り込み後に消し、残りもライフサイクルで消える
@@ -16,6 +21,11 @@ const MAX_BYTES: Record<PhotoKind, number> = { full: PHOTO_FULL_MAX_BYTES, thumb
 export const UPLOAD_EXPIRES_SECONDS = 300;
 /** 公開済み写真のブラウザ・CloudFront キャッシュ時間。削除後もこの時間はブラウザに残り得る */
 const APPROVED_CACHE_CONTROL = "max-age=3600";
+/**
+ * 景品の画像は、ブラウザには使うたびに CloudFront へ確かめさせ（変わっていなければ 304 で中身は送らない）、
+ * CloudFront には 1 日置く。消すときは CloudFront の分を無効化するので、削除・差し替えのすぐ後から見えなくなる
+ */
+const PRIZE_CACHE_CONTROL = "max-age=0, must-revalidate, s-maxage=86400";
 
 /** S3 のキー。配信する領域は CloudFront のパス（/photos/...）と一致させ、パスの書き換えを不要にする */
 export function photoKey(area: PhotoArea, photoId: string, kind: PhotoKind): string {
@@ -32,6 +42,19 @@ export function parsePhotoKey(key: string): { area: PhotoArea; photoId: string; 
   return { area: (m[1] ?? m[2]) as PhotoArea, photoId: m[3]!, kind: m[4] as PhotoKind };
 }
 
+/**
+ * 景品の画像のキー。管理者は署名付き POST で受け口（uploads/prizes/）に置き、景品を保存したときに
+ * サーバが配信する領域（prizes/）へ移す。景品に付けなかった画像は受け口のライフサイクルで 1 日後に消える。
+ * 配信は CloudFront の /prizes/* から署名付き URL で行う
+ */
+export function prizeImageKey(imageId: string, area: "uploads" | "prizes" = "prizes"): string {
+  return area === "uploads" ? `uploads/prizes/${imageId}.jpg` : `prizes/${imageId}.jpg`;
+}
+
+export function prizeImagePath(imageId: string): string {
+  return `/${prizeImageKey(imageId)}`;
+}
+
 export interface PhotoStorage {
   /** 本体・サムネイルを uploads 領域へ直接アップロードするための署名付き POST を発行する */
   createUploads(photoId: string, uploaderId: string): Promise<Record<PhotoKind, PresignedPost>>;
@@ -42,6 +65,15 @@ export interface PhotoStorage {
   remove(photoId: string, area: PhotoArea): Promise<void>;
   /** CDN に残っている公開済み写真のキャッシュを消す */
   invalidate(photoId: string): Promise<void>;
+
+  /** 景品の画像を受け口へ直接アップロードするための署名付き POST を発行する */
+  createPrizeImageUpload(imageId: string): Promise<PresignedPost>;
+  /**
+   * 受け口の景品の画像を配信する領域へ移す。受け口に無ければ（アップロードしていない・別の景品で使った）false。
+   * 移した後は受け口から消すので、同じ画像を 2 つの景品に付けることはできない
+   */
+  attachPrizeImage(imageId: string): Promise<boolean>;
+  removePrizeImage(imageId: string): Promise<void>;
 }
 
 export class S3PhotoStorage implements PhotoStorage {
@@ -104,6 +136,58 @@ export class S3PhotoStorage implements PhotoStorage {
       new DeleteObjectsCommand({
         Bucket: this.bucket,
         Delete: { Objects: KINDS.map((kind) => ({ Key: photoKey(area, photoId, kind) })), Quiet: true },
+      }),
+    );
+  }
+
+  async createPrizeImageUpload(imageId: string) {
+    const { url, fields } = await createPresignedPost(this.s3, {
+      Bucket: this.bucket,
+      Key: prizeImageKey(imageId, "uploads"),
+      Fields: { "Content-Type": "image/jpeg" },
+      Conditions: [
+        ["content-length-range", 1, PRIZE_IMAGE_MAX_BYTES],
+        ["eq", "$Content-Type", "image/jpeg"],
+      ],
+      Expires: UPLOAD_EXPIRES_SECONDS,
+    });
+    return { url, fields };
+  }
+
+  async attachPrizeImage(imageId: string) {
+    const from = prizeImageKey(imageId, "uploads");
+    if ((await this.getUploader(from)) === undefined) return false;
+    await this.s3.send(
+      new CopyObjectCommand({
+        Bucket: this.bucket,
+        CopySource: `${this.bucket}/${from}`,
+        Key: prizeImageKey(imageId),
+        MetadataDirective: "REPLACE",
+        ContentType: "image/jpeg",
+        CacheControl: PRIZE_CACHE_CONTROL,
+      }),
+    );
+    await this.s3.send(
+      new DeleteObjectsCommand({ Bucket: this.bucket, Delete: { Objects: [{ Key: from }], Quiet: true } }),
+    );
+    return true;
+  }
+
+  async removePrizeImage(imageId: string) {
+    await this.s3.send(
+      new DeleteObjectsCommand({
+        Bucket: this.bucket,
+        Delete: { Objects: [{ Key: prizeImageKey(imageId) }], Quiet: true },
+      }),
+    );
+    // CloudFront に残っている分も消す（ブラウザは使うたびに CloudFront へ確かめるので、ここで見えなくなる）
+    await this.cloudfront.send(
+      new CreateInvalidationCommand({
+        DistributionId: this.distributionId,
+        InvalidationBatch: {
+          CallerReference: `prize-${imageId}-${Date.now()}`,
+          Paths: { Quantity: 1, Items: [prizeImagePath(imageId)] },
+        },
       }),
     );
   }

@@ -1,3 +1,5 @@
+import type { TIE_BREAK_KEYS } from "./schemas.js";
+
 export type UserStatus = "active" | "unbound";
 export type TokenStatus = "unbound" | "bound";
 
@@ -129,8 +131,10 @@ export interface Settings {
   favoritesEnabled: boolean;
   /** 1 人が選べるお気に入りの数 */
   favoriteLimit: number;
-  /** お気に入りに 1 件選ばれたときのポイント */
+  /** お気に入りに 1 件選ばれたときのポイント（選ばれた人に入る） */
   favoritePoints: number;
+  /** お気に入りを 1 枚選んだときのポイント（選んだ人に入る） */
+  favoriteGivenPoints: number;
   /** 参加者のホーム画面にポイントを表示するか（発表まで伏せておきたいときに切る） */
   showPoints: boolean;
   /** 参加者のホーム画面にクイズの点数を表示するか */
@@ -147,7 +151,17 @@ export interface Settings {
   trendHideNames: boolean;
   /** 参加者のトレンドでポイントを伏せるか */
   trendHidePoints: boolean;
+  /** 参加者に景品（何位で何がもらえるか）を見せるか */
+  prizesVisible: boolean;
+  /**
+   * 合計が同じ人の順位の決め方。先頭の項目のポイントが多い人を上にし、同じなら次の項目で比べる。
+   * すべて同じなら同じ順位（並びは先に登録した人を上にする）
+   */
+  tieBreakOrder: TieBreakKey[];
 }
+
+/** 同じポイントのときに比べる項目（一覧は TIE_BREAK_KEYS） */
+export type TieBreakKey = (typeof TIE_BREAK_KEYS)[number];
 
 /** 参加者に見せるポイントのルール（設定のうち公開してよい部分） */
 export type Rules = Omit<Settings, "moderation">;
@@ -254,4 +268,31 @@ export interface RankingResponse {
 export interface ParticipantRankingResponse extends RankingResponse {
   hideNames: boolean;
   hidePoints: boolean;
+}
+
+/** 景品。positions は渡す順位（上から何番目の人か。同点は先に登録した人を上にする）を小さい順に並べたもの */
+export interface PrizeDto {
+  prizeId: string;
+  name: string;
+  quantity: number;
+  positions: number[];
+  /** 画像の ID。更新で同じ画像のままにするときはこれを送る */
+  imageId?: string;
+  /** 画像の URL（同一オリジンの署名付きパス）。画像が無ければ無い */
+  imageUrl?: string;
+  createdAt: string;
+}
+
+export interface PrizesResponse {
+  prizes: PrizeDto[];
+}
+
+export interface PrizeResponse {
+  prize: PrizeDto;
+}
+
+/** 景品の画像を 1 枚アップロードするための署名付き POST。保存するときに imageId を景品に付ける */
+export interface PrizeImageUploadResponse {
+  imageId: string;
+  upload: PresignedPost;
 }

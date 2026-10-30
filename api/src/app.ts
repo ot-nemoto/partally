@@ -8,7 +8,9 @@ import {
   type ParticipantRankingResponse,
   type PhotoDto,
   type PhotoStatus,
+  type PrizeDto,
   photoStatusSchema,
+  prizeRequestSchema,
   type QuizDto,
   qrLoginRequestSchema,
   quizAnswerRequestSchema,
@@ -21,6 +23,7 @@ import {
   randomEpithet,
   registerRequestSchema,
   type Settings,
+  type TieBreakKey,
   type TokenDto,
   type UserDto,
   updateSettingsRequestSchema,
@@ -31,7 +34,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { ulid } from "ulid";
 import type { z } from "zod";
-import { type PhotoStorage, photoPath } from "./photo-storage.js";
+import { type PhotoStorage, photoPath, prizeImagePath } from "./photo-storage.js";
 import {
   EpithetTakenError,
   FavoriteLimitError,
@@ -39,6 +42,7 @@ import {
   InvalidStateError,
   NotFoundError,
   type PhotoRecord,
+  type PrizeRecord,
   QuizAlreadyOpenError,
   type QuizAnswerRecord,
   type QuizChoice,
@@ -181,6 +185,25 @@ export function createApp(deps: AppDeps) {
         : signer.signPath(photoPath(area, photo.photoId, kind), expiresAt);
     return { ...dto, thumbUrl: url("thumb"), fullUrl: url("full") };
   };
+
+  /**
+   * 景品の画像は管理画面でも参加者の画面でも署名付き URL で渡す。期限を 1 時間ごとの区切りにそろえ、
+   * 同じ時間帯は同じ URL にして、ブラウザが持っている画像を確かめるだけで使えるようにする（期限までは 1〜2 時間残る）
+   */
+  const toPrizeDto = (prize: PrizeRecord): PrizeDto => ({
+    prizeId: prize.prizeId,
+    name: prize.name,
+    quantity: prize.quantity,
+    positions: prize.positions,
+    imageId: prize.imageId,
+    imageUrl: prize.imageId
+      ? signer.signPath(
+          prizeImagePath(prize.imageId),
+          new Date((Math.floor(now().getTime() / SIGNED_URL_TTL_MS) + 2) * SIGNED_URL_TTL_MS),
+        )
+      : undefined,
+    createdAt: prize.createdAt,
+  });
 
   /** 一覧に出てくるアップロード者だけを取得する */
   const uploadersOf = async (photos: PhotoRecord[]) =>
@@ -331,6 +354,13 @@ export function createApp(deps: AppDeps) {
     const settings = await repo.getSettings();
     if (!settings.trendVisible) return fail(c, 404, "not_found");
     return c.json(toParticipantRanking(await loadRanking(settings), settings.trendHideNames, settings.trendHidePoints));
+  });
+
+  // 参加者に見せる景品。見せない設定のときは無いものとして扱う
+  app.get("/prizes", requireUser, async (c) => {
+    const settings = await repo.getSettings();
+    if (!settings.prizesVisible) return fail(c, 404, "not_found");
+    return c.json({ prizes: (await repo.listPrizes()).map(toPrizeDto) });
   });
 
   app.get("/me", requireUser, async (c) => {
@@ -688,6 +718,95 @@ export function createApp(deps: AppDeps) {
     }
   });
 
+  app.get("/admin/prizes", async (c) => c.json({ prizes: (await repo.listPrizes()).map(toPrizeDto) }));
+
+  app.post("/admin/prizes/image-upload", async (c) => {
+    const imageId = newId();
+    return c.json({ imageId, upload: await storage.createPrizeImageUpload(imageId) });
+  });
+
+  /** 新しく付ける画像を受け口から配信する領域へ移す。受け口に無ければ 400 のレスポンスを返す */
+  const attachPrizeImage = async (c: Context, imageId: string | undefined, current?: string) => {
+    if (imageId === undefined || imageId === current) return undefined;
+    if (await storage.attachPrizeImage(imageId)) return undefined;
+    return fail(c, 400, "bad_request", "画像がアップロードされていないか、別の景品で使われています");
+  };
+
+  /** 使わなくなった画像を消す。景品は保存できているので、消せなくても失敗にはしない（残った画像は Reset で消える） */
+  const removePrizeImage = async (imageId: string) => {
+    try {
+      await storage.removePrizeImage(imageId);
+    } catch (e) {
+      console.error(`景品の画像 ${imageId} の削除か、CloudFront のキャッシュの無効化に失敗しました`, e);
+    }
+  };
+
+  app.post("/admin/prizes", async (c) => {
+    const body = await parseBody(c, prizeRequestSchema);
+    if (!body.ok) return body.response;
+    const invalid = await attachPrizeImage(c, body.data.imageId);
+    if (invalid) return invalid;
+    const timestamp = now().toISOString();
+    const prize: PrizeRecord = {
+      prizeId: newId(),
+      name: body.data.name,
+      quantity: body.data.quantity,
+      positions: [...body.data.positions].sort((a, b) => a - b),
+      imageId: body.data.imageId,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    try {
+      await repo.createPrize(prize);
+    } catch (e) {
+      if (prize.imageId) await removePrizeImage(prize.imageId);
+      throw e;
+    }
+    return c.json({ prize: toPrizeDto(prize) }, 201);
+  });
+
+  app.put("/admin/prizes/:prizeId", async (c) => {
+    const body = await parseBody(c, prizeRequestSchema);
+    if (!body.ok) return body.response;
+    const prize = await repo.getPrize(c.req.param("prizeId"));
+    if (!prize) return fail(c, 404, "not_found");
+    const invalid = await attachPrizeImage(c, body.data.imageId, prize.imageId);
+    if (invalid) return invalid;
+    try {
+      const updated = await repo.updatePrize(
+        prize.prizeId,
+        {
+          name: body.data.name,
+          quantity: body.data.quantity,
+          positions: [...body.data.positions].sort((a, b) => a - b),
+          imageId: body.data.imageId,
+        },
+        now().toISOString(),
+      );
+      // 差し替えた・外した画像は、保存できてから消す
+      if (prize.imageId && prize.imageId !== updated.imageId) await removePrizeImage(prize.imageId);
+      return c.json({ prize: toPrizeDto(updated) });
+    } catch (e) {
+      // 保存できなかったら、新しく移した画像を消す
+      if (body.data.imageId && body.data.imageId !== prize.imageId) await removePrizeImage(body.data.imageId);
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      throw e;
+    }
+  });
+
+  app.delete("/admin/prizes/:prizeId", async (c) => {
+    const prize = await repo.getPrize(c.req.param("prizeId"));
+    if (!prize) return fail(c, 404, "not_found");
+    try {
+      await repo.deletePrize(prize.prizeId);
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      throw e;
+    }
+    if (prize.imageId) await removePrizeImage(prize.imageId);
+    return c.json({});
+  });
+
   app.get("/admin/settings", async (c) => c.json({ settings: await repo.getSettings() }));
 
   app.put("/admin/settings", async (c) => {
@@ -765,9 +884,23 @@ function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
   else map.set(key, [value]);
 }
 
+/** 項目ごとのポイント。同じポイントのときの順位の決め方（tieBreakOrder）でも使う */
+function pointsByKey(user: UserRecord, settings: Settings, quiz: QuizStats): Record<TieBreakKey, number> {
+  return {
+    upload: user.approvedCount * settings.uploadPoints,
+    favoriteGiven: user.favoritesGiven * settings.favoriteGivenPoints,
+    favoriteReceived: user.favoritesReceived * settings.favoritePoints,
+    quiz: quiz.points,
+  };
+}
+
 /** ポイントは保存せず、現在の設定で毎回計算する（設定を変えると全員に同じ基準で反映される） */
 export function calculatePoints(user: UserRecord, settings: Settings, quiz: QuizStats): number {
-  return user.approvedCount * settings.uploadPoints + user.favoritesReceived * settings.favoritePoints + quiz.points;
+  return sumPoints(pointsByKey(user, settings, quiz));
+}
+
+function sumPoints(byKey: Record<TieBreakKey, number>): number {
+  return byKey.upload + byKey.favoriteGiven + byKey.favoriteReceived + byKey.quiz;
 }
 
 export interface RankingSource {
@@ -783,7 +916,7 @@ export interface RankingSource {
 
 /**
  * ランキングと累計ポイントの推移を作る。ポイントは保存していないので、今残っているデータから
- * 時刻つきの出来事（写真の公開・お気に入りに選ばれた・クイズの締め切り）を組み立て、現在の設定で数える。
+ * 時刻つきの出来事（写真の公開・お気に入りに選ばれた・お気に入りを選んだ・クイズの締め切り）を組み立て、現在の設定で数える。
  * 削除した写真や外したお気に入りは含めないので、推移の最後はユーザ管理と同じポイントになる
  * （GSI の反映待ちでずれることがあるため、最後の点は calculatePoints の値にそろえる）
  */
@@ -799,7 +932,11 @@ export function buildRanking(source: RankingSource): RankingResponse {
   for (const photo of photos) add(photo.uploaderId, photo.reviewedAt ?? photo.createdAt, settings.uploadPoints);
   for (const favorite of favorites) {
     const photo = photosById.get(favorite.photoId);
-    if (photo) add(photo.uploaderId, favorite.createdAt, settings.favoritePoints);
+    // 公開中の写真へのお気に入りだけを、選ばれた人と選んだ人（選んだ時刻）の両方に数える
+    if (photo) {
+      add(photo.uploaderId, favorite.createdAt, settings.favoritePoints);
+      add(favorite.userId, favorite.createdAt, settings.favoriteGivenPoints);
+    }
   }
   // クイズの点数は締め切った時刻に入る（scoreQuizAnswers と同じ answerPoints で数える）
   for (const { quiz, answers } of quizzes) {
@@ -809,7 +946,8 @@ export function buildRanking(source: RankingSource): RankingResponse {
   const quizStats = quizStatsByUser(quizzes);
 
   const entries = users.map((user) => {
-    const points = calculatePoints(user, settings, quizStats.get(user.userId) ?? NO_QUIZ_STATS);
+    const byKey = pointsByKey(user, settings, quizStats.get(user.userId) ?? NO_QUIZ_STATS);
+    const points = sumPoints(byKey);
     const history: RankingPointDto[] = [{ at: user.createdAt, points: 0 }];
     let total = 0;
     for (const event of (events.get(user.userId) ?? []).sort((a, b) => a.at.localeCompare(b.at))) {
@@ -820,16 +958,26 @@ export function buildRanking(source: RankingSource): RankingResponse {
       else history.push({ at: event.at, points: total });
     }
     history.push({ at: now, points });
-    return { user, points, history };
+    return { user, points, byKey, history };
   });
 
-  // ポイントの高い順。同点は先に登録した人を上にする（順位は同じ）
-  entries.sort((a, b) => b.points - a.points || a.user.createdAt.localeCompare(b.user.createdAt));
+  // ポイントの高い順。同点は設定の優先順の項目のポイントが多い人を上にし、それも同じなら同じ順位にする
+  // （並びは先に登録した人を上にする）
+  const compareTie = (a: (typeof entries)[number], b: (typeof entries)[number]) => {
+    for (const key of settings.tieBreakOrder) {
+      const diff = b.byKey[key] - a.byKey[key];
+      if (diff !== 0) return diff;
+    }
+    return 0;
+  };
+  entries.sort((a, b) => b.points - a.points || compareTie(a, b) || a.user.createdAt.localeCompare(b.user.createdAt));
   const ranking: RankingEntryDto[] = [];
   entries.forEach((entry, i) => {
     const prev = ranking[i - 1];
+    const before = entries[i - 1];
+    const tied = prev && before && before.points === entry.points && compareTie(before, entry) === 0;
     ranking.push({
-      rank: prev && prev.points === entry.points ? prev.rank : i + 1,
+      rank: tied ? prev.rank : i + 1,
       userId: entry.user.userId,
       name: entry.user.name,
       epithet: entry.user.epithet,
@@ -877,7 +1025,7 @@ function toParticipantUserDto(user: UserRecord, settings: Settings, quiz: QuizSt
 export const HIDDEN_NAME = "???";
 
 /**
- * 参加者に返すランキング・推移。紐づけを解除した人は除き、順位を付け直す（同点は同じ順位）。
+ * 参加者に返すランキング・推移。紐づけを解除した人は除き、順位を付け直す（元の順位が同じ人は同じ順位）。
  * 名前を伏せるときは名前・称号・ユーザ ID を返さず（ID は順番の番号に置き換える）、
  * 登録した時刻から人が分からないよう、推移の始まり（登録時の 0）を全員そろえる。
  * ポイントを伏せるときは、最大値を 100 とした割合（小数第 1 位まで）に置き換える
@@ -902,7 +1050,8 @@ export function toParticipantRanking(
     const prev = result[i - 1];
     result.push({
       ...e,
-      rank: prev && entries[i - 1]?.points === e.points ? prev.rank : i + 1,
+      // 元の順位が同じ人（ポイントも優先順の項目もすべて同じ人）だけ同じ順位にする
+      rank: prev && entries[i - 1]?.rank === e.rank ? prev.rank : i + 1,
       ...(hideNames ? { userId: `r${i + 1}`, name: HIDDEN_NAME, epithet: HIDDEN_NAME, displayName: HIDDEN_NAME } : {}),
       points: scale(e.points),
       history: e.history.map((h, j) => ({ at: hideNames && j === 0 ? start : h.at, points: scale(h.points) })),

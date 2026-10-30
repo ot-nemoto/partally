@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { EPITHET_MAX_LENGTH } from "./epithet.js";
+import type { TieBreakKey } from "./types.js";
 
 export const NAME_MAX_LENGTH = 20;
 export const TOKEN_ISSUE_MAX = 200;
@@ -55,6 +56,17 @@ export const PHOTO_THUMB_MAX_EDGE = 400;
 export const photoStatusSchema = z.enum(["pending", "approved", "rejected"]);
 
 export const POINTS_MAX = 100;
+
+/** 同じポイントのときに比べる項目（既定の優先順に並べている） */
+export const TIE_BREAK_KEYS = ["upload", "favoriteGiven", "favoriteReceived", "quiz"] as const;
+
+/** 優先順の項目の名前（管理画面・参加者の画面の案内に出す） */
+export const TIE_BREAK_LABEL: Record<TieBreakKey, string> = {
+  upload: "写真のアップロード",
+  favoriteGiven: "お気に入りを選んだ",
+  favoriteReceived: "お気に入りに選ばれた",
+  quiz: "クイズ",
+};
 export const FAVORITE_LIMIT_MAX = 100;
 
 const points = z.number().int().min(0).max(POINTS_MAX);
@@ -65,7 +77,8 @@ export const updateSettingsRequestSchema = z.object({
   favoritesEnabled: z.boolean(),
   favoriteLimit: z.number().int().min(0).max(FAVORITE_LIMIT_MAX),
   favoritePoints: points,
-  // 後から追加した項目。古い画面から保存されても 400 にせず、今の値を残す
+  // 以下は後から追加した項目。古い画面から保存されても 400 にせず、今の値を残す
+  favoriteGivenPoints: points.optional(),
   showPoints: z.boolean().optional(),
   showQuizPoints: z.boolean().optional(),
   rankingVisible: z.boolean().optional(),
@@ -74,6 +87,13 @@ export const updateSettingsRequestSchema = z.object({
   trendVisible: z.boolean().optional(),
   trendHideNames: z.boolean().optional(),
   trendHidePoints: z.boolean().optional(),
+  prizesVisible: z.boolean().optional(),
+  tieBreakOrder: z
+    .array(z.enum(TIE_BREAK_KEYS))
+    .refine((v) => v.length === TIE_BREAK_KEYS.length && new Set(v).size === v.length, {
+      message: `優先順は ${TIE_BREAK_KEYS.length} つの項目をすべて 1 回ずつ並べてください`,
+    })
+    .optional(),
 });
 
 export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
@@ -116,4 +136,37 @@ export const quizAnswerRequestSchema = z.object({
 });
 
 export type QuizRequest = z.infer<typeof quizRequestSchema>;
+
+export const PRIZE_NAME_MAX_LENGTH = 50;
+export const PRIZE_QUANTITY_MAX = 100;
+/** 割り当てられる順位の上限（参加者は 80 名程度の想定） */
+export const PRIZE_POSITION_MAX = 1000;
+export const PRIZE_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+export const PRIZE_IMAGE_MAX_EDGE = 1200;
+
+/** サーバが発行する ID（ULID）。画像の ID など、クライアントから受け取るときに形だけ確かめる */
+const idSchema = z.string().regex(/^[0-9A-Za-z]{1,40}$/);
+
+/**
+ * 景品。positions は渡す順位（上から何番目の人か）で、1 つにつき 1 個を使うので数量まで。
+ * 同じ順位に同じ景品を重ねては割り当てない（別の景品なら同じ順位にいくつでも割り当てられる）
+ */
+export const prizeRequestSchema = z
+  .object({
+    name: normalized(PRIZE_NAME_MAX_LENGTH),
+    quantity: z.number().int().min(1).max(PRIZE_QUANTITY_MAX),
+    positions: z.array(z.number().int().min(1).max(PRIZE_POSITION_MAX)).max(PRIZE_QUANTITY_MAX),
+    /** 画像のアップロード URL を発行したときの ID。省くと画像なし */
+    imageId: idSchema.optional(),
+  })
+  .refine((v) => new Set(v.positions).size === v.positions.length, {
+    message: "同じ順位が重複しています",
+    path: ["positions"],
+  })
+  .refine((v) => v.positions.length <= v.quantity, {
+    message: "割り当てる順位の数が数量を超えています",
+    path: ["positions"],
+  });
+
+export type PrizeRequest = z.infer<typeof prizeRequestSchema>;
 export type QuizAnswerRequest = z.infer<typeof quizAnswerRequestSchema>;

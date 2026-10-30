@@ -33,7 +33,7 @@ const BATCH_WRITE_MAX = 25;
 const MAX_PASSES = 3;
 
 /**
- * 本番データをすべて消して、デプロイ直後の状態に戻す（参加者・QR・写真・お気に入り・クイズ・設定）。
+ * 本番データをすべて消して、デプロイ直後の状態に戻す（参加者・QR・写真・お気に入り・クイズ・景品・設定）。
  * SSM の鍵とインフラは残す。GitHub Actions の Reset ワークフローから呼ぶ
  */
 export async function resetAll(deps: ResetDeps, confirmation: unknown): Promise<ResetResult> {
@@ -55,7 +55,7 @@ export async function resetAll(deps: ResetDeps, confirmation: unknown): Promise<
         DistributionId: deps.distributionId,
         InvalidationBatch: {
           CallerReference: `reset-${Date.now()}`,
-          Paths: { Quantity: 1, Items: ["/photos/*"] },
+          Paths: { Quantity: 2, Items: ["/photos/*", "/prizes/*"] },
         },
       }),
     );

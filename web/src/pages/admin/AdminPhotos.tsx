@@ -76,25 +76,30 @@ export function AdminPhotos() {
 
   return (
     <section>
-      <PageTitle en="Photo" ja="写真の確認・管理" />
+      <PageTitle en="Photo" ja="写真の確認・管理">
+        <div className="tabs title-actions">
+          {TABS.map((t) => (
+            <button
+              key={t.status}
+              type="button"
+              className={t.status === status ? "active" : undefined}
+              onClick={() => {
+                // タブはスクロールしても画面の上に残るので、切り替えたら一覧の先頭から見せる
+                window.scrollTo({ top: 0 });
+                setStatus(t.status);
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </PageTitle>
       {moderation && (
         <p className="muted">
           現在の公開方法：{moderation === "pre" ? "管理者が承認してから公開" : "アップロードと同時に公開"}（
           <Link to="/admin/settings">変更</Link>）
         </p>
       )}
-      <div className="tabs">
-        {TABS.map((t) => (
-          <button
-            key={t.status}
-            type="button"
-            className={t.status === status ? "active" : undefined}
-            onClick={() => setStatus(t.status)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
       {error && <p className="error">{error}</p>}
       {photos?.length === 0 && <p className="muted">該当する写真はありません。</p>}
       <div className="admin-photo-grid">

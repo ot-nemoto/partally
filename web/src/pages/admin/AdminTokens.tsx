@@ -32,6 +32,8 @@ export function AdminTokens() {
       load();
     } catch (err) {
       setError(errorMessage(err));
+      // 発行はタイトルの行から下までスクロールした所でも押せるので、エラーが見えるよう画面の上へ戻す
+      window.scrollTo({ top: 0 });
     } finally {
       setIssuing(false);
     }
@@ -41,22 +43,23 @@ export function AdminTokens() {
 
   return (
     <section>
-      <PageTitle en="QR" ja="QR コード管理" />
-      <form className="inline-form" onSubmit={issue}>
-        <label>
-          発行数
-          <input type="number" min={1} max={200} value={count} onChange={(e) => setCount(Number(e.target.value))} />
-        </label>
-        <button type="submit" className="primary" disabled={issuing}>
-          発行
-        </button>
-        <Link to="/admin/tokens/print?filter=unbound" target="_blank" className="button">
-          未使用分を印刷
-        </Link>
-        <Link to="/admin/tokens/print" target="_blank" className="button">
-          全件を印刷
-        </Link>
-      </form>
+      <PageTitle en="QR" ja="QR コード管理">
+        <form className="inline-form title-actions" onSubmit={issue}>
+          <label>
+            発行数
+            <input type="number" min={1} max={200} value={count} onChange={(e) => setCount(Number(e.target.value))} />
+          </label>
+          <button type="submit" className="primary" disabled={issuing}>
+            発行
+          </button>
+          <Link to="/admin/tokens/print?filter=unbound" target="_blank" className="button">
+            未使用分を印刷
+          </Link>
+          <Link to="/admin/tokens/print" target="_blank" className="button">
+            全件を印刷
+          </Link>
+        </form>
+      </PageTitle>
       {error && <p className="error">{error}</p>}
       {tokens && (
         <p className="muted">
