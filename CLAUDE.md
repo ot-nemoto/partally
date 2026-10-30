@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-このリポジトリで作業するときのルール。資料の一覧は [docs/README.md](docs/README.md)。開発の手順（ローカル開発・テスト・コードの約束事）は [docs/development.md](docs/development.md)、仕組みは [docs/design.md](docs/design.md)、初期設定とデプロイは [docs/setup.md](docs/setup.md) を参照。
+このリポジトリで作業するときのルール。資料の一覧は [docs/README.md](docs/README.md)。開発の手順（ローカル開発・テスト・コードの約束事）は [docs/development.md](docs/development.md)、機能のルールは [docs/spec.md](docs/spec.md)、仕組みは [docs/design.md](docs/design.md)、初期設定とデプロイは [docs/setup.md](docs/setup.md) を参照。
 
 ## 作業の進め方
 
@@ -35,6 +35,7 @@
 
 | 変更したもの | 直す資料 |
 |---|---|
+| 機能のルール（ポイント・順位・公開設定など） | `docs/spec.md` |
 | 参加者の画面・使い方 | `README.md` |
 | 管理画面・幹事の操作 | `docs/organizer-guide.md` |
 | API・データ・設定の項目・画面の一覧 | `docs/design.md` |
