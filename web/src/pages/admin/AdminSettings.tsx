@@ -10,6 +10,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
 import { NumberField } from "../../components/NumberField";
 import { PageTitle } from "../../components/PageTitle";
+import { SortableList } from "../../components/SortableList";
 import { SwitchField } from "../../components/SwitchField";
 
 const MODERATION_OPTIONS: { value: ModerationMode; label: string; description: string }[] = [
@@ -68,16 +69,6 @@ export function AdminSettings() {
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
     setSettings((prev) => (prev ? { ...prev, [key]: value } : prev));
     setMessage(undefined);
-  }
-
-  /** 同じポイントのときの優先順で、i 番目の項目を上（-1）か下（+1）へ 1 つ動かす */
-  function moveTieBreak(i: number, step: -1 | 1) {
-    if (!settings) return;
-    const order = [...settings.tieBreakOrder];
-    const j = i + step;
-    if (j < 0 || j >= order.length) return;
-    [order[i], order[j]] = [order[j]!, order[i]!];
-    update("tieBreakOrder", order);
   }
 
   async function save(e: FormEvent) {
@@ -197,33 +188,14 @@ export function AdminSettings() {
           <div className="card settings">
             <h2>同じポイントのときの順位</h2>
             <p className="muted small">
-              合計が同じ人は、上の項目のポイントが多い人を上の順位にします。同じなら次の項目で比べ、すべて同じなら同じ順位です（並びは先に登録した人を上にします）。景品もこの順位で渡します。
+              合計が同じ人は、上の項目のポイントが多い人を上の順位にします（左の ⋮⋮ をドラッグするか ↑↓
+              で並べ替え）。同じなら次の項目で比べ、すべて同じなら同じ順位です（並びは先に登録した人を上にします）。景品もこの順位で渡します。
             </p>
-            <ol className="tie-break-order">
-              {settings.tieBreakOrder.map((key, i) => (
-                <li key={key}>
-                  <span className="tie-break-label">
-                    {i + 1}. {TIE_BREAK_LABEL[key]}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => moveTieBreak(i, -1)}
-                    disabled={i === 0}
-                    aria-label={`${TIE_BREAK_LABEL[key]}を上へ`}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => moveTieBreak(i, 1)}
-                    disabled={i === settings.tieBreakOrder.length - 1}
-                    aria-label={`${TIE_BREAK_LABEL[key]}を下へ`}
-                  >
-                    ↓
-                  </button>
-                </li>
-              ))}
-            </ol>
+            <SortableList
+              items={settings.tieBreakOrder}
+              label={(key) => TIE_BREAK_LABEL[key]}
+              onChange={(order) => update("tieBreakOrder", order)}
+            />
           </div>
 
           <div className="card settings">

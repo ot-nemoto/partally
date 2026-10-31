@@ -248,9 +248,9 @@ AWS CLI のプロファイルに別リージョンが設定されていると、
 1. `AdminUrl` を開き、管理者パスワードでログインする。
 2. 「QR」で数件発行し、「未使用分を印刷」を開く。
 3. 画面上の QR をスマホのカメラで読み込み、名前を登録する。
-4. 管理画面の「ユーザ」に二つ名付きで表示されることを確認する。
+4. 管理画面の「User」に二つ名付きで表示されることを確認する。
 
-QR にはそのページを開いたドメインの URL が入る。**本番の管理画面から印刷すること**（ローカル開発環境で印刷した QR は使えない）。
+QR にはそのページを開いたドメインの URL が入る。**本番の管理画面から印刷すること**（ローカル開発環境で印刷した QR は使えない）。イベントの準備から当日の進め方は [幹事向けガイド](organizer-guide.md) を参照。
 
 ### 予算アラートを有効にする
 
@@ -293,6 +293,48 @@ aws ce update-cost-allocation-tags-status --region us-east-1 \
 
 - `PARTALLY_BUDGET_USD` は **上限ではなく通知の目安**。実績がその 80% を超えるとメールが届くが、リソースの停止や課金の制限はしない。
 - この手順を CDK で自動化していないのは、請求データにタグが出る前は有効化できず、初回のデプロイでは必ず失敗するため（成功するのは後日の再デプロイになり、手作業で 1 回行うのと手間が変わらない）。また Organizations 配下では管理アカウントでしか実行できない。
+
+---
+
+## 環境変数
+
+### デプロイ時（`npm run deploy` を実行するシェルで設定）
+
+| 変数 | 必須 | 既定値 | 説明 |
+|---|---|---|---|
+| `PARTALLY_ADMIN_PASSWORD` | ○ | – | 管理画面のログインパスワード。Lambda の環境変数 `ADMIN_PASSWORD` として渡る。未設定だと synth/deploy がエラーで止まる |
+| `PARTALLY_BUDGET_EMAIL` | – | – | 設定すると AWS Budgets の月額予算を作成し、このアドレスにアラートメールを送る。未設定なら予算は作らない |
+| `PARTALLY_BUDGET_USD` | – | `5` | 月額予算の金額（USD）。実績がこの 80% を超えると通知する。`PARTALLY_BUDGET_EMAIL` 未設定時は無視される |
+| `AWS_PROFILE` / `AWS_REGION` など | – | – | 通常の AWS CLI の認証・リージョン設定。CDK はここからデプロイ先アカウント・リージョンを決める（`CDK_DEFAULT_ACCOUNT` / `CDK_DEFAULT_REGION` として CDK CLI が自動で設定する）。リージョンが取れない場合は `ap-northeast-1` |
+
+予算アラートは通知するだけで、リソースを止めたり課金を制限したりはしない。
+
+SSM パラメータ名は環境変数ではなく `infra/cdk.json` の context で指定する。
+
+| context | 既定値 | 説明 |
+|---|---|---|
+| `sessionSecretParam` | `/partally/session-secret` | セッション署名鍵（手順 2 で作成） |
+| `cloudfrontPrivateKeyParam` | `/partally/cloudfront-private-key` | CloudFront 署名用の秘密鍵（デプロイ時に自動作成） |
+
+### Lambda 実行時（CDK が自動で設定するため、手動での設定は不要）
+
+API の Lambda には次のすべてを、写真の取り込み・初期化の Lambda には `TABLE_NAME`・`PHOTO_BUCKET`・`DISTRIBUTION_ID`・`NODE_OPTIONS` だけを設定する。
+
+| 変数 | 説明 |
+|---|---|
+| `TABLE_NAME` | DynamoDB テーブル名 |
+| `ADMIN_PASSWORD` | 管理者パスワード（`PARTALLY_ADMIN_PASSWORD` の値） |
+| `SESSION_SECRET_PARAM` | セッション署名鍵の SSM パラメータ名。コールドスタート時に値を取得する |
+| `PHOTO_BUCKET` | 写真・景品の画像を置く S3 バケット名 |
+| `DISTRIBUTION_ID` | CloudFront ディストリビューション ID（キャッシュの無効化に使う） |
+| `CLOUDFRONT_PRIVATE_KEY_PARAM` / `CLOUDFRONT_KEY_PAIR_ID` | 写真・景品の画像の署名付き Cookie / URL を作る鍵（SSM パラメータ名と公開鍵 ID） |
+| `NODE_OPTIONS` | `--enable-source-maps`（エラーのスタックトレースを TypeScript の行番号で出す） |
+
+### 注意
+
+- 管理者パスワードは Lambda の環境変数（と CloudFormation テンプレート）に平文で入る。
+- 予算アラートは `Project=partally` タグで絞り込む。タグでの絞り込みには、請求コンソールで `Project` をコスト配分タグとして有効化しておく必要がある。
+- DynamoDB テーブルと写真バケットは誤削除防止のため、スタックを削除しても残る（`RETAIN`）。消し方は「[後片付け](#後片付け)」を参照。
 
 ---
 

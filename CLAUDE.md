@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-このリポジトリで作業するときのルール。設計は [docs/design.md](docs/design.md)、初期設定とデプロイは [docs/setup.md](docs/setup.md) を参照。
+このリポジトリで作業するときのルール。資料の一覧は [docs/README.md](docs/README.md)。開発の手順（ローカル開発・テスト・コードの約束事）は [docs/development.md](docs/development.md)、機能のルールは [docs/spec.md](docs/spec.md)、仕組みは [docs/design.md](docs/design.md)、初期設定とデプロイは [docs/setup.md](docs/setup.md) を参照。
 
 ## 作業の進め方
 
@@ -24,9 +24,25 @@
 - 公開リポジトリなので、Actions のログに出る値にも気をつける（秘密の値は Secret にする）。
 - テストを無効化・スキップして CI を通さない。
 
+## 確認すること
+
+- PR を出す前に、CI と同じ確認を手元で通す: `npx biome ci .`・`npm run typecheck`・`npm test`・`npm run build`。整形の自動修正は `npm run format`。
+- 画面に関わる変更は、ローカルで API と画面を起動してブラウザで動きを確かめる（起動方法は [docs/development.md](docs/development.md#ローカル開発)）。
+
+## 資料を更新すること
+
+変更に合わせて、関係する資料も同じ PR で直す。
+
+| 変更したもの | 直す資料 |
+|---|---|
+| 機能のルール（ポイント・順位・公開設定など） | `docs/spec.md` |
+| 参加者の画面・使い方 | `README.md` |
+| 管理画面・幹事の操作 | `docs/organizer-guide.md` |
+| API・データ・設定の項目・画面の一覧 | `docs/design.md` |
+| デプロイ・環境変数・AWS のリソース | `docs/setup.md` |
+| 開発の手順・コマンド・ワークフロー | `docs/development.md` |
+
 ## リポジトリの基本
 
 - 開発のメインブランチ（デフォルトブランチ）は `develop`。`master` はリリース済みの版を置く。
 - npm workspaces のモノレポ（`packages/shared`・`api`・`web`・`infra`）。Node.js 22 と npm 11 以上を使う。
-- PR を出す前に、CI（`.github/workflows/ci.yml`）と同じ確認を手元で通す: `npx biome ci .`・`npm run typecheck`・`npm test`・`npm run build`。整形の自動修正は `npm run format`。
-- 画面に関わる変更は、ローカルで API と画面を起動してブラウザで動きを確かめる（起動方法は README の「ローカル開発」）。
