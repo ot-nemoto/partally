@@ -158,6 +158,10 @@ export interface Settings {
    * すべて同じなら同じ順位（並びは先に登録した人を上にする）
    */
   tieBreakOrder: TieBreakKey[];
+  /** 参加者にスケジュールを見せるか */
+  scheduleVisible: boolean;
+  /** イベントの日付（YYYY-MM-DD）。空なら日付を決めない（参加者の「いま」「つぎ」は毎日の時刻で判定する） */
+  scheduleDate: string;
 }
 
 /** 同じポイントのときに比べる項目（一覧は TIE_BREAK_KEYS） */
@@ -295,4 +299,24 @@ export interface PrizeResponse {
 export interface PrizeImageUploadResponse {
   imageId: string;
   upload: PresignedPost;
+}
+
+/** スケジュールの項目。時刻は 0:00 からの分 */
+export interface ScheduleItemDto {
+  itemId: string;
+  title: string;
+  detail: string;
+  startMinute: number;
+  durationMinutes: number;
+}
+
+/** スケジュール（開始時刻の早い順）とイベントの日付 */
+export interface ScheduleResponse {
+  items: ScheduleItemDto[];
+  /** YYYY-MM-DD。空なら日付を決めていない */
+  date: string;
+}
+
+export interface ScheduleItemResponse {
+  item: ScheduleItemDto;
 }

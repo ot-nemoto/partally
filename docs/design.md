@@ -116,10 +116,11 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | クイズの回答 | `USER#<userId>` | `ANSWER#<quizId>` | `ANSWERS#<quizId>` | `<userId>` |
 | 出題中の印 | `QUIZ_STATE` | `OPEN` | – | – |
 | 景品 | `PRIZE#<prizeId>` | `META` | `PRIZES` | `<createdAt>#<prizeId>` |
+| スケジュールの項目 | `SCHEDULE#<itemId>` | `META` | `SCHEDULE` | `<createdAt>#<itemId>` |
 | 設定 | `SETTINGS` | `GLOBAL` | – | – |
 | 通し番号カウンタ | `COUNTER` | `TOKEN_LABEL` | – | – |
 
-- **GSI1**: 一覧取得用（トークン一覧・ユーザ一覧・状態別の写真一覧を時系列で、写真ごとのお気に入りした人の一覧、クイズ一覧、クイズごとの回答一覧、景品一覧）。
+- **GSI1**: 一覧取得用（トークン一覧・ユーザ一覧・状態別の写真一覧を時系列で、写真ごとのお気に入りした人の一覧、クイズ一覧、クイズごとの回答一覧、景品一覧、スケジュールの項目の一覧）。
 - **GSI2**: ユーザ別の写真一覧。写真のみ `GSI2PK = USER#<uploaderId>`, `GSI2SK = <createdAt>#<photoId>` を持つ。
 - QR トークンの GSI1SK は通し番号を 6 桁ゼロ埋めした値（表示用 `label` は 3 桁）。通し番号はカウンタへのアトミック加算で採番する。
 - ID は ULID（時系列ソート可能）。トークンは 128bit の暗号論的乱数を base64url（22 文字）にしたもの。
@@ -181,6 +182,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `rankingVisible` / `rankingHideNames` / `rankingHidePoints` | boolean | 参加者にランキングを見せるか（既定 オフ）と、名前・ポイントを伏せるか（既定 オフ） |
 | `trendVisible` / `trendHideNames` / `trendHidePoints` | boolean | 参加者にポイントの推移を見せるか（既定 オフ）と、名前・ポイントを伏せるか（既定 オフ） |
 | `prizesVisible` | boolean | 参加者に景品（何位で何がもらえるか）を見せるか（既定 オフ） |
+| `scheduleVisible` / `scheduleDate` | boolean / string | 参加者にスケジュールを見せるか（既定 オフ）と、イベントの日付（`YYYY-MM-DD`、空なら決めない） |
 | `tieBreakOrder` | list | 合計が同じ人の順位の決め方。`upload`（写真のアップロード）・`favoriteGiven`（お気に入りを選んだ）・`favoriteReceived`（お気に入りに選ばれた）・`quiz`（クイズ）を 1 回ずつ並べ、先頭の項目のポイントが多い人を上にする（既定はこの順） |
 
 保存されていない項目は既定値で補う（項目を追加しても既存の設定レコードをそのまま使える）。
@@ -210,6 +212,16 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `quantity` | number | 数量（1〜100） |
 | `positions` | list | 渡す順位（上から何番目の人か、1〜1000）を小さい順に。1 つにつき 1 個を使うので数量まで。同じ順位は重ねない |
 | `imageId` | string? | 画像（`prizes/<imageId>.jpg`）。無ければ画像なし |
+| `createdAt` / `updatedAt` | string | |
+
+**スケジュールの項目**
+
+| 属性 | 型 | 説明 |
+|---|---|---|
+| `itemId` | string | ULID |
+| `title` | string | タイトル（NFKC 正規化・前後空白除去、1〜50 文字） |
+| `detail` | string | 詳細（前後の空白だけ除く、0〜500 文字、改行可） |
+| `startMinute` / `durationMinutes` | number | 開始時刻（0:00 からの分）と長さ（分、5 以上）。終わりは 1440（24:00）まで |
 | `createdAt` / `updatedAt` | string | |
 
 ### 3.3 ポイントの計算
@@ -387,6 +399,7 @@ sequenceDiagram
 | GET | `/api/ranking` | ランキング（推移なし）。設定 `rankingVisible` がオフなら 404。紐づけを解除した人は除き、順位を付け直す。名前を伏せるときは全員の名前・称号・表示名を `???` にし、ユーザ ID を順番の番号（`r1`…）に置き換え、推移の始まり（登録した時刻）も全員そろえる。ポイントを伏せるときは、最大値を 100 とした割合（小数第 1 位まで）だけを返す。応答に `hideNames`・`hidePoints` を含む |
 | GET | `/api/trend` | ランキングと累計ポイントの推移。`trendVisible` がオフなら 404。伏せ方は `/api/ranking` と同じ（`trendHideNames`・`trendHidePoints` に従う） |
 | GET | `/api/prizes` | 景品の一覧（名前・数量・渡す順位・画像の署名付き URL）。`prizesVisible` がオフなら 404 |
+| GET | `/api/schedule` | スケジュール（開始時刻の早い順）とイベントの日付。`scheduleVisible` がオフなら 404 |
 | PUT | `/api/quiz/{quizId}/answer` | 回答する `{choiceId}`（選び直しは上書き）。出題中でなければ 409 `quiz_closed` |
 | POST | `/api/photos/upload-url` | アップロード用署名付き POST を発行 |
 | GET | `/api/photos` | 公開済み写真一覧（アップロード者の表示名・お気に入り数・自分が選んでいるか付き） |
@@ -422,6 +435,10 @@ sequenceDiagram
 | POST | `/api/admin/prizes` | 景品を登録する `{name, quantity, positions, imageId?}`。割り当てが数量を超える・順位が重複するときは 400。`imageId` は受け口にアップロード済みであること（無い・別の景品で使った画像は 400）。保存時に配信する領域へ移す |
 | PUT | `/api/admin/prizes/{prizeId}` | 景品を直す（登録と同じ形）。`imageId` を省くと画像を外す。差し替え・外した画像は消す |
 | DELETE | `/api/admin/prizes/{prizeId}` | 景品を削除（画像も消す） |
+| GET | `/api/admin/schedule` | スケジュール（開始時刻の早い順）とイベントの日付 |
+| POST | `/api/admin/schedule` | 項目を作る `{title, detail, startMinute, durationMinutes}`（時刻は 0:00 からの分。長さは 5 分以上、終わりは 24:00 まで。違えば 400） |
+| PUT | `/api/admin/schedule/{itemId}` | 項目を直す（作るときと同じ形。タイムラインのドラッグでも使う） |
+| DELETE | `/api/admin/schedule/{itemId}` | 項目を削除 |
 | GET / PUT | `/api/admin/settings` | 設定（公開方法・ポイント・お気に入り）の取得・更新。PUT は全項目を送る（後から追加した `showPoints`・`showQuizPoints`・`favoriteGivenPoints`・参加者への公開の項目（`prizesVisible` を含む）・`tieBreakOrder` は省略可で、省略時は今の値を残す。`tieBreakOrder` は 4 項目を 1 回ずつ並べたものでなければ 400） |
 
 ### 6.3 紐づけ解除の挙動
@@ -443,7 +460,7 @@ sequenceDiagram
 | `/` | ホーム | 表示名・ポイント（公開中の写真数・選ばれた数）・ポイントのルール・お気に入りの選択数・撮影ボタン。回答した問題数とクイズの点数も出す。設定 `showPoints` がオフならポイント・選ばれた数を、`showQuizPoints` がオフならクイズの点数を出さない。未ログイン時は「QR を読み込んでください」 |
 | `/gallery` | ギャラリー | 公開済み写真のグリッド表示、タップで拡大（アップロード者表示）。他の人の写真は ♡ でお気に入りの付け外し（選択数と上限を表示）。受付終了後は押せないが、選んだ写真は ♥ のまま見える |
 | `/mine` | 自分の写真 | 自分のアップロード一覧と状態（検閲待ち／公開／却下）、送信待ちキュー |
-| `/standings` | イベント情報 | ランキング・ポイントの推移・景品のうち、見せる設定のもの（複数なら切り替え）。見せ方は [機能仕様書 7.3・8・9](spec.md#73-参加者の画面イベント情報) |
+| `/standings` | イベント情報 | スケジュール・ランキング・ポイントの推移・景品のうち、見せる設定のもの（複数なら切り替え）。見せ方は [機能仕様書 7.3・8・9・10](spec.md#73-参加者の画面イベント情報) |
 | `/quiz` | クイズ | 出題中の問題文と選択肢。選ぶと回答し、締め切りまで選び直せる。出題中は他の画面の上部に「問題が出ています」を出し、ここへ案内する |
 
 ### 7.2 管理者
@@ -459,6 +476,7 @@ sequenceDiagram
 | `/admin/photos` | 検閲・写真管理 | 検閲待ちの承認／却下、公開済みの削除 |
 | `/admin/quizzes` | クイズ | 問題の作成・編集・削除、出題・締め切り、選択肢ごとの回答数と回答者の一覧。問題は番号の新しい順に並べ、状態（出題中・下書き・締め切り）ごとに表示・非表示を選べる（このブラウザに覚える） |
 | `/admin/prizes` | 景品（Prize） | 景品の登録・編集（画像・名前・数量・渡す順位を「1, 3, 5-10」のように指定）・削除と、順位ごとの景品の一覧 |
+| `/admin/schedule` | スケジュール（Schedule） | 縦の時間軸のタイムラインで項目を作る・動かす・長さを変える・編集する・削除する、イベントの日付。操作は [機能仕様書 9](spec.md#9-スケジュール) |
 | `/admin/settings` | 設定 | 検閲モード（事前承認／即時公開）、ポイント、お気に入りの受付・上限、同じポイントのときの順位（各項目の左の ⋮⋮ をドラッグするか ↑↓ で並べ替え。ドラッグ中は Esc で取り消し）、参加者への公開（ランキング・推移・景品） |
 
 ---
@@ -516,4 +534,4 @@ partally/
 
 ## 11. 未決事項
 
-[機能仕様書の「決まっていないこと」](spec.md#112-決まっていないこと) を参照。
+[機能仕様書の「決まっていないこと」](spec.md#122-決まっていないこと) を参照。
