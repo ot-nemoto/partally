@@ -15,6 +15,7 @@ const STATUS_LABEL: Partial<Record<ScheduleStatus, string>> = { now: "いま", n
 export function ScheduleView() {
   const [data, setData] = useState<ScheduleResponse>();
   const [state, setState] = useState<"loading" | "ok" | "hidden" | "error">("loading");
+  const [error, setError] = useState<string>();
   const [now, setNow] = useState(() => new Date());
 
   // 「更新」を続けて押したとき、後から返ってきた古い応答で戻さない
@@ -30,6 +31,7 @@ export function ScheduleView() {
       .catch((e) => {
         if (request !== latestRequest.current) return;
         setState(e instanceof ApiError && e.status === 404 ? "hidden" : "error");
+        setError(errorMessage(e));
       });
   }, []);
   useEffect(load, [load]);
@@ -41,7 +43,7 @@ export function ScheduleView() {
   }, []);
 
   if (state === "hidden") return <p className="muted">今は公開されていません。</p>;
-  if (state === "error") return <p className="error">{errorMessage(undefined)}</p>;
+  if (state === "error") return <p className="error">{error}</p>;
   if (!data) return <p className="muted">読み込み中…</p>;
   if (data.items.length === 0) return <p className="muted">まだスケジュールはありません。</p>;
 

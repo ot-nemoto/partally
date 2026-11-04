@@ -822,8 +822,9 @@ export class DynamoRepository implements Repository {
           TableName: this.tableName,
           Key: keys.scheduleItem(itemId),
           UpdateExpression:
-            "SET title = :title, detail = :detail, startMinute = :start, durationMinutes = :duration, updatedAt = :updatedAt",
+            "SET #title = :title, #detail = :detail, startMinute = :start, durationMinutes = :duration, updatedAt = :updatedAt",
           ConditionExpression: "attribute_exists(PK)",
+          ExpressionAttributeNames: { "#title": "title", "#detail": "detail" },
           ExpressionAttributeValues: {
             ":title": changes.title,
             ":detail": changes.detail,

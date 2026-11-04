@@ -85,16 +85,19 @@ export function AdminSchedule() {
     }
   }
 
-  /** 時刻・長さだけを変えて保存する。先に画面を変え、失敗したら戻す */
-  async function saveTime(item: ScheduleItemDto, startMinute: number, durationMinutes: number) {
-    const previous = items;
-    const updated = { ...item, startMinute, durationMinutes };
-    setItems((list) => list?.map((i) => (i.itemId === item.itemId ? updated : i)));
+  /**
+   * 時刻・長さだけを変えて保存する。先に画面を変え、失敗したらその項目だけを元に戻す
+   * （続けて動かしたほかの項目まで戻さないように）
+   */
+  async function saveTime(item: ScheduleItemDto, updated: ScheduleItemDto) {
+    const replace = (next: ScheduleItemDto) =>
+      setItems((list) => list?.map((i) => (i.itemId === next.itemId ? next : i)));
+    replace(updated);
     try {
       const { itemId, ...body } = updated;
       await api<ScheduleItemResponse>("PUT", `/admin/schedule/${itemId}`, body satisfies ScheduleItemRequest);
     } catch (e) {
-      setItems(previous);
+      replace(item);
       alert(errorMessage(e));
     }
   }
@@ -109,17 +112,19 @@ export function AdminSchedule() {
   for (let m = rangeStart; m <= rangeEnd; m += 60) hours.push(m);
   const columns = scheduleColumns(list);
 
-  /** ドラッグ中の見た目の時刻と長さ */
-  function preview(item: ScheduleItemDto) {
-    if (drag?.itemId !== item.itemId || !drag.moved) return item;
-    const delta = snap(drag.dy / PX_PER_MINUTE);
-    if (drag.mode === "move") {
-      const startMinute = clamp(item.startMinute + delta, 0, DAY_MINUTES - item.durationMinutes);
-      return { ...item, startMinute };
+  /**
+   * ドラッグで動かした後の時刻と長さ。見えている時間軸の外には出さない（外へ動かしたいときは時間軸を広げる）。
+   * ドラッグ中の表示と、離したときに保存する値の両方に使う
+   */
+  function moved(item: ScheduleItemDto, d: Drag): ScheduleItemDto {
+    if (d.itemId !== item.itemId || !d.moved) return item;
+    const delta = snap(d.dy / PX_PER_MINUTE);
+    if (d.mode === "move") {
+      return { ...item, startMinute: clamp(item.startMinute + delta, rangeStart, rangeEnd - item.durationMinutes) };
     }
-    const durationMinutes = clamp(item.durationMinutes + delta, SNAP, DAY_MINUTES - item.startMinute);
-    return { ...item, durationMinutes };
+    return { ...item, durationMinutes: clamp(item.durationMinutes + delta, SNAP, rangeEnd - item.startMinute) };
   }
+  const preview = (item: ScheduleItemDto) => (drag ? moved(item, drag) : item);
 
   function onBlockPointerDown(e: ReactPointerEvent<HTMLElement>, item: ScheduleItemDto, mode: Drag["mode"]) {
     if (e.button !== 0 || drag) return;
@@ -144,14 +149,9 @@ export function AdminSchedule() {
       setEditing({ item, startMinute: item.startMinute, durationMinutes: item.durationMinutes });
       return;
     }
-    const next = (() => {
-      const delta = snap(finished.dy / PX_PER_MINUTE);
-      if (finished.mode === "move")
-        return { ...item, startMinute: clamp(item.startMinute + delta, 0, DAY_MINUTES - item.durationMinutes) };
-      return { ...item, durationMinutes: clamp(item.durationMinutes + delta, SNAP, DAY_MINUTES - item.startMinute) };
-    })();
+    const next = moved(item, finished);
     if (next.startMinute !== item.startMinute || next.durationMinutes !== item.durationMinutes) {
-      void saveTime(item, next.startMinute, next.durationMinutes);
+      void saveTime(item, next);
     }
   }
 
