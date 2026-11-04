@@ -13,6 +13,7 @@ import {
   type QuizAnswerRecord,
   type QuizRecord,
   type Repository,
+  type ScheduleItemRecord,
   TokenNotAvailableError,
   type TokenRecord,
   type UserChanges,
@@ -32,6 +33,7 @@ export class MemoryRepository implements Repository {
   private quizAnswers = new Map<string, QuizAnswerRecord>();
   private openQuizId: string | undefined;
   private prizes = new Map<string, PrizeRecord>();
+  private scheduleItems = new Map<string, ScheduleItemRecord>();
   private settings: Settings = { ...DEFAULT_SETTINGS };
   private labelCounter = 0;
 
@@ -319,6 +321,31 @@ export class MemoryRepository implements Repository {
 
   async deletePrize(prizeId: string) {
     if (!this.prizes.delete(prizeId)) throw new NotFoundError();
+  }
+
+  async createScheduleItem(item: ScheduleItemRecord) {
+    this.scheduleItems.set(item.itemId, clone(item));
+  }
+
+  async listScheduleItems() {
+    return [...this.scheduleItems.values()]
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.itemId.localeCompare(b.itemId))
+      .map(clone);
+  }
+
+  async updateScheduleItem(
+    itemId: string,
+    changes: Pick<ScheduleItemRecord, "title" | "detail" | "startMinute" | "durationMinutes">,
+    updatedAt: string,
+  ) {
+    const item = this.scheduleItems.get(itemId);
+    if (!item) throw new NotFoundError();
+    Object.assign(item, clone(changes), { updatedAt });
+    return clone(item);
+  }
+
+  async deleteScheduleItem(itemId: string) {
+    if (!this.scheduleItems.delete(itemId)) throw new NotFoundError();
   }
 
   async getSettings() {

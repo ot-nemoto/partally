@@ -398,9 +398,9 @@ input {
 /*
   スマホ幅では、ADMIN と更新・ログアウトを 1 段目（固定）、メニューを 2 段目（一緒にスクロール）にする。
   固定する部分で画面が狭くならないよう、メニューはヘッダーの外に出す。
-  更新のあるページで 1 段に収まらなくなる幅（約 730px）より少し広めに切り替える
+  更新のあるページで 1 段に収まらなくなる幅（約 815px）より少し広めに切り替える
 */
-@media (max-width: 780px) {
+@media (max-width: 860px) {
   .admin-nav-inline {
     display: none;
   }
@@ -1670,6 +1670,278 @@ table.prize-table td {
   color: var(--gold);
 }
 
+/* ---- スケジュール ---- */
+
+.admin-schedule {
+  max-width: 44rem;
+}
+
+.schedule-date {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.schedule-extend {
+  display: block;
+  margin: 0.25rem 0 0.25rem 3.5rem;
+}
+
+/* 縦の時間軸。左に時刻、右に 30 分ごとの線を引いた枠を置き、その中に項目のブロックを並べる */
+.schedule-timeline {
+  display: flex;
+}
+
+.schedule-hours {
+  position: relative;
+  flex: none;
+  width: 3.5rem;
+}
+
+.schedule-hour {
+  position: absolute;
+  right: 0.5rem;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-grid {
+  position: relative;
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background-color: var(--surface);
+  background-image: linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  cursor: copy;
+  touch-action: pan-y;
+}
+
+.schedule-block {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  margin: 0 2px;
+  padding: 0.25rem 0.5rem;
+  overflow: hidden;
+  border: 1px solid var(--accent);
+  border-left-width: 4px;
+  border-radius: 0.375rem;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--text);
+  line-height: 1.3;
+  text-align: left;
+  justify-content: flex-start;
+  /* ボタンの最小の高さは使わず、時間の長さどおりの高さにする */
+  min-height: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.schedule-block.dragging {
+  z-index: 2;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.2);
+  cursor: grabbing;
+}
+
+/* 短い項目は時刻とタイトルを 1 行に並べる */
+.schedule-block.short {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.schedule-block-time {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.schedule-block-title {
+  overflow: hidden;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* とても短い項目（10 分未満）は時刻を出さず、タイトルを小さく出す */
+.schedule-block.tiny {
+  flex-direction: row;
+  align-items: center;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.schedule-block.tiny .schedule-block-time {
+  display: none;
+}
+
+.schedule-block.tiny .schedule-block-title {
+  font-size: 0.75rem;
+}
+
+/* 下の端。ここをつかんで長さを変える */
+.schedule-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.schedule-resize::after {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  width: 24px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.5;
+  content: "";
+  transform: translateX(-50%);
+}
+
+.schedule-dialog {
+  max-width: 30rem;
+}
+
+.schedule-time-fields {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.schedule-time-end {
+  padding-bottom: 0.6rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-durations {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.schedule-durations legend {
+  margin-bottom: 0.4rem;
+  font-weight: 600;
+}
+
+.schedule-durations button {
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.schedule-durations button.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.schedule-duration-custom {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.schedule-duration-input {
+  width: 4.5rem;
+}
+
+/* 削除は左端、キャンセル・保存は右に寄せる */
+.schedule-dialog .schedule-delete {
+  margin-right: auto;
+}
+
+/* 参加者の画面のスケジュール */
+.schedule-day {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+
+.schedule-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.schedule-item {
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+  padding: 0.75rem 1rem;
+}
+
+.schedule-item h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+
+.schedule-item-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.schedule-item-time {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-item-detail {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.schedule-item.now {
+  border-color: var(--accent);
+  border-left-width: 4px;
+}
+
+.schedule-item.past {
+  opacity: 0.55;
+}
+
+.schedule-badge {
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.schedule-badge.now {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.schedule-badge.next {
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+
 /* ---- 参加者の順位 ---- */
 
 /* ランキングと推移の切り替え */
@@ -1683,6 +1955,9 @@ table.prize-table td {
 
 .segmented button {
   flex: 1;
+  min-width: 0;
+  padding-right: 0.25rem;
+  padding-left: 0.25rem;
   border: none;
   border-radius: 0;
   font-size: 0.9rem;

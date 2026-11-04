@@ -22,7 +22,9 @@ import {
   type Rules,
   randomEpithet,
   registerRequestSchema,
+  type ScheduleItemDto,
   type Settings,
+  scheduleItemRequestSchema,
   type TieBreakKey,
   type TokenDto,
   type UserDto,
@@ -48,6 +50,7 @@ import {
   type QuizChoice,
   type QuizRecord,
   type Repository,
+  type ScheduleItemRecord,
   TokenNotAvailableError,
   type TokenRecord,
   type UserRecord,
@@ -361,6 +364,13 @@ export function createApp(deps: AppDeps) {
     const settings = await repo.getSettings();
     if (!settings.prizesVisible) return fail(c, 404, "not_found");
     return c.json({ prizes: (await repo.listPrizes()).map(toPrizeDto) });
+  });
+
+  // 参加者に見せるスケジュール。見せない設定のときは無いものとして扱う
+  app.get("/schedule", requireUser, async (c) => {
+    const settings = await repo.getSettings();
+    if (!settings.scheduleVisible) return fail(c, 404, "not_found");
+    return c.json({ items: sortSchedule(await repo.listScheduleItems()), date: settings.scheduleDate });
   });
 
   app.get("/me", requireUser, async (c) => {
@@ -807,6 +817,42 @@ export function createApp(deps: AppDeps) {
     return c.json({});
   });
 
+  app.get("/admin/schedule", async (c) => {
+    const [items, settings] = await Promise.all([repo.listScheduleItems(), repo.getSettings()]);
+    return c.json({ items: sortSchedule(items), date: settings.scheduleDate });
+  });
+
+  app.post("/admin/schedule", async (c) => {
+    const body = await parseBody(c, scheduleItemRequestSchema);
+    if (!body.ok) return body.response;
+    const timestamp = now().toISOString();
+    const item: ScheduleItemRecord = { itemId: newId(), ...body.data, createdAt: timestamp, updatedAt: timestamp };
+    await repo.createScheduleItem(item);
+    return c.json({ item: toScheduleItemDto(item) }, 201);
+  });
+
+  app.put("/admin/schedule/:itemId", async (c) => {
+    const body = await parseBody(c, scheduleItemRequestSchema);
+    if (!body.ok) return body.response;
+    try {
+      const item = await repo.updateScheduleItem(c.req.param("itemId"), body.data, now().toISOString());
+      return c.json({ item: toScheduleItemDto(item) });
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      throw e;
+    }
+  });
+
+  app.delete("/admin/schedule/:itemId", async (c) => {
+    try {
+      await repo.deleteScheduleItem(c.req.param("itemId"));
+      return c.json({});
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      throw e;
+    }
+  });
+
   app.get("/admin/settings", async (c) => c.json({ settings: await repo.getSettings() }));
 
   app.put("/admin/settings", async (c) => {
@@ -1058,6 +1104,21 @@ export function toParticipantRanking(
     });
   });
   return { generatedAt: ranking.generatedAt, hideNames, hidePoints, ranking: result };
+}
+
+function toScheduleItemDto(item: ScheduleItemRecord): ScheduleItemDto {
+  return {
+    itemId: item.itemId,
+    title: item.title,
+    detail: item.detail,
+    startMinute: item.startMinute,
+    durationMinutes: item.durationMinutes,
+  };
+}
+
+/** 開始時刻の早い順（同じなら作った順） */
+function sortSchedule(items: ScheduleItemRecord[]): ScheduleItemDto[] {
+  return [...items].sort((a, b) => a.startMinute - b.startMinute).map(toScheduleItemDto);
 }
 
 function toQuizDto(quiz: QuizRecord, answers: QuizAnswerRecord[]): QuizDto {

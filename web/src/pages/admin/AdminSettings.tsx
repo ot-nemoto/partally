@@ -232,6 +232,14 @@ export function AdminSettings() {
                 onChange={(v) => update("prizesVisible", v)}
               />
             </fieldset>
+            <fieldset className="publish-option">
+              <SwitchField
+                label="参加者にスケジュールを見せる"
+                description="進行表です（Schedule で作成）。今の時間の項目に「いま」、次の項目に「つぎ」を付けて見せます。"
+                checked={settings.scheduleVisible}
+                onChange={(v) => update("scheduleVisible", v)}
+              />
+            </fieldset>
             <p className="muted small">
               参加者の画面の「イベント情報」タブに出ます。合計と順位は、写真・お気に入り・クイズのすべてのポイントで計算します。
               ホーム画面でポイントを表示しない設定でも、ここで「ポイントを伏せる」にしない限り、ポイントは見えます。

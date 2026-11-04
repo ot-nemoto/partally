@@ -488,6 +488,36 @@ describe("DynamoRepository", () => {
     });
   });
 
+  describe("スケジュール", () => {
+    it("作成順に並べるため GSI1 に入れ、無い項目の更新・削除は NotFoundError", async () => {
+      ddb.on(PutCommand).resolves({});
+      const item = {
+        itemId: "S1",
+        title: "乾杯",
+        detail: "",
+        startMinute: 1095,
+        durationMinutes: 10,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+      await repo.createScheduleItem(item);
+      expect(ddb.commandCalls(PutCommand)[0]!.args[0].input).toMatchObject({
+        Item: { PK: "SCHEDULE#S1", SK: "META", GSI1PK: "SCHEDULE", GSI1SK: "2026-01-01T00:00:00.000Z#S1" },
+        ConditionExpression: "attribute_not_exists(PK)",
+      });
+      ddb.on(QueryCommand).resolves({ Items: [{ PK: "SCHEDULE#S1", SK: "META", ...item }] });
+      expect(await repo.listScheduleItems()).toEqual([item]);
+
+      const failed = new ConditionalCheckFailedException({ message: "failed", $metadata: {} });
+      ddb.on(UpdateCommand).rejects(failed);
+      await expect(
+        repo.updateScheduleItem("S1", { title: "x", detail: "", startMinute: 0, durationMinutes: 5 }, "t"),
+      ).rejects.toBeInstanceOf(NotFoundError);
+      ddb.on(DeleteCommand).rejects(failed);
+      await expect(repo.deleteScheduleItem("S1")).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+
   describe("景品", () => {
     const prize: PrizeRecord = {
       prizeId: "P1",
