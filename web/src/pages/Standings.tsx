@@ -100,7 +100,7 @@ function PrizesView() {
       {rules.tieBreakOrder?.length > 0 && (
         <p className="muted small">
           同じポイントの人は、{rules.tieBreakOrder.map((key) => TIE_BREAK_LABEL[key]).join(" → ")}
-          の順に比べて順位を決めます（ポイントの項目は多い人が上）。
+          の順に比べて順位を決めます（ポイントの項目は多い人、登録順は先に登録した人が上）。
         </p>
       )}
     </>
