@@ -183,7 +183,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `trendVisible` / `trendHideNames` / `trendHidePoints` | boolean | 参加者にポイントの推移を見せるか（既定 オフ）と、名前・ポイントを伏せるか（既定 オフ） |
 | `prizesVisible` | boolean | 参加者に景品（何位で何がもらえるか）を見せるか（既定 オフ） |
 | `scheduleVisible` / `scheduleDate` | boolean / string | 参加者にスケジュールを見せるか（既定 オフ）と、イベントの日付（`YYYY-MM-DD`、空なら決めない） |
-| `tieBreakOrder` | list | 合計が同じ人の順位の決め方。`upload`（写真のアップロード）・`favoriteGiven`（お気に入りを選んだ）・`favoriteReceived`（お気に入りに選ばれた）・`quiz`（クイズ）を 1 回ずつ並べ、先頭の項目のポイントが多い人を上にする（既定はこの順） |
+| `tieBreakOrder` | list | 合計が同じ人の順位の決め方。`upload`（写真のアップロード）・`favoriteGiven`（お気に入りを選んだ）・`favoriteReceived`（お気に入りに選ばれた）・`quiz`（クイズ）・`registered`（登録順）を 1 回ずつ並べ、先頭から比べる。ポイントの項目は多い人を、`registered` は先に登録した人を上にする（既定はこの順） |
 
 保存されていない項目は既定値で補う（項目を追加しても既存の設定レコードをそのまま使える）。
 
@@ -238,7 +238,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 - 設定を変えると、これまでの分も含めて全員のポイントが変わる。選択肢の点数を直した場合も同じ。
 - 出題中のクイズは数えない（選び直して点数の変化から正解を探れないようにするため）。
 - 回答の保存はクイズを含むトランザクションにしない（全員が一斉に答えると TransactionConflict が多発するため）。出題中かを強い整合性で読み、その後の時刻を `answeredAt` にして保存する。読んでから保存するまでの数十ミリ秒の間に締め切られた場合、その回答は `answeredAt` が `closedAt` より前なら数え、後なら数えない（締め切りの瞬間の扱いの誤差として許容する）。
-- **順位**: 合計の高い順。合計が同じ人は `tieBreakOrder` の順に、その項目のポイント（`approvedCount × uploadPoints`・`favoritesGiven × favoriteGivenPoints`・`favoritesReceived × favoritePoints`・クイズの点数）が多い人を上にし、順位も分ける。すべて同じなら同じ順位で、次の順位は人数分飛ばす（並びは先に登録した人を上にする）。参加者向けに紐づけを解除した人を除くときは、元の順位が同じ人だけを同じ順位にする。
+- **順位**: 合計の高い順。合計が同じ人は `tieBreakOrder` の順に、その項目のポイント（`approvedCount × uploadPoints`・`favoritesGiven × favoriteGivenPoints`・`favoritesReceived × favoritePoints`・クイズの点数）が多い人を上にする。`registered` は先に登録した人を上にする。順位は並びのとおり 1 から 1 人ずつ付け、同じ順位は作らない（登録の時刻まで同じなら userId で並べる）。参加者向けに紐づけを解除した人を除くときは、残った人に 1 から付け直す。
 - 回答した問題数・点数はユーザのカウンタに持たず、表示のたびにクイズと回答から数える（参加者は自分の回答、管理画面はクイズごとの回答を読む。問題数は数十程度の想定）。
 
 ### 3.4 整合性
@@ -439,7 +439,7 @@ sequenceDiagram
 | POST | `/api/admin/schedule` | 項目を作る `{title, detail, startMinute, durationMinutes}`（時刻は 0:00 からの分。長さは 5 分以上、終わりは 24:00 まで。違えば 400） |
 | PUT | `/api/admin/schedule/{itemId}` | 項目を直す（作るときと同じ形。タイムラインのドラッグでも使う） |
 | DELETE | `/api/admin/schedule/{itemId}` | 項目を削除 |
-| GET / PUT | `/api/admin/settings` | 設定（公開方法・ポイント・お気に入り）の取得・更新。PUT は全項目を送る（後から追加した `showPoints`・`showQuizPoints`・`favoriteGivenPoints`・参加者への公開の項目（`prizesVisible` を含む）・`tieBreakOrder` は省略可で、省略時は今の値を残す。`tieBreakOrder` は 4 項目を 1 回ずつ並べたものでなければ 400） |
+| GET / PUT | `/api/admin/settings` | 設定（公開方法・ポイント・お気に入り）の取得・更新。PUT は全項目を送る（後から追加した `showPoints`・`showQuizPoints`・`favoriteGivenPoints`・参加者への公開の項目（`prizesVisible` を含む）・`tieBreakOrder` は省略可で、省略時は今の値を残す。`tieBreakOrder` は 5 項目を 1 回ずつ並べたものでなければ 400） |
 
 ### 6.3 紐づけ解除の挙動
 

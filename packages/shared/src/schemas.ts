@@ -57,8 +57,14 @@ export const photoStatusSchema = z.enum(["pending", "approved", "rejected"]);
 
 export const POINTS_MAX = 100;
 
-/** 同じポイントのときに比べる項目（既定の優先順に並べている） */
-export const TIE_BREAK_KEYS = ["upload", "favoriteGiven", "favoriteReceived", "quiz"] as const;
+/** ポイントの内訳の項目 */
+export const POINT_KEYS = ["upload", "favoriteGiven", "favoriteReceived", "quiz"] as const;
+
+/**
+ * 同じポイントのときに比べる項目（既定の優先順に並べている）。ポイントの内訳の項目と、登録順（先に登録した人が上）。
+ * 登録順が入っているので、順位は必ず分かれる
+ */
+export const TIE_BREAK_KEYS = [...POINT_KEYS, "registered"] as const;
 
 /** 優先順の項目の名前（管理画面・参加者の画面の案内に出す） */
 export const TIE_BREAK_LABEL: Record<TieBreakKey, string> = {
@@ -66,6 +72,7 @@ export const TIE_BREAK_LABEL: Record<TieBreakKey, string> = {
   favoriteGiven: "お気に入りを選んだ",
   favoriteReceived: "お気に入りに選ばれた",
   quiz: "クイズ",
+  registered: "登録順（先に登録した人が上）",
 };
 export const FAVORITE_LIMIT_MAX = 100;
 
