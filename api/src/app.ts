@@ -4,6 +4,9 @@ import {
   adminLoginRequestSchema,
   type CurrentQuizDto,
   formatDisplayName,
+  type GameAwardDto,
+  type GameDto,
+  gameRequestSchema,
   issueTokensRequestSchema,
   type ParticipantRankingResponse,
   type PhotoDto,
@@ -41,6 +44,8 @@ import {
   EpithetTakenError,
   FavoriteLimitError,
   type FavoriteRecord,
+  type GameRecord,
+  type GameSlot,
   InvalidStateError,
   NotFoundError,
   type PhotoRecord,
@@ -212,10 +217,14 @@ export function createApp(deps: AppDeps) {
   const uploadersOf = async (photos: PhotoRecord[]) =>
     new Map((await repo.getUsers(photos.map((p) => p.uploaderId))).map((u) => [u.userId, u]));
 
-  /** 1 人分のクイズの回答数と点数 */
-  const quizStatsOf = async (userId: string): Promise<QuizStats> => {
-    const [quizzes, answers] = await Promise.all([repo.listQuizzes(), repo.listQuizAnswersByUser(userId)]);
-    return scoreQuizAnswers(answers, quizzes);
+  /** 1 人分のクイズの回答数と点数、ゲームの点数 */
+  const scoresOf = async (userId: string): Promise<Scores> => {
+    const [quizzes, answers, games] = await Promise.all([
+      repo.listQuizzes(),
+      repo.listQuizAnswersByUser(userId),
+      repo.listGames(),
+    ]);
+    return { quiz: scoreQuizAnswers(answers, quizzes), game: gameStatsByUser(games).get(userId) ?? NO_GAME_STATS };
   };
 
   /** 全クイズとそれぞれの回答（管理画面用。問題数は数十程度の想定なので、クイズごとに並行して読む） */
@@ -236,18 +245,26 @@ export function createApp(deps: AppDeps) {
     return photos;
   };
 
-  /** 全員分のクイズの回答数と点数（管理画面のユーザ一覧用） */
-  const quizStatsOfAll = async () => quizStatsByUser(await quizzesWithAnswers());
+  /** 全員分のクイズの回答数と点数、ゲームの点数（管理画面のユーザ一覧用） */
+  const scoresOfAll = async () => {
+    const [quizzes, games] = await Promise.all([quizzesWithAnswers(), repo.listGames()]);
+    const quiz = quizStatsByUser(quizzes);
+    const game = gameStatsByUser(games);
+    return (userId: string): Scores => ({
+      quiz: quiz.get(userId) ?? NO_QUIZ_STATS,
+      game: game.get(userId) ?? NO_GAME_STATS,
+    });
+  };
 
-  /** ユーザ情報を、設定とクイズの成績を添えて参加者向けに返す */
+  /** ユーザ情報を、設定とクイズ・ゲームの成績を添えて参加者向けに返す */
   const participantUser = async (user: UserRecord, settings?: Settings) => {
-    const [resolved, quiz] = await Promise.all([settings ?? repo.getSettings(), quizStatsOf(user.userId)]);
-    return toParticipantUserDto(user, resolved, quiz);
+    const [resolved, scores] = await Promise.all([settings ?? repo.getSettings(), scoresOf(user.userId)]);
+    return toParticipantUserDto(user, resolved, scores);
   };
 
   const adminUser = async (user: UserRecord) => {
-    const [settings, quiz] = await Promise.all([repo.getSettings(), quizStatsOf(user.userId)]);
-    return toUserDto(user, settings, quiz);
+    const [settings, scores] = await Promise.all([repo.getSettings(), scoresOf(user.userId)]);
+    return toUserDto(user, settings, scores);
   };
 
   app.post("/auth/qr", async (c) => {
@@ -323,10 +340,11 @@ export function createApp(deps: AppDeps) {
 
   /** ランキングと推移を今のデータから組み立てる（管理画面と参加者の画面で共通） */
   async function loadRanking(settings: Settings) {
-    const [users, quizzes, photos] = await Promise.all([
+    const [users, quizzes, photos, games] = await Promise.all([
       repo.listUsers(),
       quizzesWithAnswers(),
       listAllApprovedPhotos(),
+      repo.listGames(),
     ]);
     // 選ばれていない写真は読まない
     const chosen = photos.filter((p) => p.favoriteCount > 0);
@@ -337,7 +355,7 @@ export function createApp(deps: AppDeps) {
         favorites.push(...list);
       }
     }
-    return buildRanking({ users, settings, quizzes, photos, favorites, now: now().toISOString() });
+    return buildRanking({ users, settings, quizzes, photos, favorites, games, now: now().toISOString() });
   }
 
   // 参加者に見せるランキング・推移。見せない設定のときは無いものとして扱う。
@@ -529,8 +547,8 @@ export function createApp(deps: AppDeps) {
   });
 
   app.get("/admin/users", async (c) => {
-    const [users, settings, quizStats] = await Promise.all([repo.listUsers(), repo.getSettings(), quizStatsOfAll()]);
-    return c.json({ users: users.map((u) => toUserDto(u, settings, quizStats.get(u.userId) ?? NO_QUIZ_STATS)) });
+    const [users, settings, scores] = await Promise.all([repo.listUsers(), repo.getSettings(), scoresOfAll()]);
+    return c.json({ users: users.map((u) => toUserDto(u, settings, scores(u.userId))) });
   });
 
   app.get("/admin/ranking", async (c) => c.json(await loadRanking(await repo.getSettings())));
@@ -853,6 +871,83 @@ export function createApp(deps: AppDeps) {
     }
   });
 
+  app.get("/admin/games", async (c) => c.json({ games: (await repo.listGames()).map(toGameDto) }));
+
+  /** 送られた枠を保存する形にする。既存の枠の ID と、選んだ人が登録済みかを確かめる（問題があれば 400 のレスポンス） */
+  const gameSlotsOf = async (
+    c: Context,
+    slots: z.infer<typeof gameRequestSchema>["slots"],
+    existing: GameSlot[] = [],
+  ): Promise<GameSlot[] | Response> => {
+    const existingIds = new Set(existing.map((s) => s.slotId));
+    if (slots.some((s) => s.slotId !== undefined && !existingIds.has(s.slotId))) {
+      return fail(c, 400, "bad_request", "存在しない枠があります");
+    }
+    const userIds = [...new Set(slots.flatMap((s) => s.userIds))];
+    const found = await repo.getUsers(userIds);
+    if (found.length !== userIds.length) return fail(c, 400, "bad_request", "登録されていない人が選ばれています");
+    return slots.map((s) => ({ slotId: s.slotId ?? newId(), name: s.name, points: s.points, userIds: s.userIds }));
+  };
+
+  app.post("/admin/games", async (c) => {
+    const body = await parseBody(c, gameRequestSchema);
+    if (!body.ok) return body.response;
+    const slots = await gameSlotsOf(c, body.data.slots);
+    if (slots instanceof Response) return slots;
+    const timestamp = now().toISOString();
+    const game: GameRecord = {
+      gameId: newId(),
+      name: body.data.name,
+      status: "draft",
+      slots,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    await repo.createGame(game);
+    return c.json({ game: toGameDto(game) }, 201);
+  });
+
+  // 確定済みでも直せる（ポイントは直した内容で数え直し、推移では確定した時刻のまま）
+  app.put("/admin/games/:gameId", async (c) => {
+    const body = await parseBody(c, gameRequestSchema);
+    if (!body.ok) return body.response;
+    const game = await repo.getGame(c.req.param("gameId"));
+    if (!game) return fail(c, 404, "not_found");
+    const slots = await gameSlotsOf(c, body.data.slots, game.slots);
+    if (slots instanceof Response) return slots;
+    try {
+      const updated = await repo.updateGame(game.gameId, { name: body.data.name, slots }, now().toISOString());
+      return c.json({ game: toGameDto(updated) });
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      throw e;
+    }
+  });
+
+  const changeGameStatus = async (c: Context, status: GameRecord["status"], message: string) => {
+    try {
+      const game = await repo.setGameStatus(c.req.param("gameId") ?? "", status, now().toISOString());
+      return c.json({ game: toGameDto(game) });
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state", message);
+      throw e;
+    }
+  };
+
+  app.post("/admin/games/:gameId/confirm", (c) => changeGameStatus(c, "confirmed", "既に確定しています"));
+  app.post("/admin/games/:gameId/unconfirm", (c) => changeGameStatus(c, "draft", "確定していません"));
+
+  app.delete("/admin/games/:gameId", async (c) => {
+    try {
+      await repo.deleteGame(c.req.param("gameId"));
+      return c.json({});
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      throw e;
+    }
+  });
+
   app.get("/admin/settings", async (c) => c.json({ settings: await repo.getSettings() }));
 
   app.put("/admin/settings", async (c) => {
@@ -924,6 +1019,46 @@ function quizStatsByUser(entries: { quiz: QuizRecord; answers: QuizAnswerRecord[
   return new Map([...byUser].map(([userId, list]) => [userId, scoreQuizAnswers(list, quizzes)]));
 }
 
+interface GameStats {
+  /** 確定したゲームで入った点数の合計 */
+  points: number;
+  /** 入った枠（確定した順） */
+  awards: GameAwardDto[];
+}
+
+const NO_GAME_STATS: GameStats = { points: 0, awards: [] };
+
+/** 確定したゲームだけを、確定した順に */
+function confirmedGames(games: GameRecord[]): (GameRecord & { confirmedAt: string })[] {
+  return games
+    .filter((g): g is GameRecord & { confirmedAt: string } => g.status === "confirmed" && g.confirmedAt !== undefined)
+    .sort((a, b) => a.confirmedAt.localeCompare(b.confirmedAt));
+}
+
+/** 全員分のゲームの点数と入った枠。下書きのゲームは数えない */
+function gameStatsByUser(games: GameRecord[]): Map<string, GameStats> {
+  const byUser = new Map<string, GameStats>();
+  for (const game of confirmedGames(games)) {
+    for (const slot of game.slots) {
+      for (const userId of slot.userIds) {
+        const stats = byUser.get(userId) ?? { points: 0, awards: [] };
+        stats.points += slot.points;
+        stats.awards.push({ gameName: game.name, slotName: slot.name, points: slot.points });
+        byUser.set(userId, stats);
+      }
+    }
+  }
+  return byUser;
+}
+
+/** ユーザ 1 人分の、カウンタ以外から数える成績 */
+interface Scores {
+  quiz: QuizStats;
+  game: GameStats;
+}
+
+const NO_SCORES: Scores = { quiz: NO_QUIZ_STATS, game: NO_GAME_STATS };
+
 function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
   const list = map.get(key);
   if (list) list.push(value);
@@ -931,22 +1066,23 @@ function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
 }
 
 /** 項目ごとのポイント。同じポイントのときの順位の決め方（tieBreakOrder）でも使う */
-function pointsByKey(user: UserRecord, settings: Settings, quiz: QuizStats): Record<PointKey, number> {
+function pointsByKey(user: UserRecord, settings: Settings, scores: Scores): Record<PointKey, number> {
   return {
     upload: user.approvedCount * settings.uploadPoints,
     favoriteGiven: user.favoritesGiven * settings.favoriteGivenPoints,
     favoriteReceived: user.favoritesReceived * settings.favoritePoints,
-    quiz: quiz.points,
+    quiz: scores.quiz.points,
+    game: scores.game.points,
   };
 }
 
 /** ポイントは保存せず、現在の設定で毎回計算する（設定を変えると全員に同じ基準で反映される） */
-export function calculatePoints(user: UserRecord, settings: Settings, quiz: QuizStats): number {
-  return sumPoints(pointsByKey(user, settings, quiz));
+export function calculatePoints(user: UserRecord, settings: Settings, scores: Scores = NO_SCORES): number {
+  return sumPoints(pointsByKey(user, settings, scores));
 }
 
 function sumPoints(byKey: Record<PointKey, number>): number {
-  return byKey.upload + byKey.favoriteGiven + byKey.favoriteReceived + byKey.quiz;
+  return Object.values(byKey).reduce((sum, p) => sum + p, 0);
 }
 
 export interface RankingSource {
@@ -957,17 +1093,19 @@ export interface RankingSource {
   photos: PhotoRecord[];
   /** 公開中の写真へのお気に入り */
   favorites: FavoriteRecord[];
+  /** ゲーム（確定したものだけを数える） */
+  games?: GameRecord[];
   now: string;
 }
 
 /**
  * ランキングと累計ポイントの推移を作る。ポイントは保存していないので、今残っているデータから
- * 時刻つきの出来事（写真の公開・お気に入りに選ばれた・お気に入りを選んだ・クイズの締め切り）を組み立て、現在の設定で数える。
+ * 時刻つきの出来事（写真の公開・お気に入りに選ばれた・お気に入りを選んだ・クイズの締め切り・ゲームの確定）を組み立て、現在の設定で数える。
  * 削除した写真や外したお気に入りは含めないので、推移の最後はユーザ管理と同じポイントになる
  * （GSI の反映待ちでずれることがあるため、最後の点は calculatePoints の値にそろえる）
  */
 export function buildRanking(source: RankingSource): RankingResponse {
-  const { users, settings, quizzes, photos, favorites, now } = source;
+  const { users, settings, quizzes, photos, favorites, games = [], now } = source;
   const events = new Map<string, { at: string; points: number }[]>();
   const add = (userId: string, at: string, points: number | undefined) => {
     if (points) appendTo(events, userId, { at, points });
@@ -989,10 +1127,19 @@ export function buildRanking(source: RankingSource): RankingResponse {
     for (const answer of answers) if (quiz.closedAt) add(answer.userId, quiz.closedAt, answerPoints(answer, quiz));
   }
 
+  // ゲームの点数は確定した時刻に入る
+  for (const game of confirmedGames(games)) {
+    for (const slot of game.slots) for (const userId of slot.userIds) add(userId, game.confirmedAt, slot.points);
+  }
+
   const quizStats = quizStatsByUser(quizzes);
+  const gameStats = gameStatsByUser(games);
 
   const entries = users.map((user) => {
-    const byKey = pointsByKey(user, settings, quizStats.get(user.userId) ?? NO_QUIZ_STATS);
+    const byKey = pointsByKey(user, settings, {
+      quiz: quizStats.get(user.userId) ?? NO_QUIZ_STATS,
+      game: gameStats.get(user.userId) ?? NO_GAME_STATS,
+    });
     const points = sumPoints(byKey);
     const history: RankingPointDto[] = [{ at: user.createdAt, points: 0 }];
     let total = 0;
@@ -1040,7 +1187,7 @@ export function buildRanking(source: RankingSource): RankingResponse {
   return { ranking, generatedAt: now };
 }
 
-function toUserDto(user: UserRecord, settings: Settings, quiz: QuizStats): UserDto {
+function toUserDto(user: UserRecord, settings: Settings, scores: Scores): UserDto {
   return {
     userId: user.userId,
     name: user.name,
@@ -1051,23 +1198,25 @@ function toUserDto(user: UserRecord, settings: Settings, quiz: QuizStats): UserD
     approvedCount: user.approvedCount,
     favoritesGiven: user.favoritesGiven,
     favoritesReceived: user.favoritesReceived,
-    quizAnswered: quiz.answered,
-    quizPoints: quiz.points,
-    points: calculatePoints(user, settings, quiz),
+    quizAnswered: scores.quiz.answered,
+    quizPoints: scores.quiz.points,
+    gamePoints: scores.game.points,
+    points: calculatePoints(user, settings, scores),
     createdAt: user.createdAt,
   };
 }
 
 /**
  * 参加者本人に返すユーザ情報。ポイントを伏せている間は、ポイントとその元になる選ばれた数を含めない。
- * クイズの点数を伏せている間は、クイズの点数を含めない
+ * クイズ・ゲームの点数を伏せている間は、それぞれの点数（ゲームは入った枠も）を含めない
  */
-function toParticipantUserDto(user: UserRecord, settings: Settings, quiz: QuizStats): UserDto {
-  const { points, favoritesReceived, quizPoints, ...rest } = toUserDto(user, settings, quiz);
+function toParticipantUserDto(user: UserRecord, settings: Settings, scores: Scores): UserDto {
+  const { points, favoritesReceived, quizPoints, gamePoints, ...rest } = toUserDto(user, settings, scores);
   return {
     ...rest,
     ...(settings.showPoints ? { points, favoritesReceived } : {}),
     ...(settings.showQuizPoints ? { quizPoints } : {}),
+    ...(settings.showGamePoints ? { gamePoints, gameAwards: scores.game.awards } : {}),
   };
 }
 
@@ -1121,6 +1270,17 @@ function toScheduleItemDto(item: ScheduleItemRecord): ScheduleItemDto {
 /** 開始時刻の早い順（同じなら作った順） */
 function sortSchedule(items: ScheduleItemRecord[]): ScheduleItemDto[] {
   return [...items].sort((a, b) => a.startMinute - b.startMinute).map(toScheduleItemDto);
+}
+
+function toGameDto(game: GameRecord): GameDto {
+  return {
+    gameId: game.gameId,
+    name: game.name,
+    status: game.status,
+    slots: game.slots.map((s) => ({ slotId: s.slotId, name: s.name, points: s.points, userIds: [...s.userIds] })),
+    createdAt: game.createdAt,
+    confirmedAt: game.confirmedAt,
+  };
 }
 
 function toQuizDto(quiz: QuizRecord, answers: QuizAnswerRecord[]): QuizDto {
