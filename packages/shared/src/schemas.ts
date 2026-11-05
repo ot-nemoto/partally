@@ -241,6 +241,11 @@ export const gameRequestSchema = z
       )
       .min(1)
       .max(GAME_SLOTS_MAX),
+    /**
+     * 更新のとき、画面が持っているゲームの updatedAt。保存済みのものと違えば（ほかで直されていれば）上書きせず 409 にする。
+     * 省くと確かめない
+     */
+    baseUpdatedAt: z.string().max(40).optional(),
   })
   .refine(
     (v) => {

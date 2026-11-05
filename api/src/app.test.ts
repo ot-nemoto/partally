@@ -1457,6 +1457,61 @@ describe("API", () => {
       ).toBe(404);
     });
 
+    it("画面が持っている版（updatedAt）がほかで変わっていたら、上書きせず 409 にする", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(new Date("2026-01-01T01:00:00.000Z"));
+        const admin = await adminClient();
+        const a = await participant("田中");
+        const b = await participant("鈴木");
+        const { game } = (
+          await admin("POST", "/api/admin/games", {
+            name: "大会",
+            slots: [
+              { name: "優勝", points: 30, userIds: [] },
+              { name: "準優勝", points: 20, userIds: [] },
+            ],
+          })
+        ).body;
+        expect(game.updatedAt).toBe("2026-01-01T01:00:00.000Z");
+        const [win, second] = game.slots;
+        const body = (winners: string[], seconds: string[], baseUpdatedAt?: string) => ({
+          name: "大会",
+          slots: [
+            { slotId: win.slotId, name: "優勝", points: 30, userIds: winners },
+            { slotId: second.slotId, name: "準優勝", points: 20, userIds: seconds },
+          ],
+          baseUpdatedAt,
+        });
+        // 1 つ目の枠を保存（版が進む）
+        vi.setSystemTime(new Date("2026-01-01T01:01:00.000Z"));
+        const first = await admin("PUT", `/api/admin/games/${game.gameId}`, body([a.userId], [], game.updatedAt));
+        expect(first.status).toBe(200);
+        expect(first.body.game.updatedAt).toBe("2026-01-01T01:01:00.000Z");
+        // 古い版のまま 2 つ目の枠を保存すると 409 で、1 つ目の枠は消えない
+        vi.setSystemTime(new Date("2026-01-01T01:02:00.000Z"));
+        const stale = await admin("PUT", `/api/admin/games/${game.gameId}`, body([], [b.userId], game.updatedAt));
+        expect(stale.status).toBe(409);
+        const list = (await admin("GET", "/api/admin/games")).body.games;
+        expect(list[0].slots.map((s: any) => s.userIds)).toEqual([[a.userId], []]);
+        // 今の版なら保存できる。確定・取り消しでも版は進む
+        const ok = await admin(
+          "PUT",
+          `/api/admin/games/${game.gameId}`,
+          body([a.userId], [b.userId], first.body.game.updatedAt),
+        );
+        expect(ok.status).toBe(200);
+        vi.setSystemTime(new Date("2026-01-01T01:03:00.000Z"));
+        const confirmed = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
+        expect(confirmed.body.game.updatedAt).toBe("2026-01-01T01:03:00.000Z");
+        expect(
+          (await admin("PUT", `/api/admin/games/${game.gameId}`, body([a.userId], [], ok.body.game.updatedAt))).status,
+        ).toBe(409);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("紐づけを解除した人は新しく選べないが、選んだ後に解除された人はそのまま残せる", async () => {
       const admin = await adminClient();
       const a = await participant("田中");

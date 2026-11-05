@@ -373,8 +373,16 @@ export interface Repository {
   getGame(gameId: string): Promise<GameRecord | undefined>;
   /** 作成順（古い順）で返す */
   listGames(): Promise<GameRecord[]>;
-  /** 名前と枠を差し替える（確定済みでも直せる）。@throws NotFoundError */
-  updateGame(gameId: string, changes: Pick<GameRecord, "name" | "slots">, updatedAt: string): Promise<GameRecord>;
+  /**
+   * 名前と枠を差し替える（確定済みでも直せる）。expectedUpdatedAt を渡すと、保存済みの updatedAt がそれと同じときだけ差し替える。
+   * @throws NotFoundError / InvalidStateError ほかで直されていた
+   */
+  updateGame(
+    gameId: string,
+    changes: Pick<GameRecord, "name" | "slots">,
+    updatedAt: string,
+    expectedUpdatedAt?: string,
+  ): Promise<GameRecord>;
   /**
    * draft → confirmed（confirmedAt を付ける）、または confirmed → draft（confirmedAt を消す）。
    * @throws NotFoundError / InvalidStateError 今の状態が前提と合わない

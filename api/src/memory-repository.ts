@@ -364,9 +364,15 @@ export class MemoryRepository implements Repository {
       .map(clone);
   }
 
-  async updateGame(gameId: string, changes: Pick<GameRecord, "name" | "slots">, updatedAt: string) {
+  async updateGame(
+    gameId: string,
+    changes: Pick<GameRecord, "name" | "slots">,
+    updatedAt: string,
+    expectedUpdatedAt?: string,
+  ) {
     const game = this.games.get(gameId);
     if (!game) throw new NotFoundError();
+    if (expectedUpdatedAt !== undefined && game.updatedAt !== expectedUpdatedAt) throw new InvalidStateError();
     Object.assign(game, clone(changes), { updatedAt });
     return clone(game);
   }

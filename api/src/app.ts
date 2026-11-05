@@ -97,6 +97,7 @@ const PHOTO_COOKIE_TTL_MS = 12 * 60 * 60 * 1000;
 /** 検閲待ち写真・管理画面の署名付き URL の有効期間。画面は一覧の取り直しで URL を更新する */
 const SIGNED_URL_TTL_MS = 60 * 60 * 1000;
 const PHOTO_PAGE_SIZE = 30;
+const GAME_CONFLICT_MESSAGE = "ほかの画面でこのゲームが変更されました。開き直してから直してください";
 /** ランキングで公開中の写真をまとめて読むときの 1 回の件数 */
 const RANKING_PHOTO_PAGE_SIZE = 100;
 /** ランキングで写真ごとのお気に入りを同時に読む数 */
@@ -920,13 +921,24 @@ export function createApp(deps: AppDeps) {
     if (!body.ok) return body.response;
     const game = await repo.getGame(c.req.param("gameId"));
     if (!game) return fail(c, 404, "not_found");
+    if (body.data.baseUpdatedAt !== undefined && body.data.baseUpdatedAt !== game.updatedAt) {
+      return fail(c, 409, "invalid_state", GAME_CONFLICT_MESSAGE);
+    }
     const slots = await gameSlotsOf(c, body.data.slots, game.slots);
     if (slots instanceof Response) return slots;
     try {
-      const updated = await repo.updateGame(game.gameId, { name: body.data.name, slots }, now().toISOString());
+      const updated = await repo.updateGame(
+        game.gameId,
+        { name: body.data.name, slots },
+        now().toISOString(),
+        body.data.baseUpdatedAt,
+      );
       return c.json({ game: toGameDto(updated) });
     } catch (e) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      if (e instanceof InvalidStateError) {
+        return fail(c, 409, "invalid_state", GAME_CONFLICT_MESSAGE);
+      }
       throw e;
     }
   });
@@ -1286,6 +1298,7 @@ function toGameDto(game: GameRecord): GameDto {
     status: game.status,
     slots: game.slots.map((s) => ({ slotId: s.slotId, name: s.name, points: s.points, userIds: [...s.userIds] })),
     createdAt: game.createdAt,
+    updatedAt: game.updatedAt,
     confirmedAt: game.confirmedAt,
   };
 }
