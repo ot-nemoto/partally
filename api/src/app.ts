@@ -8,6 +8,7 @@ import {
   type ParticipantRankingResponse,
   type PhotoDto,
   type PhotoStatus,
+  type PointKey,
   type PrizeDto,
   photoStatusSchema,
   prizeRequestSchema,
@@ -25,7 +26,6 @@ import {
   type ScheduleItemDto,
   type Settings,
   scheduleItemRequestSchema,
-  type TieBreakKey,
   type TokenDto,
   type UserDto,
   updateSettingsRequestSchema,
@@ -931,7 +931,7 @@ function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
 }
 
 /** 項目ごとのポイント。同じポイントのときの順位の決め方（tieBreakOrder）でも使う */
-function pointsByKey(user: UserRecord, settings: Settings, quiz: QuizStats): Record<TieBreakKey, number> {
+function pointsByKey(user: UserRecord, settings: Settings, quiz: QuizStats): Record<PointKey, number> {
   return {
     upload: user.approvedCount * settings.uploadPoints,
     favoriteGiven: user.favoritesGiven * settings.favoriteGivenPoints,
@@ -945,7 +945,7 @@ export function calculatePoints(user: UserRecord, settings: Settings, quiz: Quiz
   return sumPoints(pointsByKey(user, settings, quiz));
 }
 
-function sumPoints(byKey: Record<TieBreakKey, number>): number {
+function sumPoints(byKey: Record<PointKey, number>): number {
   return byKey.upload + byKey.favoriteGiven + byKey.favoriteReceived + byKey.quiz;
 }
 
@@ -1007,23 +1007,27 @@ export function buildRanking(source: RankingSource): RankingResponse {
     return { user, points, byKey, history };
   });
 
-  // ポイントの高い順。同点は設定の優先順の項目のポイントが多い人を上にし、それも同じなら同じ順位にする
-  // （並びは先に登録した人を上にする）
+  // ポイントの高い順。同点は設定の優先順に比べる（ポイントの項目は多い人、登録順は先に登録した人を上）。
+  // 順位は必ず分ける。優先順で決まらないとき（登録時刻まで同じ）も、ユーザ ID の順で並べて別の順位にする
   const compareTie = (a: (typeof entries)[number], b: (typeof entries)[number]) => {
     for (const key of settings.tieBreakOrder) {
-      const diff = b.byKey[key] - a.byKey[key];
+      const diff =
+        key === "registered" ? a.user.createdAt.localeCompare(b.user.createdAt) : b.byKey[key] - a.byKey[key];
       if (diff !== 0) return diff;
     }
     return 0;
   };
-  entries.sort((a, b) => b.points - a.points || compareTie(a, b) || a.user.createdAt.localeCompare(b.user.createdAt));
+  entries.sort(
+    (a, b) =>
+      b.points - a.points ||
+      compareTie(a, b) ||
+      a.user.createdAt.localeCompare(b.user.createdAt) ||
+      a.user.userId.localeCompare(b.user.userId),
+  );
   const ranking: RankingEntryDto[] = [];
   entries.forEach((entry, i) => {
-    const prev = ranking[i - 1];
-    const before = entries[i - 1];
-    const tied = prev && before && before.points === entry.points && compareTie(before, entry) === 0;
     ranking.push({
-      rank: tied ? prev.rank : i + 1,
+      rank: i + 1,
       userId: entry.user.userId,
       name: entry.user.name,
       epithet: entry.user.epithet,
@@ -1071,7 +1075,7 @@ function toParticipantUserDto(user: UserRecord, settings: Settings, quiz: QuizSt
 export const HIDDEN_NAME = "???";
 
 /**
- * 参加者に返すランキング・推移。紐づけを解除した人は除き、順位を付け直す（元の順位が同じ人は同じ順位）。
+ * 参加者に返すランキング・推移。紐づけを解除した人は除き、並び順のとおりに 1 位から順位を付け直す。
  * 名前を伏せるときは名前・称号・ユーザ ID を返さず（ID は順番の番号に置き換える）、
  * 登録した時刻から人が分からないよう、推移の始まり（登録時の 0）を全員そろえる。
  * ポイントを伏せるときは、最大値を 100 とした割合（小数第 1 位まで）に置き換える
@@ -1093,11 +1097,9 @@ export function toParticipantRanking(
   const scale = (points: number) => (hidePoints ? (max > 0 ? Math.round((points / max) * 1000) / 10 : 0) : points);
   const result: RankingEntryDto[] = [];
   entries.forEach((e, i) => {
-    const prev = result[i - 1];
     result.push({
       ...e,
-      // 元の順位が同じ人（ポイントも優先順の項目もすべて同じ人）だけ同じ順位にする
-      rank: prev && entries[i - 1]?.rank === e.rank ? prev.rank : i + 1,
+      rank: i + 1,
       ...(hideNames ? { userId: `r${i + 1}`, name: HIDDEN_NAME, epithet: HIDDEN_NAME, displayName: HIDDEN_NAME } : {}),
       points: scale(e.points),
       history: e.history.map((h, j) => ({ at: hideNames && j === 0 ? start : h.at, points: scale(h.points) })),

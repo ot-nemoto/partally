@@ -1,4 +1,4 @@
-import type { TIE_BREAK_KEYS } from "./schemas.js";
+import type { POINT_KEYS, TIE_BREAK_KEYS } from "./schemas.js";
 
 export type UserStatus = "active" | "unbound";
 export type TokenStatus = "unbound" | "bound";
@@ -154,8 +154,8 @@ export interface Settings {
   /** 参加者に景品（何位で何がもらえるか）を見せるか */
   prizesVisible: boolean;
   /**
-   * 合計が同じ人の順位の決め方。先頭の項目のポイントが多い人を上にし、同じなら次の項目で比べる。
-   * すべて同じなら同じ順位（並びは先に登録した人を上にする）
+   * 合計が同じ人の順位の決め方。先頭の項目から順に比べ、ポイントの項目は多い人、登録順は先に登録した人を上にする。
+   * 順位は必ず分ける（同じ順位は作らない）
    */
   tieBreakOrder: TieBreakKey[];
   /** 参加者にスケジュールを見せるか */
@@ -166,6 +166,9 @@ export interface Settings {
 
 /** 同じポイントのときに比べる項目（一覧は TIE_BREAK_KEYS） */
 export type TieBreakKey = (typeof TIE_BREAK_KEYS)[number];
+
+/** ポイントの内訳の項目（一覧は POINT_KEYS） */
+export type PointKey = (typeof POINT_KEYS)[number];
 
 /** 参加者に見せるポイントのルール（設定のうち公開してよい部分） */
 export type Rules = Omit<Settings, "moderation">;
