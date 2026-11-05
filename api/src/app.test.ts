@@ -1457,6 +1457,36 @@ describe("API", () => {
       ).toBe(404);
     });
 
+    it("紐づけを解除した人は新しく選べないが、選んだ後に解除された人はそのまま残せる", async () => {
+      const admin = await adminClient();
+      const a = await participant("田中");
+      const b = await participant("鈴木");
+      const { game } = (
+        await admin("POST", "/api/admin/games", {
+          name: "大会",
+          slots: [{ name: "優勝", points: 10, userIds: [a.userId] }],
+        })
+      ).body;
+      await admin("POST", `/api/admin/users/${a.userId}/unbind`);
+      await admin("POST", `/api/admin/users/${b.userId}/unbind`);
+      const slotId = game.slots[0].slotId;
+      const put = (userIds: string[]) =>
+        admin("PUT", `/api/admin/games/${game.gameId}`, {
+          name: "大会",
+          slots: [{ slotId, name: "優勝", points: 10, userIds }],
+        });
+      expect((await put([a.userId])).status).toBe(200);
+      expect((await put([a.userId, b.userId])).status).toBe(400);
+      expect(
+        (
+          await admin("POST", "/api/admin/games", {
+            name: "別",
+            slots: [{ name: "優勝", points: 10, userIds: [a.userId] }],
+          })
+        ).status,
+      ).toBe(400);
+    });
+
     it("ゲームの点数を伏せると、参加者には点数と入った枠を返さない（合計には入る）", async () => {
       const admin = await adminClient();
       const a = await participant("田中");

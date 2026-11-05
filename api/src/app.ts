@@ -873,7 +873,10 @@ export function createApp(deps: AppDeps) {
 
   app.get("/admin/games", async (c) => c.json({ games: (await repo.listGames()).map(toGameDto) }));
 
-  /** 送られた枠を保存する形にする。既存の枠の ID と、選んだ人が登録済みかを確かめる（問題があれば 400 のレスポンス） */
+  /**
+   * 送られた枠を保存する形にする。既存の枠の ID と、選んだ人が登録済みかを確かめる（問題があれば 400 のレスポンス）。
+   * 紐づけを解除した人は新しくは選べない（選んだ後に解除された人は、そのまま残せる）
+   */
   const gameSlotsOf = async (
     c: Context,
     slots: z.infer<typeof gameRequestSchema>["slots"],
@@ -886,6 +889,10 @@ export function createApp(deps: AppDeps) {
     const userIds = [...new Set(slots.flatMap((s) => s.userIds))];
     const found = await repo.getUsers(userIds);
     if (found.length !== userIds.length) return fail(c, 400, "bad_request", "登録されていない人が選ばれています");
+    const current = new Set(existing.flatMap((s) => s.userIds));
+    if (found.some((u) => u.status !== "active" && !current.has(u.userId))) {
+      return fail(c, 400, "bad_request", "紐づけを解除した人は選べません");
+    }
     return slots.map((s) => ({ slotId: s.slotId ?? newId(), name: s.name, points: s.points, userIds: s.userIds }));
   };
 

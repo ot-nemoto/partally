@@ -191,9 +191,11 @@ export function AdminGames() {
   );
 }
 
+/** 今日なら時刻だけ、別の日（リハーサルなど）なら日付も付ける */
 function formatTime(iso: string) {
   const d = new Date(iso);
-  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const time = `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return d.toDateString() === new Date().toDateString() ? time : `${d.getMonth() + 1}/${d.getDate()} ${time}`;
 }
 
 interface SlotDraft {
