@@ -143,36 +143,46 @@ export function AdminGames() {
             <span className={`status status-${g.status}`}>{STATUS_LABEL[g.status]}</span>
             {g.confirmedAt && <span className="muted small">{formatTime(g.confirmedAt)} に確定</span>}
           </header>
-          <ul className="game-slots">
-            {g.slots.map((s) => (
-              <li key={s.slotId}>
-                <div className="game-slot-head">
-                  <strong>{s.name}</strong>
-                  <span className="muted small">
-                    {s.points} 点・{s.userIds.length} 人
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setPicking({ gameId: g.gameId, slotId: s.slotId })}
-                    disabled={busy}
-                    aria-label={`${s.name}の人を選ぶ`}
-                  >
-                    人を選ぶ
-                  </button>
-                </div>
-                {s.userIds.length > 0 ? (
-                  <p className="small game-slot-members">
-                    {s.userIds.map((id) => byId.get(id)?.displayName ?? "（不明なユーザ）").join("、")}
-                  </p>
-                ) : (
-                  <p className="muted small game-slot-members">まだ選んでいません</p>
-                )}
-              </li>
-            ))}
-          </ul>
+          {g.slots.length === 0 ? (
+            <p className="muted small">まだ枠がありません。「編集」で枠（優勝・準優勝など）を追加してください。</p>
+          ) : (
+            <ul className="game-slots">
+              {g.slots.map((s) => (
+                <li key={s.slotId}>
+                  <div className="game-slot-head">
+                    <strong>{s.name}</strong>
+                    <span className="muted small">
+                      {s.points} 点・{s.userIds.length} 人
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPicking({ gameId: g.gameId, slotId: s.slotId })}
+                      disabled={busy}
+                      aria-label={`${s.name}の人を選ぶ`}
+                    >
+                      人を選ぶ
+                    </button>
+                  </div>
+                  {s.userIds.length > 0 ? (
+                    <p className="small game-slot-members">
+                      {s.userIds.map((id) => byId.get(id)?.displayName ?? "（不明なユーザ）").join("、")}
+                    </p>
+                  ) : (
+                    <p className="muted small game-slot-members">まだ選んでいません</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="actions">
             {g.status === "draft" ? (
-              <button type="button" className="primary" onClick={() => confirmGame(g)} disabled={busy}>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => confirmGame(g)}
+                disabled={busy || g.slots.length === 0}
+                title={g.slots.length === 0 ? "枠を追加すると確定できます" : undefined}
+              >
                 確定
               </button>
             ) : (
@@ -275,7 +285,8 @@ function GameFormDialog(props: {
   const { game } = props;
   const [name, setName] = useState(game?.name ?? "");
   const [slots, setSlots] = useState<SlotDraft[]>(
-    game?.slots.map((s) => ({ ...s, key: s.slotId })) ?? [newSlot("", 30), newSlot("", 20), newSlot("", 10)],
+    // 新しいゲームは名前だけで作れるよう、枠の行なしで始める
+    game?.slots.map((s) => ({ ...s, key: s.slotId })) ?? [],
   );
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
@@ -375,7 +386,6 @@ function GameFormDialog(props: {
                   type="button"
                   className="link"
                   onClick={() => setSlots((prev) => prev.filter((x) => x.key !== s.key))}
-                  disabled={slots.length <= 1}
                   aria-label={`枠 ${i + 1} を削除`}
                 >
                   削除
@@ -395,7 +405,7 @@ function GameFormDialog(props: {
           </button>
         </fieldset>
         <p className="muted small">
-          人は、保存した後に枠ごとの「人を選ぶ」で選びます。枠を削除すると、その枠で選んだ人も外れます。
+          枠は後から追加することもできます（枠が無いゲームは確定できません）。人は、保存した後に枠ごとの「人を選ぶ」で選びます。枠を削除すると、その枠で選んだ人も外れます。
           {game?.status === "confirmed" && "確定済みなので、保存するとすぐにポイントが変わります。"}
         </p>
         {error && <p className="error">{error}</p>}

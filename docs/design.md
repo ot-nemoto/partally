@@ -223,7 +223,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `gameId` | string | ULID |
 | `name` | string | 名前（NFKC 正規化・前後空白除去、1〜50 文字） |
 | `status` | `draft` \| `confirmed` | 下書き（ポイントに入らない）／確定 |
-| `slots` | list | 枠 `{slotId, name, points, userIds}` の配列（1〜20 個、name は 1〜30 文字、points は 0〜100）。1 人は 1 つの枠にだけ入る |
+| `slots` | list | 枠 `{slotId, name, points, userIds}` の配列（0〜20 個、name は 1〜30 文字、points は 0〜100）。1 人は 1 つの枠にだけ入る |
 | `confirmedAt` | string? | 確定した時刻。確定を取り消すと消える |
 | `createdAt` / `updatedAt` | string | `updatedAt` は名前・枠・人・状態を変えるたびに進む。更新の版の確かめに使う |
 
@@ -447,9 +447,9 @@ sequenceDiagram
 | POST | `/api/admin/quizzes/{quizId}/open` | 出題。下書きでなければ・別の問題が出題中なら 409 |
 | POST | `/api/admin/quizzes/{quizId}/close` | 締め切り。出題中でなければ 409 |
 | GET | `/api/admin/games` | ゲームの一覧（作成順） |
-| POST | `/api/admin/games` | ゲームを作る `{name, slots: [{name, points, userIds}]}`（下書き）。同じ人が 2 つの枠に入る・登録されていない人を選ぶと 400 |
+| POST | `/api/admin/games` | ゲームを作る `{name, slots: [{name, points, userIds}]}`（下書き。枠は空でもよい）。同じ人が 2 つの枠に入る・登録されていない人を選ぶと 400 |
 | PUT | `/api/admin/games/{gameId}` | 名前・枠・選んだ人を直す（作るときと同じ形。既存の枠は `slotId` を付けて送る）。確定済みでも直せる。画面が持っている `updatedAt` を `baseUpdatedAt` で送ると、ほかで直されていたとき（保存済みと違うとき）は上書きせず 409 |
-| POST | `/api/admin/games/{gameId}/confirm` | 確定（その時刻でポイントが入る）。下書きでなければ 409 |
+| POST | `/api/admin/games/{gameId}/confirm` | 確定（その時刻でポイントが入る）。下書きでない・枠が 1 つも無いときは 409 |
 | POST | `/api/admin/games/{gameId}/unconfirm` | 確定を取り消して下書きに戻す（ポイントも消える）。確定していなければ 409 |
 | DELETE | `/api/admin/games/{gameId}` | 削除（確定済みなら入ったポイントも消える） |
 | GET | `/api/admin/prizes` | 景品の一覧（作成順、画像の署名付き URL 付き） |

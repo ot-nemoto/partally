@@ -1429,13 +1429,12 @@ describe("API", () => {
       expect((await admin("POST", `/api/admin/games/${game.gameId}/confirm`)).status).toBe(404);
     });
 
-    it("入力を確かめる（点数の範囲・同じ人が 2 つの枠・知らない人や枠・枠なし）", async () => {
+    it("入力を確かめる（点数の範囲・同じ人が 2 つの枠・知らない人や枠）", async () => {
       const admin = await adminClient();
       const a = await participant("田中");
       const post = (slots: unknown[]) => admin("POST", "/api/admin/games", { name: "大会", slots });
       expect((await post([{ name: "優勝", points: 101, userIds: [] }])).status).toBe(400);
       expect((await post([{ name: "優勝", points: -1, userIds: [] }])).status).toBe(400);
-      expect((await post([])).status).toBe(400);
       expect(
         (
           await post([
@@ -1510,6 +1509,31 @@ describe("API", () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it("名前だけで作れ、枠は後から足せる。枠が無いゲームは確定できない", async () => {
+      const admin = await adminClient();
+      const a = await participant("田中");
+      const created = await admin("POST", "/api/admin/games", { name: "ビンゴ", slots: [] });
+      expect(created.status).toBe(201);
+      const { game } = created.body;
+      expect(game.slots).toEqual([]);
+      expect((await admin("POST", `/api/admin/games/${game.gameId}/confirm`)).status).toBe(409);
+      expect((await admin("GET", "/api/admin/games")).body.games[0].status).toBe("draft");
+
+      const added = await admin("PUT", `/api/admin/games/${game.gameId}`, {
+        name: "ビンゴ",
+        slots: [{ name: "1 番乗り", points: 10, userIds: [a.userId] }],
+        baseUpdatedAt: game.updatedAt,
+      });
+      expect(added.status).toBe(200);
+      expect((await admin("POST", `/api/admin/games/${game.gameId}/confirm`)).status).toBe(200);
+      expect(await pointsOf(admin)).toMatchObject({ 田中: [10, 10] });
+      // 確定後に枠を全部外すこともでき、そのときはポイントも入らない
+      const emptied = await admin("PUT", `/api/admin/games/${game.gameId}`, { name: "ビンゴ", slots: [] });
+      expect(emptied.status).toBe(200);
+      expect(await pointsOf(admin)).toMatchObject({ 田中: [0, 0] });
+      expect((await admin("POST", "/api/admin/games/NONE/confirm")).status).toBe(404);
     });
 
     it("紐づけを解除した人は新しく選べないが、選んだ後に解除された人はそのまま残せる", async () => {
