@@ -72,7 +72,7 @@ export const TIE_BREAK_LABEL: Record<TieBreakKey, string> = {
   favoriteGiven: "お気に入りを選んだ",
   favoriteReceived: "お気に入りに選ばれた",
   quiz: "クイズ",
-  registered: "登録順（先に登録した人が上）",
+  registered: "登録順",
 };
 export const FAVORITE_LIMIT_MAX = 100;
 
