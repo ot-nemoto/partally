@@ -239,7 +239,7 @@ export const gameRequestSchema = z
           userIds: z.array(idSchema).max(GAME_MEMBERS_MAX),
         }),
       )
-      .min(1)
+      // 名前だけで作り、枠は後から足せる（枠が無いゲームは確定できない）
       .max(GAME_SLOTS_MAX),
     /**
      * 更新のとき、画面が持っているゲームの updatedAt。保存済みのものと違えば（ほかで直されていれば）上書きせず 409 にする。

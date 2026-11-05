@@ -954,7 +954,13 @@ export function createApp(deps: AppDeps) {
     }
   };
 
-  app.post("/admin/games/:gameId/confirm", (c) => changeGameStatus(c, "confirmed", "既に確定しています"));
+  app.post("/admin/games/:gameId/confirm", async (c) => {
+    const game = await repo.getGame(c.req.param("gameId"));
+    if (!game) return fail(c, 404, "not_found");
+    // 枠が無いと入るポイントが無いので、確定させない
+    if (game.slots.length === 0) return fail(c, 409, "invalid_state", "枠を追加してから確定してください");
+    return changeGameStatus(c, "confirmed", "既に確定しています");
+  });
   app.post("/admin/games/:gameId/unconfirm", (c) => changeGameStatus(c, "draft", "確定していません"));
 
   app.delete("/admin/games/:gameId", async (c) => {
