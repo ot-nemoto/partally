@@ -1492,6 +1492,22 @@ describe("buildRanking", () => {
     expect(result.ranking[0]!.history.at(-1)).toEqual({ at: "2026-01-01T03:00:00.000Z", points: 1 });
   });
 
+  it("登録の時刻まで同じ人も、ユーザ ID の順で別の順位にする", () => {
+    const at = "2026-01-01T00:00:00.000Z";
+    const result = buildRanking({
+      users: [user("u2", "鈴木", { createdAt: at }), user("u1", "田中", { createdAt: at })],
+      settings: DEFAULT_SETTINGS,
+      quizzes: [],
+      photos: [],
+      favorites: [],
+      now: "2026-01-01T03:00:00.000Z",
+    });
+    expect(result.ranking.map((r) => [r.rank, r.userId])).toEqual([
+      [1, "u1"],
+      [2, "u2"],
+    ]);
+  });
+
   // 合計はどちらも 10 点。u1 は写真で 10 点、u2 はお気に入りを選んで 10 点、u3 はクイズで 10 点
   const tied = () => [
     user("u1", "田中", { approvedCount: 10 }),
