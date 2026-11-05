@@ -90,6 +90,17 @@ export interface PrizeRecord {
   updatedAt: string;
 }
 
+export interface ScheduleItemRecord {
+  itemId: string;
+  title: string;
+  detail: string;
+  /** 0:00 からの分 */
+  startMinute: number;
+  durationMinutes: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Page<T> {
   items: T[];
   /** 続きがある場合の位置。次の呼び出しにそのまま渡す */
@@ -114,6 +125,8 @@ export const DEFAULT_SETTINGS: Settings = {
   trendHidePoints: false,
   prizesVisible: false,
   tieBreakOrder: [...TIE_BREAK_KEYS],
+  scheduleVisible: false,
+  scheduleDate: "",
 };
 
 export interface UserChanges {
@@ -319,6 +332,20 @@ export interface Repository {
   ): Promise<PrizeRecord>;
   /** @throws NotFoundError */
   deletePrize(prizeId: string): Promise<void>;
+
+  // ---- スケジュール ----
+
+  createScheduleItem(item: ScheduleItemRecord): Promise<void>;
+  /** 作成順（古い順）で返す */
+  listScheduleItems(): Promise<ScheduleItemRecord[]>;
+  /** @throws NotFoundError */
+  updateScheduleItem(
+    itemId: string,
+    changes: Pick<ScheduleItemRecord, "title" | "detail" | "startMinute" | "durationMinutes">,
+    updatedAt: string,
+  ): Promise<ScheduleItemRecord>;
+  /** @throws NotFoundError */
+  deleteScheduleItem(itemId: string): Promise<void>;
 
   // ---- 設定 ----
 

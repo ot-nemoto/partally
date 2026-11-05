@@ -188,8 +188,8 @@ export function AdminSettings() {
           <div className="card settings">
             <h2>同じポイントのときの順位</h2>
             <p className="muted small">
-              合計が同じ人は、上の項目のポイントが多い人を上の順位にします（左の ⋮⋮ をドラッグするか ↑↓
-              で並べ替え）。同じなら次の項目で比べ、すべて同じなら同じ順位です（並びは先に登録した人を上にします）。景品もこの順位で渡します。
+              合計が同じ人は、上の項目から順に比べて順位を決めます（左の ⋮⋮ をドラッグするか ↑↓
+              で並べ替え）。ポイントの項目は多い人、登録順は先に登録した人が上です。同じなら次の項目で比べ、必ず別々の順位にします。景品もこの順位で渡します。
             </p>
             <SortableList
               items={settings.tieBreakOrder}
@@ -230,6 +230,14 @@ export function AdminSettings() {
                 description="何位で何がもらえるかの一覧です（景品は Prize で登録）。ランキングも見せていれば、各行にその順位の景品を添えます。"
                 checked={settings.prizesVisible}
                 onChange={(v) => update("prizesVisible", v)}
+              />
+            </fieldset>
+            <fieldset className="publish-option">
+              <SwitchField
+                label="参加者にスケジュールを見せる"
+                description="進行表です（Schedule で作成）。今の時間の項目に「いま」、次の項目に「つぎ」を付けて見せます。"
+                checked={settings.scheduleVisible}
+                onChange={(v) => update("scheduleVisible", v)}
               />
             </fieldset>
             <p className="muted small">

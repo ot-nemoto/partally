@@ -59,9 +59,15 @@ describe("DynamoRepository", () => {
   beforeEach(() => ddb.reset());
 
   describe("設定", () => {
-    it("保存済みの優先順は、知らない項目・重複を除き、足りない項目を既定の順で後ろに補う", async () => {
+    it("保存済みの優先順は、知らない項目・重複を除き、足りない項目（後から加えた登録順など）を既定の順で後ろに補う", async () => {
       ddb.on(GetCommand).resolves({ Item: { tieBreakOrder: ["quiz", "x", "quiz", "upload"] } });
-      expect((await repo.getSettings()).tieBreakOrder).toEqual(["quiz", "upload", "favoriteGiven", "favoriteReceived"]);
+      expect((await repo.getSettings()).tieBreakOrder).toEqual([
+        "quiz",
+        "upload",
+        "favoriteGiven",
+        "favoriteReceived",
+        "registered",
+      ]);
     });
 
     it("保存されていない項目は既定値で補う", async () => {
@@ -485,6 +491,36 @@ describe("DynamoRepository", () => {
       const [draftOnly, any] = ddb.commandCalls(UpdateCommand).map((c) => c.args[0].input.ConditionExpression);
       expect(draftOnly).toBe("attribute_exists(PK) AND #status = :draft");
       expect(any).toBe("attribute_exists(PK)");
+    });
+  });
+
+  describe("スケジュール", () => {
+    it("作成順に並べるため GSI1 に入れ、無い項目の更新・削除は NotFoundError", async () => {
+      ddb.on(PutCommand).resolves({});
+      const item = {
+        itemId: "S1",
+        title: "乾杯",
+        detail: "",
+        startMinute: 1095,
+        durationMinutes: 10,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+      await repo.createScheduleItem(item);
+      expect(ddb.commandCalls(PutCommand)[0]!.args[0].input).toMatchObject({
+        Item: { PK: "SCHEDULE#S1", SK: "META", GSI1PK: "SCHEDULE", GSI1SK: "2026-01-01T00:00:00.000Z#S1" },
+        ConditionExpression: "attribute_not_exists(PK)",
+      });
+      ddb.on(QueryCommand).resolves({ Items: [{ PK: "SCHEDULE#S1", SK: "META", ...item }] });
+      expect(await repo.listScheduleItems()).toEqual([item]);
+
+      const failed = new ConditionalCheckFailedException({ message: "failed", $metadata: {} });
+      ddb.on(UpdateCommand).rejects(failed);
+      await expect(
+        repo.updateScheduleItem("S1", { title: "x", detail: "", startMinute: 0, durationMinutes: 5 }, "t"),
+      ).rejects.toBeInstanceOf(NotFoundError);
+      ddb.on(DeleteCommand).rejects(failed);
+      await expect(repo.deleteScheduleItem("S1")).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 

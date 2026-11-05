@@ -54,8 +54,8 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
   const done = time >= endTime;
 
   // その時点のポイントの高い順。同点は今のランキングの並び（同じポイントのときの優先順を反映済み）で上下を決める。
-  // 途中の時点の項目ごとのポイントは分からないので、再生中は同点を同じ順位にし、最後だけ今のランキングの順位
-  // （優先順で分けた順位）にそろえる。登録前の人は出さない
+  // 途中の時点の項目ごとのポイントは分からないので、再生中は同点を同じ順位にし、最後は今のランキングの順位
+  // （優先順で必ず分けた順位）にそろえる。登録前の人は出さない
   const standings = entries
     .map(({ entry, history }, order) => ({ entry, order, points: valueAt(history, time) }))
     .filter((s): s is typeof s & { points: number } => s.points !== undefined)

@@ -57,8 +57,14 @@ export const photoStatusSchema = z.enum(["pending", "approved", "rejected"]);
 
 export const POINTS_MAX = 100;
 
-/** 同じポイントのときに比べる項目（既定の優先順に並べている） */
-export const TIE_BREAK_KEYS = ["upload", "favoriteGiven", "favoriteReceived", "quiz"] as const;
+/** ポイントの内訳の項目 */
+export const POINT_KEYS = ["upload", "favoriteGiven", "favoriteReceived", "quiz"] as const;
+
+/**
+ * 同じポイントのときに比べる項目（既定の優先順に並べている）。ポイントの内訳の項目と、登録順（先に登録した人が上）。
+ * 登録順が入っているので、順位は必ず分かれる
+ */
+export const TIE_BREAK_KEYS = [...POINT_KEYS, "registered"] as const;
 
 /** 優先順の項目の名前（管理画面・参加者の画面の案内に出す） */
 export const TIE_BREAK_LABEL: Record<TieBreakKey, string> = {
@@ -66,6 +72,7 @@ export const TIE_BREAK_LABEL: Record<TieBreakKey, string> = {
   favoriteGiven: "お気に入りを選んだ",
   favoriteReceived: "お気に入りに選ばれた",
   quiz: "クイズ",
+  registered: "登録順（先に登録した人が上）",
 };
 export const FAVORITE_LIMIT_MAX = 100;
 
@@ -93,6 +100,11 @@ export const updateSettingsRequestSchema = z.object({
     .refine((v) => v.length === TIE_BREAK_KEYS.length && new Set(v).size === v.length, {
       message: `優先順は ${TIE_BREAK_KEYS.length} つの項目をすべて 1 回ずつ並べてください`,
     })
+    .optional(),
+  scheduleVisible: z.boolean().optional(),
+  /** イベントの日付（YYYY-MM-DD）。空なら日付を決めない */
+  scheduleDate: z
+    .union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日付は YYYY-MM-DD で入れてください")])
     .optional(),
 });
 
@@ -170,3 +182,35 @@ export const prizeRequestSchema = z
 
 export type PrizeRequest = z.infer<typeof prizeRequestSchema>;
 export type QuizAnswerRequest = z.infer<typeof quizAnswerRequestSchema>;
+
+export const SCHEDULE_TITLE_MAX_LENGTH = 50;
+export const SCHEDULE_DETAIL_MAX_LENGTH = 500;
+/** 1 日の分（スケジュールの時刻は 0:00 からの分で持ち、24:00 を越えない） */
+export const DAY_MINUTES = 24 * 60;
+/** 所要時間の最小（タイムラインの刻みと同じ 5 分） */
+export const SCHEDULE_MIN_DURATION = 5;
+
+/**
+ * スケジュールの項目。タイトルは 1 行、詳細は書いたとおり（前後の空白だけ除く）。
+ * 開始時刻と所要時間は分で持ち、終わりは 24:00 まで
+ */
+export const scheduleItemRequestSchema = z
+  .object({
+    title: normalized(SCHEDULE_TITLE_MAX_LENGTH),
+    detail: z
+      .string()
+      .transform((s) => s.trim())
+      .pipe(z.string().max(SCHEDULE_DETAIL_MAX_LENGTH)),
+    startMinute: z
+      .number()
+      .int()
+      .min(0)
+      .max(DAY_MINUTES - SCHEDULE_MIN_DURATION),
+    durationMinutes: z.number().int().min(SCHEDULE_MIN_DURATION).max(DAY_MINUTES),
+  })
+  .refine((v) => v.startMinute + v.durationMinutes <= DAY_MINUTES, {
+    message: "終わりの時刻が 24:00 を越えています",
+    path: ["durationMinutes"],
+  });
+
+export type ScheduleItemRequest = z.infer<typeof scheduleItemRequestSchema>;

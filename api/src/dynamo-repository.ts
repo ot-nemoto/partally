@@ -30,6 +30,7 @@ import {
   type QuizAnswerRecord,
   type QuizRecord,
   type Repository,
+  type ScheduleItemRecord,
   TokenNotAvailableError,
   type TokenRecord,
   type UserChanges,
@@ -48,6 +49,7 @@ export const keys = {
   /** 出題中のクイズ。同時に 1 問だけにするため、このアイテムの有無で排他する */
   openQuiz: { PK: "QUIZ_STATE", SK: "OPEN" },
   prize: (prizeId: string) => ({ PK: `PRIZE#${prizeId}`, SK: "META" }),
+  scheduleItem: (itemId: string) => ({ PK: `SCHEDULE#${itemId}`, SK: "META" }),
   settings: { PK: "SETTINGS", SK: "GLOBAL" },
   tokenLabelCounter: { PK: "COUNTER", SK: "TOKEN_LABEL" },
 };
@@ -790,6 +792,71 @@ export class DynamoRepository implements Repository {
     }
   }
 
+  async createScheduleItem(item: ScheduleItemRecord) {
+    await this.client.send(
+      new PutCommand({
+        TableName: this.tableName,
+        Item: {
+          ...keys.scheduleItem(item.itemId),
+          GSI1PK: "SCHEDULE",
+          GSI1SK: `${item.createdAt}#${item.itemId}`,
+          ...item,
+        },
+        ConditionExpression: "attribute_not_exists(PK)",
+      }),
+    );
+  }
+
+  async listScheduleItems() {
+    return (await this.queryGsi1("SCHEDULE")).map(toScheduleItemRecord);
+  }
+
+  async updateScheduleItem(
+    itemId: string,
+    changes: Pick<ScheduleItemRecord, "title" | "detail" | "startMinute" | "durationMinutes">,
+    updatedAt: string,
+  ) {
+    try {
+      const { Attributes } = await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: keys.scheduleItem(itemId),
+          UpdateExpression:
+            "SET #title = :title, #detail = :detail, startMinute = :start, durationMinutes = :duration, updatedAt = :updatedAt",
+          ConditionExpression: "attribute_exists(PK)",
+          ExpressionAttributeNames: { "#title": "title", "#detail": "detail" },
+          ExpressionAttributeValues: {
+            ":title": changes.title,
+            ":detail": changes.detail,
+            ":start": changes.startMinute,
+            ":duration": changes.durationMinutes,
+            ":updatedAt": updatedAt,
+          },
+          ReturnValues: "ALL_NEW",
+        }),
+      );
+      return toScheduleItemRecord(Attributes!);
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) throw new NotFoundError();
+      throw e;
+    }
+  }
+
+  async deleteScheduleItem(itemId: string) {
+    try {
+      await this.client.send(
+        new DeleteCommand({
+          TableName: this.tableName,
+          Key: keys.scheduleItem(itemId),
+          ConditionExpression: "attribute_exists(PK)",
+        }),
+      );
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) throw new NotFoundError();
+      throw e;
+    }
+  }
+
   async getSettings(): Promise<Settings> {
     const { Item } = await this.client.send(new GetCommand({ TableName: this.tableName, Key: keys.settings }));
     const stored = Object.fromEntries(
@@ -967,6 +1034,18 @@ function toPrizeRecord(item: Record<string, unknown>): PrizeRecord {
     quantity: Number(item.quantity ?? 0),
     positions: ((item.positions ?? []) as unknown[]).map(Number),
     imageId: item.imageId as string | undefined,
+    createdAt: item.createdAt as string,
+    updatedAt: item.updatedAt as string,
+  };
+}
+
+function toScheduleItemRecord(item: Record<string, unknown>): ScheduleItemRecord {
+  return {
+    itemId: item.itemId as string,
+    title: item.title as string,
+    detail: (item.detail as string | undefined) ?? "",
+    startMinute: Number(item.startMinute ?? 0),
+    durationMinutes: Number(item.durationMinutes ?? 0),
     createdAt: item.createdAt as string,
     updatedAt: item.updatedAt as string,
   };

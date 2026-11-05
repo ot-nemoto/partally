@@ -6,6 +6,7 @@ import { AdminPhotos } from "./pages/admin/AdminPhotos";
 import { AdminPrizes } from "./pages/admin/AdminPrizes";
 import { AdminQuizzes } from "./pages/admin/AdminQuizzes";
 import { AdminRanking } from "./pages/admin/AdminRanking";
+import { AdminSchedule } from "./pages/admin/AdminSchedule";
 import { AdminSettings } from "./pages/admin/AdminSettings";
 import { AdminTokens } from "./pages/admin/AdminTokens";
 import { AdminTokensPrint } from "./pages/admin/AdminTokensPrint";
@@ -42,6 +43,7 @@ export function App() {
         <Route path="photos" element={<AdminPhotos />} />
         <Route path="quizzes" element={<AdminQuizzes />} />
         <Route path="prizes" element={<AdminPrizes />} />
+        <Route path="schedule" element={<AdminSchedule />} />
         <Route path="settings" element={<AdminSettings />} />
       </Route>
       <Route path="*" element={<NotFound />} />

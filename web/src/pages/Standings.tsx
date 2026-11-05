@@ -12,20 +12,30 @@ import { RankingBars } from "../components/RankingBars";
 import { MAX_LINES, RankingChart } from "../components/RankingChart";
 import { usePrizes } from "../hooks/usePrizes";
 import { useOnReload } from "../hooks/useReload";
+import { ScheduleView } from "./ScheduleView";
 
-type View = "ranking" | "trend" | "prizes";
+type View = "schedule" | "ranking" | "trend" | "prizes";
 
-const VIEW_LABEL: Record<View, string> = { ranking: "ランキング", trend: "ポイントの推移", prizes: "景品" };
+const VIEW_LABEL: Record<View, string> = {
+  schedule: "スケジュール",
+  ranking: "ランキング",
+  trend: "ポイントの推移",
+  prizes: "景品",
+};
 
 /**
- * 参加者のランキング・ポイントの推移・景品。どれを見せるか、名前・ポイントを伏せるかは管理画面の設定に従う
+ * 参加者のスケジュール・ランキング・ポイントの推移・景品。どれを見せるか、名前・ポイントを伏せるかは管理画面の設定に従う
  * （伏せる分は API から返らない）。複数見せるときは切り替えて表示する
  */
 export function Standings() {
   const { rules } = useParticipant();
-  const views = (["ranking", "trend", "prizes"] as const).filter((v) =>
-    v === "ranking" ? rules.rankingVisible : v === "trend" ? rules.trendVisible : rules.prizesVisible,
-  );
+  const visible: Record<View, boolean> = {
+    schedule: rules.scheduleVisible,
+    ranking: rules.rankingVisible,
+    trend: rules.trendVisible,
+    prizes: rules.prizesVisible,
+  };
+  const views = (["schedule", "ranking", "trend", "prizes"] as const).filter((v) => visible[v]);
   const [selected, setSelected] = useState<View>();
   const view = selected && views.includes(selected) ? selected : views[0];
 
@@ -48,7 +58,9 @@ export function Standings() {
           ))}
         </div>
       )}
-      {view === "prizes" ? (
+      {view === "schedule" ? (
+        <ScheduleView />
+      ) : view === "prizes" ? (
         <PrizesView />
       ) : view ? (
         <StandingsView key={view} view={view} withPrizes={rules.prizesVisible} />
@@ -88,14 +100,14 @@ function PrizesView() {
       {rules.tieBreakOrder?.length > 0 && (
         <p className="muted small">
           同じポイントの人は、{rules.tieBreakOrder.map((key) => TIE_BREAK_LABEL[key]).join(" → ")}
-          のポイントが多い人を上として数えます（すべて同じなら先に登録した人が上）。
+          の順に比べて順位を決めます（ポイントの項目は多い人が上）。
         </p>
       )}
     </>
   );
 }
 
-function StandingsView({ view, withPrizes }: { view: Exclude<View, "prizes">; withPrizes: boolean }) {
+function StandingsView({ view, withPrizes }: { view: "ranking" | "trend"; withPrizes: boolean }) {
   const { prizes } = usePrizes("/prizes", withPrizes && view === "ranking");
   const [data, setData] = useState<ParticipantRankingResponse>();
   const [error, setError] = useState<string>();

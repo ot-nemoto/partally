@@ -395,12 +395,13 @@ describe("API", () => {
         admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post", tieBreakOrder }).then(
           (r) => r.status,
         );
-      expect(await order(["quiz", "upload", "favoriteReceived", "favoriteGiven"])).toBe(200);
-      expect(await order(["quiz", "upload", "favoriteReceived"])).toBe(400);
-      expect(await order(["quiz", "quiz", "favoriteReceived", "favoriteGiven"])).toBe(400);
-      expect(await order(["quiz", "upload", "favoriteReceived", "x"])).toBe(400);
+      expect(await order(["quiz", "registered", "upload", "favoriteReceived", "favoriteGiven"])).toBe(200);
+      expect(await order(["quiz", "upload", "favoriteReceived", "favoriteGiven"])).toBe(400);
+      expect(await order(["quiz", "quiz", "upload", "favoriteReceived", "favoriteGiven"])).toBe(400);
+      expect(await order(["quiz", "registered", "upload", "favoriteReceived", "x"])).toBe(400);
       expect((await admin("GET", "/api/admin/settings")).body.settings.tieBreakOrder).toEqual([
         "quiz",
+        "registered",
         "upload",
         "favoriteReceived",
         "favoriteGiven",
@@ -567,7 +568,9 @@ describe("API", () => {
         trendHideNames: false,
         trendHidePoints: false,
         prizesVisible: false,
-        tieBreakOrder: ["upload", "favoriteGiven", "favoriteReceived", "quiz"],
+        tieBreakOrder: ["upload", "favoriteGiven", "favoriteReceived", "quiz", "registered"],
+        scheduleVisible: false,
+        scheduleDate: "",
       });
 
       await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post", uploadPoints: 3 });
@@ -1217,6 +1220,106 @@ describe("API", () => {
     });
   });
 
+  describe("スケジュール", () => {
+    async function adminClient() {
+      const request = createClient(app);
+      await request("POST", "/api/admin/login", { password: ADMIN_PASSWORD });
+      return request;
+    }
+
+    it("作成・更新・削除ができ、一覧は開始時刻の早い順", async () => {
+      const admin = await adminClient();
+      const toast = await admin("POST", "/api/admin/schedule", {
+        title: " 乾杯 ",
+        detail: "  幹事から一言\n  ",
+        startMinute: 18 * 60 + 15,
+        durationMinutes: 10,
+      });
+      expect(toast.status).toBe(201);
+      expect(toast.body.item).toMatchObject({
+        title: "乾杯",
+        detail: "幹事から一言",
+        startMinute: 1095,
+        durationMinutes: 10,
+      });
+      await admin("POST", "/api/admin/schedule", {
+        title: "開場",
+        detail: "",
+        startMinute: 18 * 60,
+        durationMinutes: 15,
+      });
+
+      const list = await admin("GET", "/api/admin/schedule");
+      expect(list.body.items.map((i: any) => i.title)).toEqual(["開場", "乾杯"]);
+      expect(list.body.date).toBe("");
+
+      // ドラッグで動かしたときと同じく、時刻と長さを変える
+      const id = toast.body.item.itemId;
+      const moved = await admin("PUT", `/api/admin/schedule/${id}`, {
+        title: "乾杯",
+        detail: "",
+        startMinute: 17 * 60,
+        durationMinutes: 20,
+      });
+      expect(moved.status).toBe(200);
+      expect((await admin("GET", "/api/admin/schedule")).body.items.map((i: any) => i.title)).toEqual(["乾杯", "開場"]);
+
+      expect((await admin("DELETE", `/api/admin/schedule/${id}`)).status).toBe(200);
+      expect((await admin("DELETE", `/api/admin/schedule/${id}`)).status).toBe(404);
+      expect(
+        (
+          await admin("PUT", `/api/admin/schedule/${id}`, {
+            title: "x",
+            detail: "",
+            startMinute: 0,
+            durationMinutes: 5,
+          })
+        ).status,
+      ).toBe(404);
+    });
+
+    it("終わりが 24:00 を越える・5 分未満・長すぎる詳細は 400", async () => {
+      const admin = await adminClient();
+      const post = (body: Record<string, unknown>) =>
+        admin("POST", "/api/admin/schedule", {
+          title: "x",
+          detail: "",
+          startMinute: 600,
+          durationMinutes: 30,
+          ...body,
+        });
+      expect((await post({ startMinute: 23 * 60 + 45, durationMinutes: 30 })).status).toBe(400);
+      expect((await post({ durationMinutes: 4 })).status).toBe(400);
+      expect((await post({ startMinute: -5 })).status).toBe(400);
+      expect((await post({ detail: "あ".repeat(501) })).status).toBe(400);
+      expect((await post({ title: "" })).status).toBe(400);
+    });
+
+    it("参加者には見せる設定のときだけ、日付と一緒に返す", async () => {
+      const admin = await adminClient();
+      await admin("POST", "/api/admin/schedule", { title: "開場", detail: "", startMinute: 1080, durationMinutes: 15 });
+      const token = await issueToken();
+      const user = createClient(app);
+      await user("POST", "/api/auth/register", { token, name: "参加者" });
+
+      expect((await user("GET", "/api/schedule")).status).toBe(404);
+      expect((await user("GET", "/api/admin/schedule")).status).toBe(401);
+
+      expect(
+        (await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, scheduleDate: "2026/12/20" })).status,
+      ).toBe(400);
+      await admin("PUT", "/api/admin/settings", {
+        ...DEFAULT_SETTINGS,
+        scheduleVisible: true,
+        scheduleDate: "2026-12-20",
+      });
+      expect((await user("GET", "/api/me")).body.rules.scheduleVisible).toBe(true);
+      const res = await user("GET", "/api/schedule");
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ date: "2026-12-20", items: [{ title: "開場", startMinute: 1080 }] });
+    });
+  });
+
   describe("取り込み（ingestUpload）", () => {
     async function activeUser() {
       const token = await issueToken();
@@ -1371,7 +1474,7 @@ describe("buildRanking", () => {
     expect(result.ranking[2]!.history.map((h) => h.points)).toEqual([0, 2, 2]);
   });
 
-  it("合計も優先順の項目もすべて同じなら同じ順位で、次の順位は人数分飛ばす。同じ順位の中は先に登録した人が上", () => {
+  it("合計も項目のポイントも同じ人は、登録順（先に登録した人が上）で別の順位にする", () => {
     const result = buildRanking({
       users: [user("u3", "佐藤"), user("u1", "田中", { approvedCount: 1 }), user("u2", "鈴木", { approvedCount: 1 })],
       settings: DEFAULT_SETTINGS,
@@ -1382,11 +1485,27 @@ describe("buildRanking", () => {
     });
     expect(result.ranking.map((r) => [r.rank, r.userId])).toEqual([
       [1, "u1"],
-      [1, "u2"],
+      [2, "u2"],
       [3, "u3"],
     ]);
     // 推移の元データが無くても、最後の点はユーザのカウンタから計算したポイント
     expect(result.ranking[0]!.history.at(-1)).toEqual({ at: "2026-01-01T03:00:00.000Z", points: 1 });
+  });
+
+  it("登録の時刻まで同じ人も、ユーザ ID の順で別の順位にする", () => {
+    const at = "2026-01-01T00:00:00.000Z";
+    const result = buildRanking({
+      users: [user("u2", "鈴木", { createdAt: at }), user("u1", "田中", { createdAt: at })],
+      settings: DEFAULT_SETTINGS,
+      quizzes: [],
+      photos: [],
+      favorites: [],
+      now: "2026-01-01T03:00:00.000Z",
+    });
+    expect(result.ranking.map((r) => [r.rank, r.userId])).toEqual([
+      [1, "u1"],
+      [2, "u2"],
+    ]);
   });
 
   // 合計はどちらも 10 点。u1 は写真で 10 点、u2 はお気に入りを選んで 10 点、u3 はクイズで 10 点
@@ -1418,7 +1537,10 @@ describe("buildRanking", () => {
 
   it("優先順を並べ替えると、その順に比べる", () => {
     expect(
-      rankOf({ ...DEFAULT_SETTINGS, tieBreakOrder: ["quiz", "favoriteGiven", "upload", "favoriteReceived"] }),
+      rankOf({
+        ...DEFAULT_SETTINGS,
+        tieBreakOrder: ["quiz", "favoriteGiven", "upload", "favoriteReceived", "registered"],
+      }),
     ).toEqual([
       [1, "u3", 10],
       [2, "u2", 10],
@@ -1426,7 +1548,28 @@ describe("buildRanking", () => {
     ]);
   });
 
-  it("参加者向けに紐づけを解除した人を除いても、元の順位が同じ人だけを同じ順位にする", () => {
+  it("登録順を先頭にすると、ポイントの項目より先に登録順で比べる", () => {
+    // 合計はどちらも 10 点。先に登録した u1 はクイズで、u2 は写真で 10 点
+    const rank = (tieBreakOrder: typeof DEFAULT_SETTINGS.tieBreakOrder) =>
+      buildRanking({
+        users: [user("u2", "鈴木", { approvedCount: 10 }), user("u1", "田中")],
+        settings: { ...DEFAULT_SETTINGS, uploadPoints: 1, tieBreakOrder },
+        quizzes: quizFor("u1"),
+        photos: [],
+        favorites: [],
+        now: "2026-01-01T03:00:00.000Z",
+      }).ranking.map((r) => [r.rank, r.userId]);
+    expect(rank(DEFAULT_SETTINGS.tieBreakOrder)).toEqual([
+      [1, "u2"],
+      [2, "u1"],
+    ]);
+    expect(rank(["registered", "upload", "favoriteGiven", "favoriteReceived", "quiz"])).toEqual([
+      [1, "u1"],
+      [2, "u2"],
+    ]);
+  });
+
+  it("参加者向けに紐づけを解除した人を除くと、並び順のとおりに 1 位から付け直す", () => {
     const ranking = buildRanking({
       users: [
         user("u1", "田中", { approvedCount: 10 }),
@@ -1442,13 +1585,13 @@ describe("buildRanking", () => {
     });
     expect(ranking.ranking.map((r) => [r.rank, r.userId])).toEqual([
       [1, "u1"],
-      [1, "u2"],
-      [1, "u3"],
+      [2, "u2"],
+      [3, "u3"],
       [4, "u4"],
     ]);
     expect(toParticipantRanking(ranking, false, false).ranking.map((r) => [r.rank, r.userId])).toEqual([
       [1, "u1"],
-      [1, "u3"],
+      [2, "u3"],
       [3, "u4"],
     ]);
   });
