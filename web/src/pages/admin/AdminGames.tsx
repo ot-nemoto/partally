@@ -12,7 +12,7 @@ import {
   type UsersResponse,
 } from "@partally/shared";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, errorMessage } from "../../api";
+import { ApiError, api, errorMessage } from "../../api";
 import { Modal } from "../../components/Modal";
 import { NumberField } from "../../components/NumberField";
 import { PageTitle } from "../../components/PageTitle";
@@ -197,6 +197,7 @@ export function AdminGames() {
             setEditing(undefined);
             saved(game);
           }}
+          onConflict={() => void load()}
         />
       )}
       {picking && pickingGame?.slots.some((s) => s.slotId === picking.slotId) && (
@@ -209,6 +210,7 @@ export function AdminGames() {
             setPicking(undefined);
             saved(game);
           }}
+          onConflict={() => void load()}
         />
       )}
     </section>
@@ -264,7 +266,12 @@ interface SlotDraft {
 let draftKey = 0;
 const newSlot = (name = "", points = 10): SlotDraft => ({ key: `new-${++draftKey}`, name, points, userIds: [] });
 
-function GameFormDialog(props: { game?: GameDto; onClose: () => void; onSaved: (game: GameDto) => void }) {
+function GameFormDialog(props: {
+  game?: GameDto;
+  onClose: () => void;
+  onSaved: (game: GameDto) => void;
+  onConflict: () => void;
+}) {
   const { game } = props;
   const [name, setName] = useState(game?.name ?? "");
   const [slots, setSlots] = useState<SlotDraft[]>(
@@ -303,6 +310,7 @@ function GameFormDialog(props: { game?: GameDto; onClose: () => void; onSaved: (
       props.onSaved(res.game);
     } catch (err) {
       setError(errorMessage(err));
+      if (err instanceof ApiError && err.status === 409) props.onConflict();
     } finally {
       setSaving(false);
     }
@@ -415,8 +423,13 @@ function MemberPickerDialog(props: {
   members: Member[];
   onClose: () => void;
   onSaved: (game: GameDto) => void;
+  /** ほかで直されていて保存できなかったとき（一覧を読み直す） */
+  onConflict: () => void;
 }) {
-  const { game, slotId } = props;
+  const { slotId } = props;
+  // 開いたときのゲームで選び、その版（updatedAt）で保存する。開いている間に一覧が読み直されても、
+  // 選び始めた後のほかの変更を、版の確かめをすり抜けて上書きしないように
+  const [game] = useState(props.game);
   const slot = game.slots.find((s) => s.slotId === slotId)!;
   const [selected, setSelected] = useState(() => new Set(slot.userIds));
   const [query, setQuery] = useState("");
@@ -467,6 +480,7 @@ function MemberPickerDialog(props: {
       props.onSaved(res.game);
     } catch (err) {
       setError(errorMessage(err));
+      if (err instanceof ApiError && err.status === 409) props.onConflict();
     } finally {
       setSaving(false);
     }
