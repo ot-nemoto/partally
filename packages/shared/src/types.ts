@@ -347,6 +347,8 @@ export interface GameDto {
   status: GameStatus;
   slots: GameSlotDto[];
   createdAt: string;
+  /** 最後に変えた時刻（名前・枠・人・状態）。更新のときに baseUpdatedAt として送り返す */
+  updatedAt: string;
   /** 確定した時刻（推移ではこの時刻にポイントが入る）。下書きには無い */
   confirmedAt?: string;
 }

@@ -880,22 +880,35 @@ export class DynamoRepository implements Repository {
     return (await this.queryGsi1("GAMES")).map(toGameRecord);
   }
 
-  async updateGame(gameId: string, changes: Pick<GameRecord, "name" | "slots">, updatedAt: string) {
+  async updateGame(
+    gameId: string,
+    changes: Pick<GameRecord, "name" | "slots">,
+    updatedAt: string,
+    expectedUpdatedAt?: string,
+  ) {
+    const check = expectedUpdatedAt !== undefined;
     try {
       const { Attributes } = await this.client.send(
         new UpdateCommand({
           TableName: this.tableName,
           Key: keys.game(gameId),
           UpdateExpression: "SET #name = :name, slots = :slots, updatedAt = :updatedAt",
-          ConditionExpression: "attribute_exists(PK)",
+          ConditionExpression: check ? "attribute_exists(PK) AND updatedAt = :expected" : "attribute_exists(PK)",
           ExpressionAttributeNames: { "#name": "name" },
-          ExpressionAttributeValues: { ":name": changes.name, ":slots": changes.slots, ":updatedAt": updatedAt },
+          ExpressionAttributeValues: {
+            ":name": changes.name,
+            ":slots": changes.slots,
+            ":updatedAt": updatedAt,
+            ...(check ? { ":expected": expectedUpdatedAt } : {}),
+          },
           ReturnValues: "ALL_NEW",
         }),
       );
       return toGameRecord(Attributes!);
     } catch (e) {
-      if (isConditionalCheckFailed(e)) throw new NotFoundError();
+      if (isConditionalCheckFailed(e)) {
+        throw check && (await this.getGame(gameId)) ? new InvalidStateError() : new NotFoundError();
+      }
       throw e;
     }
   }

@@ -11,7 +11,7 @@ import {
   type UserDto,
   type UsersResponse,
 } from "@partally/shared";
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorMessage } from "../../api";
 import { Modal } from "../../components/Modal";
 import { NumberField } from "../../components/NumberField";
@@ -19,6 +19,8 @@ import { PageTitle } from "../../components/PageTitle";
 import { useOnReload } from "../../hooks/useReload";
 
 const STATUS_LABEL: Record<GameStatus, string> = { draft: "下書き", confirmed: "確定" };
+/** 保存した直後の一覧の取得が古い内容を返しうる間（一覧は少し遅れて反映される） */
+const FRESH_MS = 10_000;
 
 /** 人を選ぶ画面に出す参加者（QR の通し番号つき） */
 interface Member {
@@ -36,8 +38,13 @@ export function AdminGames() {
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState<GameDto | "new">();
-  const [picking, setPicking] = useState<{ game: GameDto; slotId: string }>();
+  /** 人を選んでいる枠。ゲームは開くたびに今の一覧から引く（古い内容で上書きしないように） */
+  const [picking, setPicking] = useState<{ gameId: string; slotId: string }>();
   const [busy, setBusy] = useState(false);
+  /** この画面で削除したゲーム（一覧の読み直しが削除の反映より先に返っても、出し直さない） */
+  const deleted = useRef(new Set<string>());
+  /** 少し前にこの画面で保存したゲーム（作った直後で一覧にまだ出てこなくても、消さずに残す） */
+  const fresh = useRef(new Set<string>());
 
   const load = useCallback(async () => {
     try {
@@ -47,7 +54,7 @@ export function AdminGames() {
         api<TokensResponse>("GET", "/admin/tokens"),
       ]);
       const labels = new Map(t.tokens.flatMap((tok) => (tok.userId ? [[tok.userId, tok.label] as const] : [])));
-      setGames(g.games);
+      setGames((prev) => mergeGames(prev, g.games, deleted.current, fresh.current));
       setMembers(
         u.users
           .map((user) => ({ user, label: labels.get(user.userId) }))
@@ -69,11 +76,23 @@ export function AdminGames() {
 
   const byId = useMemo(() => new Map(members.map((m) => [m.user.userId, m.user])), [members]);
 
-  async function run(action: () => Promise<unknown>) {
+  /** 保存したゲームを、一覧の読み直しを待たずに画面へ入れる（続けてほかの枠を選んでも、保存した内容から始める） */
+  function saved(game: GameDto) {
+    fresh.current.add(game.gameId);
+    setTimeout(() => fresh.current.delete(game.gameId), FRESH_MS);
+    setGames((prev) => sortGames([...(prev ?? []).filter((g) => g.gameId !== game.gameId), game]));
+    void load();
+  }
+
+  const pickingGame = picking && games?.find((g) => g.gameId === picking.gameId);
+
+  /** 確定・取り消しなど。応答のゲームをすぐ画面に入れてから、一覧を読み直す */
+  async function run(action: () => Promise<GameResponse | undefined>) {
     setBusy(true);
     try {
-      await action();
-      await load();
+      const res = await action();
+      if (res) saved(res.game);
+      else await load();
     } catch (e) {
       alert(errorMessage(e));
     } finally {
@@ -93,7 +112,12 @@ export function AdminGames() {
   const remove = (g: GameDto) => {
     const note = g.status === "confirmed" ? "\n入ったポイントも消えます。" : "";
     if (!confirm(`「${g.name}」を削除します。${note}\nよろしいですか？`)) return;
-    return run(() => api("DELETE", `/admin/games/${g.gameId}`));
+    return run(async () => {
+      await api("DELETE", `/admin/games/${g.gameId}`);
+      deleted.current.add(g.gameId);
+      setGames((prev) => prev?.filter((x) => x.gameId !== g.gameId));
+      return undefined;
+    });
   };
 
   // 新しいゲームを上にする
@@ -129,7 +153,7 @@ export function AdminGames() {
                   </span>
                   <button
                     type="button"
-                    onClick={() => setPicking({ game: g, slotId: s.slotId })}
+                    onClick={() => setPicking({ gameId: g.gameId, slotId: s.slotId })}
                     disabled={busy}
                     aria-label={`${s.name}の人を選ぶ`}
                   >
@@ -169,26 +193,55 @@ export function AdminGames() {
         <GameFormDialog
           game={editing === "new" ? undefined : editing}
           onClose={() => setEditing(undefined)}
-          onSaved={() => {
+          onSaved={(game) => {
             setEditing(undefined);
-            void load();
+            saved(game);
           }}
         />
       )}
-      {picking && (
+      {picking && pickingGame?.slots.some((s) => s.slotId === picking.slotId) && (
         <MemberPickerDialog
-          game={picking.game}
+          game={pickingGame}
           slotId={picking.slotId}
           members={members}
           onClose={() => setPicking(undefined)}
-          onSaved={() => {
+          onSaved={(game) => {
             setPicking(undefined);
-            void load();
+            saved(game);
           }}
         />
       )}
     </section>
   );
+}
+
+/**
+ * 読み直した一覧を画面のゲームと合わせる。一覧の取得は保存の直後だと古い内容を返すことがあるので、
+ * 画面の方が新しい（updatedAt が後の）ゲームはそのまま残す。この画面で削除したゲームは出さない。
+ * fresh は少し前にこの画面で保存したゲーム
+ */
+function mergeGames(
+  prev: GameDto[] | undefined,
+  fetched: GameDto[],
+  deleted: Set<string>,
+  fresh: Set<string>,
+): GameDto[] {
+  const current = new Map((prev ?? []).map((g) => [g.gameId, g]));
+  const merged = fetched
+    .filter((g) => !deleted.has(g.gameId))
+    .map((g) => {
+      const mine = current.get(g.gameId);
+      return mine && mine.updatedAt > g.updatedAt ? mine : g;
+    });
+  // この画面で保存した直後で、まだ一覧に出てこないゲーム（作ったばかり）も残す
+  const ids = new Set(merged.map((g) => g.gameId));
+  const missing = [...current.values()].filter((g) => !ids.has(g.gameId) && fresh.has(g.gameId));
+  return sortGames([...merged, ...missing]);
+}
+
+/** 作った順（API の一覧と同じ） */
+function sortGames(games: GameDto[]): GameDto[] {
+  return games.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.gameId.localeCompare(b.gameId));
 }
 
 /** 今日なら時刻だけ、別の日（リハーサルなど）なら日付も付ける */
@@ -211,7 +264,7 @@ interface SlotDraft {
 let draftKey = 0;
 const newSlot = (name = "", points = 10): SlotDraft => ({ key: `new-${++draftKey}`, name, points, userIds: [] });
 
-function GameFormDialog(props: { game?: GameDto; onClose: () => void; onSaved: () => void }) {
+function GameFormDialog(props: { game?: GameDto; onClose: () => void; onSaved: (game: GameDto) => void }) {
   const { game } = props;
   const [name, setName] = useState(game?.name ?? "");
   const [slots, setSlots] = useState<SlotDraft[]>(
@@ -237,11 +290,17 @@ function GameFormDialog(props: { game?: GameDto; onClose: () => void; onSaved: (
     e.preventDefault();
     setSaving(true);
     setError(undefined);
-    const body = { name, slots: slots.map(({ slotId, name, points, userIds }) => ({ slotId, name, points, userIds })) };
+    const body = {
+      name,
+      slots: slots.map(({ slotId, name, points, userIds }) => ({ slotId, name, points, userIds })),
+      // 開いた後にほかで直されていたら、上書きせずに知らせる
+      baseUpdatedAt: game?.updatedAt,
+    };
     try {
-      if (game) await api<GameResponse>("PUT", `/admin/games/${game.gameId}`, body);
-      else await api<GameResponse>("POST", "/admin/games", body);
-      props.onSaved();
+      const res = game
+        ? await api<GameResponse>("PUT", `/admin/games/${game.gameId}`, body)
+        : await api<GameResponse>("POST", "/admin/games", body);
+      props.onSaved(res.game);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -355,7 +414,7 @@ function MemberPickerDialog(props: {
   slotId: string;
   members: Member[];
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (game: GameDto) => void;
 }) {
   const { game, slotId } = props;
   const slot = game.slots.find((s) => s.slotId === slotId)!;
@@ -400,8 +459,12 @@ function MemberPickerDialog(props: {
       userIds: s.slotId === slotId ? [...selected] : s.userIds.filter((id) => !selected.has(id)),
     }));
     try {
-      await api<GameResponse>("PUT", `/admin/games/${game.gameId}`, { name: game.name, slots });
-      props.onSaved();
+      const res = await api<GameResponse>("PUT", `/admin/games/${game.gameId}`, {
+        name: game.name,
+        slots,
+        baseUpdatedAt: game.updatedAt,
+      });
+      props.onSaved(res.game);
     } catch (err) {
       setError(errorMessage(err));
     } finally {

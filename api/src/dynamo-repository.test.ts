@@ -539,6 +539,39 @@ describe("DynamoRepository", () => {
     });
   });
 
+  describe("ゲーム", () => {
+    const game = {
+      gameId: "G1",
+      name: "大会",
+      status: "draft" as const,
+      slots: [{ slotId: "S1", name: "優勝", points: 30, userIds: ["U1"] }],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:01:00.000Z",
+    };
+
+    it("版を渡すと、保存済みの updatedAt が同じときだけ更新する。違えば InvalidStateError、無ければ NotFoundError", async () => {
+      ddb.on(UpdateCommand).resolves({ Attributes: { PK: "GAME#G1", SK: "META", ...game, updatedAt: "t2" } });
+      await repo.updateGame("G1", { name: "大会", slots: game.slots }, "t2", game.updatedAt);
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input).toMatchObject({
+        ConditionExpression: "attribute_exists(PK) AND updatedAt = :expected",
+        ExpressionAttributeValues: { ":expected": game.updatedAt },
+      });
+      await repo.updateGame("G1", { name: "大会", slots: game.slots }, "t3");
+      expect(ddb.commandCalls(UpdateCommand)[1]!.args[0].input.ConditionExpression).toBe("attribute_exists(PK)");
+
+      const failed = new ConditionalCheckFailedException({ message: "failed", $metadata: {} });
+      ddb.on(UpdateCommand).rejects(failed);
+      ddb.on(GetCommand).resolves({ Item: { PK: "GAME#G1", SK: "META", ...game } });
+      await expect(repo.updateGame("G1", { name: "大会", slots: game.slots }, "t4", "old")).rejects.toBeInstanceOf(
+        InvalidStateError,
+      );
+      ddb.on(GetCommand).resolves({});
+      await expect(repo.updateGame("G1", { name: "大会", slots: game.slots }, "t4", "old")).rejects.toBeInstanceOf(
+        NotFoundError,
+      );
+    });
+  });
+
   describe("景品", () => {
     const prize: PrizeRecord = {
       prizeId: "P1",
