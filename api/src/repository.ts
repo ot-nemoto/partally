@@ -1,4 +1,5 @@
 import {
+  type GameStatus,
   type PhotoStatus,
   type QuizStatus,
   type Settings,
@@ -101,6 +102,24 @@ export interface ScheduleItemRecord {
   updatedAt: string;
 }
 
+export interface GameSlot {
+  slotId: string;
+  name: string;
+  points: number;
+  userIds: string[];
+}
+
+export interface GameRecord {
+  gameId: string;
+  name: string;
+  status: GameStatus;
+  slots: GameSlot[];
+  createdAt: string;
+  updatedAt: string;
+  /** 確定した時刻。確定を取り消すと消える */
+  confirmedAt?: string;
+}
+
 export interface Page<T> {
   items: T[];
   /** 続きがある場合の位置。次の呼び出しにそのまま渡す */
@@ -116,6 +135,7 @@ export const DEFAULT_SETTINGS: Settings = {
   favoriteGivenPoints: 10,
   showPoints: true,
   showQuizPoints: true,
+  showGamePoints: true,
   // 参加者へのランキング・トレンドは、管理者が見せると決めるまで出さない
   rankingVisible: false,
   rankingHideNames: false,
@@ -346,6 +366,22 @@ export interface Repository {
   ): Promise<ScheduleItemRecord>;
   /** @throws NotFoundError */
   deleteScheduleItem(itemId: string): Promise<void>;
+
+  // ---- ゲーム ----
+
+  createGame(game: GameRecord): Promise<void>;
+  getGame(gameId: string): Promise<GameRecord | undefined>;
+  /** 作成順（古い順）で返す */
+  listGames(): Promise<GameRecord[]>;
+  /** 名前と枠を差し替える（確定済みでも直せる）。@throws NotFoundError */
+  updateGame(gameId: string, changes: Pick<GameRecord, "name" | "slots">, updatedAt: string): Promise<GameRecord>;
+  /**
+   * draft → confirmed（confirmedAt を付ける）、または confirmed → draft（confirmedAt を消す）。
+   * @throws NotFoundError / InvalidStateError 今の状態が前提と合わない
+   */
+  setGameStatus(gameId: string, status: GameStatus, at: string): Promise<GameRecord>;
+  /** @throws NotFoundError */
+  deleteGame(gameId: string): Promise<void>;
 
   // ---- 設定 ----
 

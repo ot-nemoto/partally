@@ -14,12 +14,13 @@ import {
   TransactWriteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { type PhotoStatus, type Settings, TIE_BREAK_KEYS, type TieBreakKey } from "@partally/shared";
+import { type GameStatus, type PhotoStatus, type Settings, TIE_BREAK_KEYS, type TieBreakKey } from "@partally/shared";
 import {
   DEFAULT_SETTINGS,
   EpithetTakenError,
   FavoriteLimitError,
   formatLabel,
+  type GameRecord,
   InvalidStateError,
   NotFoundError,
   type Page,
@@ -50,6 +51,7 @@ export const keys = {
   openQuiz: { PK: "QUIZ_STATE", SK: "OPEN" },
   prize: (prizeId: string) => ({ PK: `PRIZE#${prizeId}`, SK: "META" }),
   scheduleItem: (itemId: string) => ({ PK: `SCHEDULE#${itemId}`, SK: "META" }),
+  game: (gameId: string) => ({ PK: `GAME#${gameId}`, SK: "META" }),
   settings: { PK: "SETTINGS", SK: "GLOBAL" },
   tokenLabelCounter: { PK: "COUNTER", SK: "TOKEN_LABEL" },
 };
@@ -857,6 +859,87 @@ export class DynamoRepository implements Repository {
     }
   }
 
+  async createGame(game: GameRecord) {
+    await this.client.send(
+      new PutCommand({
+        TableName: this.tableName,
+        Item: { ...keys.game(game.gameId), GSI1PK: "GAMES", GSI1SK: `${game.createdAt}#${game.gameId}`, ...game },
+        ConditionExpression: "attribute_not_exists(PK)",
+      }),
+    );
+  }
+
+  async getGame(gameId: string) {
+    const { Item } = await this.client.send(
+      new GetCommand({ TableName: this.tableName, Key: keys.game(gameId), ConsistentRead: true }),
+    );
+    return Item ? toGameRecord(Item) : undefined;
+  }
+
+  async listGames() {
+    return (await this.queryGsi1("GAMES")).map(toGameRecord);
+  }
+
+  async updateGame(gameId: string, changes: Pick<GameRecord, "name" | "slots">, updatedAt: string) {
+    try {
+      const { Attributes } = await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: keys.game(gameId),
+          UpdateExpression: "SET #name = :name, slots = :slots, updatedAt = :updatedAt",
+          ConditionExpression: "attribute_exists(PK)",
+          ExpressionAttributeNames: { "#name": "name" },
+          ExpressionAttributeValues: { ":name": changes.name, ":slots": changes.slots, ":updatedAt": updatedAt },
+          ReturnValues: "ALL_NEW",
+        }),
+      );
+      return toGameRecord(Attributes!);
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) throw new NotFoundError();
+      throw e;
+    }
+  }
+
+  async setGameStatus(gameId: string, status: GameStatus, at: string) {
+    const confirm = status === "confirmed";
+    try {
+      const { Attributes } = await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: keys.game(gameId),
+          UpdateExpression: confirm
+            ? "SET #status = :to, confirmedAt = :at, updatedAt = :at"
+            : "SET #status = :to, updatedAt = :at REMOVE confirmedAt",
+          ConditionExpression: "attribute_exists(PK) AND #status = :from",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: { ":to": status, ":from": confirm ? "draft" : "confirmed", ":at": at },
+          ReturnValues: "ALL_NEW",
+        }),
+      );
+      return toGameRecord(Attributes!);
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) {
+        throw (await this.getGame(gameId)) ? new InvalidStateError() : new NotFoundError();
+      }
+      throw e;
+    }
+  }
+
+  async deleteGame(gameId: string) {
+    try {
+      await this.client.send(
+        new DeleteCommand({
+          TableName: this.tableName,
+          Key: keys.game(gameId),
+          ConditionExpression: "attribute_exists(PK)",
+        }),
+      );
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) throw new NotFoundError();
+      throw e;
+    }
+  }
+
   async getSettings(): Promise<Settings> {
     const { Item } = await this.client.send(new GetCommand({ TableName: this.tableName, Key: keys.settings }));
     const stored = Object.fromEntries(
@@ -867,14 +950,7 @@ export class DynamoRepository implements Repository {
     // クイズの点数は以前 showPoints で一緒に伏せていた。別の設定にする前に伏せていたなら、伏せたままにする
     if (stored.showQuizPoints === undefined && stored.showPoints !== undefined)
       stored.showQuizPoints = stored.showPoints;
-    // 優先順は、知らない項目を除き、足りない項目を既定の順で後ろに補う（項目を足しても保存済みの設定で保存できなくならないように）
-    if (Array.isArray(stored.tieBreakOrder)) {
-      const known = (stored.tieBreakOrder as unknown[]).filter((k): k is TieBreakKey =>
-        (TIE_BREAK_KEYS as readonly unknown[]).includes(k),
-      );
-      const unique = [...new Set(known)];
-      stored.tieBreakOrder = [...unique, ...TIE_BREAK_KEYS.filter((k) => !unique.includes(k))];
-    }
+    if (Array.isArray(stored.tieBreakOrder)) stored.tieBreakOrder = normalizeTieBreakOrder(stored.tieBreakOrder);
     return { ...DEFAULT_SETTINGS, ...stored };
   }
 
@@ -1037,6 +1113,38 @@ function toPrizeRecord(item: Record<string, unknown>): PrizeRecord {
     createdAt: item.createdAt as string,
     updatedAt: item.updatedAt as string,
   };
+}
+
+function toGameRecord(item: Record<string, unknown>): GameRecord {
+  return {
+    gameId: item.gameId as string,
+    name: item.name as string,
+    status: item.status as GameStatus,
+    slots: ((item.slots ?? []) as Record<string, unknown>[]).map((s) => ({
+      slotId: s.slotId as string,
+      name: s.name as string,
+      points: Number(s.points ?? 0),
+      userIds: ((s.userIds ?? []) as unknown[]).map(String),
+    })),
+    createdAt: item.createdAt as string,
+    updatedAt: item.updatedAt as string,
+    confirmedAt: item.confirmedAt as string | undefined,
+  };
+}
+
+/**
+ * 保存済みの優先順を、今の項目に合わせる。知らない項目と重複を除き、足りない項目を既定の順で補う
+ * （項目を足しても、保存済みの設定のまま保存できるように）。登録順で必ず差が付くので、
+ * 足りないポイントの項目は登録順より前に入れる（後ろに入れると比べられることがない）
+ */
+export function normalizeTieBreakOrder(stored: unknown[]): TieBreakKey[] {
+  const known = stored.filter((k): k is TieBreakKey => (TIE_BREAK_KEYS as readonly unknown[]).includes(k));
+  const order = [...new Set(known)];
+  const missing = TIE_BREAK_KEYS.filter((k) => k !== "registered" && !order.includes(k));
+  const registered = order.indexOf("registered");
+  if (registered < 0) return [...order, ...missing, "registered"];
+  order.splice(registered, 0, ...missing);
+  return order;
 }
 
 function toScheduleItemRecord(item: Record<string, unknown>): ScheduleItemRecord {

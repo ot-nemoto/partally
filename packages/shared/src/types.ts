@@ -20,8 +20,12 @@ export interface UserDto {
   quizAnswered: number;
   /** 締め切ったクイズで選んだ選択肢の点数の合計。ポイントを伏せている間、参加者向けの応答には無い */
   quizPoints?: number;
+  /** 確定したゲームで入った点数の合計。ゲームの点数を伏せている間、参加者向けの応答には無い */
+  gamePoints?: number;
+  /** 確定したゲームで入った枠（確定した順）。参加者本人にだけ返し、ゲームの点数を伏せている間は無い */
+  gameAwards?: GameAwardDto[];
   /**
-   * 現在の設定で計算したポイント（公開枚数 × 1 枚あたり + 選ばれた数 × 1 件あたり + クイズの点数）。
+   * 現在の設定で計算したポイント（公開枚数 × 1 枚あたり + 選ばれた数 × 1 件あたり + クイズの点数 + ゲームの点数）。
    * ポイントを伏せている間、参加者向けの応答には無い
    */
   points?: number;
@@ -139,6 +143,8 @@ export interface Settings {
   showPoints: boolean;
   /** 参加者のホーム画面にクイズの点数を表示するか */
   showQuizPoints: boolean;
+  /** 参加者のホーム画面にゲームの点数と、入った枠を表示するか */
+  showGamePoints: boolean;
   /** 参加者にランキングを見せるか */
   rankingVisible: boolean;
   /** 参加者のランキングで名前を伏せるか */
@@ -322,4 +328,40 @@ export interface ScheduleResponse {
 
 export interface ScheduleItemResponse {
   item: ScheduleItemDto;
+}
+
+/** draft: 下書き（ポイントは入らない） / confirmed: 確定（確定した時刻でポイントが入る） */
+export type GameStatus = "draft" | "confirmed";
+
+/** ゲームの枠。userIds の人に points が入る */
+export interface GameSlotDto {
+  slotId: string;
+  name: string;
+  points: number;
+  userIds: string[];
+}
+
+export interface GameDto {
+  gameId: string;
+  name: string;
+  status: GameStatus;
+  slots: GameSlotDto[];
+  createdAt: string;
+  /** 確定した時刻（推移ではこの時刻にポイントが入る）。下書きには無い */
+  confirmedAt?: string;
+}
+
+export interface GamesResponse {
+  games: GameDto[];
+}
+
+export interface GameResponse {
+  game: GameDto;
+}
+
+/** 参加者に見せる、自分が入った枠 */
+export interface GameAwardDto {
+  gameName: string;
+  slotName: string;
+  points: number;
 }

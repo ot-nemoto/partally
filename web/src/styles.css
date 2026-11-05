@@ -289,7 +289,7 @@ input {
 
 .stats {
   display: grid;
-  /* 項目数は設定で 2〜4 個に変わる。狭い画面では折り返す */
+  /* 項目数は設定で 2〜5 個に変わる。狭い画面では折り返す */
   grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
   gap: 0.75rem;
   margin: 0;
@@ -304,6 +304,33 @@ input {
 .stats dd {
   margin: 0;
   font-size: 1.75rem;
+  font-weight: 700;
+}
+
+/* ホームの、自分が入ったゲームの枠 */
+.game-awards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.game-awards li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.5rem;
+  background: var(--notice-bg);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.game-award-points {
+  flex: none;
+  color: var(--gold);
   font-weight: 700;
 }
 
@@ -398,9 +425,9 @@ input {
 /*
   スマホ幅では、ADMIN と更新・ログアウトを 1 段目（固定）、メニューを 2 段目（一緒にスクロール）にする。
   固定する部分で画面が狭くならないよう、メニューはヘッダーの外に出す。
-  更新のあるページで 1 段に収まらなくなる幅（約 815px）より少し広めに切り替える
+  更新のあるページで 1 段に収まらなくなる幅（約 870px）より少し広めに切り替える
 */
-@media (max-width: 860px) {
+@media (max-width: 920px) {
   .admin-nav-inline {
     display: none;
   }
@@ -1525,6 +1552,178 @@ textarea {
 
 .quiz-result p {
   margin: 0;
+}
+
+/* ---- ゲーム ---- */
+
+.admin-games {
+  max-width: 44rem;
+}
+
+.game-name {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.game-confirmed {
+  border-color: var(--gold);
+}
+
+.status-confirmed {
+  background: var(--gold);
+  color: var(--surface);
+}
+
+.game-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.game-slots li {
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.game-slot-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.game-slot-head button {
+  min-height: 2rem;
+  margin-left: auto;
+  padding: 0 0.75rem;
+  font-size: 0.85rem;
+}
+
+.game-slot-members {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.game-dialog {
+  max-width: 34rem;
+}
+
+.game-form-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.game-form-slots legend {
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.game-form-slot {
+  display: grid;
+  grid-template-columns: 1fr 6rem auto;
+  gap: 0 0.5rem;
+  align-items: start;
+}
+
+.game-form-slot-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 1.6rem;
+}
+
+.game-form-slot-actions button:not(.link) {
+  min-width: 2.25rem;
+  padding: 0 0.5rem;
+}
+
+.game-form-slot-note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.member-picker h2 .small {
+  font-weight: normal;
+}
+
+.member-picker input[type="search"] {
+  width: 100%;
+}
+
+.member-picker-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0.5rem;
+}
+
+.member-picker-count {
+  margin-right: auto;
+}
+
+.member-picker-bar button {
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  font-size: 0.85rem;
+}
+
+.member-list {
+  max-height: min(50vh, 24rem);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  list-style: none;
+}
+
+.member-list li {
+  border-bottom: 1px solid var(--border);
+}
+
+.member-list li:last-child {
+  border-bottom: none;
+}
+
+.member-list li.muted {
+  padding: 0.75rem;
+}
+
+.member-list label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+}
+
+.member-list input[type="checkbox"] {
+  flex: none;
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.member-no {
+  flex: none;
+  min-width: 2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.member-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.member-other {
+  flex: none;
 }
 
 /* ---- 景品 ---- */

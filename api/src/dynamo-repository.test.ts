@@ -59,14 +59,29 @@ describe("DynamoRepository", () => {
   beforeEach(() => ddb.reset());
 
   describe("設定", () => {
-    it("保存済みの優先順は、知らない項目・重複を除き、足りない項目（後から加えた登録順など）を既定の順で後ろに補う", async () => {
+    it("保存済みの優先順は、知らない項目・重複を除き、足りない項目を既定の順で補う（登録順は最後）", async () => {
       ddb.on(GetCommand).resolves({ Item: { tieBreakOrder: ["quiz", "x", "quiz", "upload"] } });
       expect((await repo.getSettings()).tieBreakOrder).toEqual([
         "quiz",
         "upload",
         "favoriteGiven",
         "favoriteReceived",
+        "game",
         "registered",
+      ]);
+    });
+
+    it("登録順を保存済みなら、足りないポイントの項目（後から加えたゲームなど）は登録順の前に入れる", async () => {
+      ddb.on(GetCommand).resolves({
+        Item: { tieBreakOrder: ["quiz", "registered", "upload", "favoriteGiven", "favoriteReceived"] },
+      });
+      expect((await repo.getSettings()).tieBreakOrder).toEqual([
+        "quiz",
+        "game",
+        "registered",
+        "upload",
+        "favoriteGiven",
+        "favoriteReceived",
       ]);
     });
 

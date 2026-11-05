@@ -117,10 +117,11 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | 出題中の印 | `QUIZ_STATE` | `OPEN` | – | – |
 | 景品 | `PRIZE#<prizeId>` | `META` | `PRIZES` | `<createdAt>#<prizeId>` |
 | スケジュールの項目 | `SCHEDULE#<itemId>` | `META` | `SCHEDULE` | `<createdAt>#<itemId>` |
+| ゲーム | `GAME#<gameId>` | `META` | `GAMES` | `<createdAt>#<gameId>` |
 | 設定 | `SETTINGS` | `GLOBAL` | – | – |
 | 通し番号カウンタ | `COUNTER` | `TOKEN_LABEL` | – | – |
 
-- **GSI1**: 一覧取得用（トークン一覧・ユーザ一覧・状態別の写真一覧を時系列で、写真ごとのお気に入りした人の一覧、クイズ一覧、クイズごとの回答一覧、景品一覧、スケジュールの項目の一覧）。
+- **GSI1**: 一覧取得用（トークン一覧・ユーザ一覧・状態別の写真一覧を時系列で、写真ごとのお気に入りした人の一覧、クイズ一覧、クイズごとの回答一覧、景品一覧、スケジュールの項目の一覧、ゲーム一覧）。
 - **GSI2**: ユーザ別の写真一覧。写真のみ `GSI2PK = USER#<uploaderId>`, `GSI2SK = <createdAt>#<photoId>` を持つ。
 - QR トークンの GSI1SK は通し番号を 6 桁ゼロ埋めした値（表示用 `label` は 3 桁）。通し番号はカウンタへのアトミック加算で採番する。
 - ID は ULID（時系列ソート可能）。トークンは 128bit の暗号論的乱数を base64url（22 文字）にしたもの。
@@ -179,11 +180,12 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `favoriteGivenPoints` | number | お気に入りを 1 枚選んだときのポイント（既定 10、0〜100）。選んだ人に入る |
 | `showPoints` | boolean | 参加者にポイントを見せるか（既定 オン）。オフの間は参加者向けの API 応答からポイント・選ばれた数・写真の ♥ の数を除く。集計は続き、管理画面では見える |
 | `showQuizPoints` | boolean | 参加者にクイズの点数を見せるか（既定 オン）。オフの間は `/api/me` からクイズの点数を除く。合計のポイント（`showPoints` に従う）にはクイズの点数も含む。この項目を保存する前は、以前クイズの点数も一緒に伏せていた `showPoints` の値を引き継ぐ |
+| `showGamePoints` | boolean | 参加者にゲームの点数と入った枠を見せるか（既定 オン）。オフの間は `/api/me` からゲームの点数と `gameAwards` を除く。合計のポイントにはゲームの点数も含む |
 | `rankingVisible` / `rankingHideNames` / `rankingHidePoints` | boolean | 参加者にランキングを見せるか（既定 オフ）と、名前・ポイントを伏せるか（既定 オフ） |
 | `trendVisible` / `trendHideNames` / `trendHidePoints` | boolean | 参加者にポイントの推移を見せるか（既定 オフ）と、名前・ポイントを伏せるか（既定 オフ） |
 | `prizesVisible` | boolean | 参加者に景品（何位で何がもらえるか）を見せるか（既定 オフ） |
 | `scheduleVisible` / `scheduleDate` | boolean / string | 参加者にスケジュールを見せるか（既定 オフ）と、イベントの日付（`YYYY-MM-DD`、空なら決めない） |
-| `tieBreakOrder` | list | 合計が同じ人の順位の決め方。`upload`（写真のアップロード）・`favoriteGiven`（お気に入りを選んだ）・`favoriteReceived`（お気に入りに選ばれた）・`quiz`（クイズ）・`registered`（登録順）を 1 回ずつ並べ、先頭から比べる。ポイントの項目は多い人を、`registered` は先に登録した人を上にする（既定はこの順） |
+| `tieBreakOrder` | list | 合計が同じ人の順位の決め方。`upload`（写真のアップロード）・`favoriteGiven`（お気に入りを選んだ）・`favoriteReceived`（お気に入りに選ばれた）・`quiz`（クイズ）・`game`（ゲーム）・`registered`（登録順）を 1 回ずつ並べ、先頭から比べる。ポイントの項目は多い人を、`registered` は先に登録した人を上にする（既定はこの順）。読み込むときに、知らない項目と重複を除き、足りない項目を補う。足りないポイントの項目は `registered` の前に入れる（後ろに入れると比べられることがない） |
 
 保存されていない項目は既定値で補う（項目を追加しても既存の設定レコードをそのまま使える）。
 
@@ -214,6 +216,19 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `imageId` | string? | 画像（`prizes/<imageId>.jpg`）。無ければ画像なし |
 | `createdAt` / `updatedAt` | string | |
 
+**ゲーム**
+
+| 属性 | 型 | 説明 |
+|---|---|---|
+| `gameId` | string | ULID |
+| `name` | string | 名前（NFKC 正規化・前後空白除去、1〜50 文字） |
+| `status` | `draft` \| `confirmed` | 下書き（ポイントに入らない）／確定 |
+| `slots` | list | 枠 `{slotId, name, points, userIds}` の配列（1〜20 個、name は 1〜30 文字、points は 0〜100）。1 人は 1 つの枠にだけ入る |
+| `confirmedAt` | string? | 確定した時刻。確定を取り消すと消える |
+| `createdAt` / `updatedAt` | string | |
+
+1 つのゲームを 1 アイテムにまとめる（参加者は 80 名程度なので、選んだ人の一覧を持っても 400KB の上限に届かない。人を選び直すたびに書き込みが増えないようにする）。
+
 **スケジュールの項目**
 
 | 属性 | 型 | 説明 |
@@ -229,17 +244,18 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 ポイントは台帳を持たず、表示のたびにユーザのカウンタと現在の設定から計算する。
 
 ```
-ポイント = approvedCount × uploadPoints + favoritesReceived × favoritePoints + favoritesGiven × favoriteGivenPoints + クイズの点数
+ポイント = approvedCount × uploadPoints + favoritesReceived × favoritePoints + favoritesGiven × favoriteGivenPoints + クイズの点数 + ゲームの点数
 クイズの点数 = 締め切ったクイズで選んだ選択肢の points の合計
+ゲームの点数 = 確定したゲームで、その人が入っている枠の points の合計
 ```
 
 - 公開された写真だけが数えられる（検閲待ち・却下・削除された写真は 0 ポイント）。
 - お気に入りは今選んでいる分だけを数える（外したお気に入りや、削除された写真へのお気に入りは、選ばれた人・選んだ人とも数えない）。
 - 設定を変えると、これまでの分も含めて全員のポイントが変わる。選択肢の点数を直した場合も同じ。
-- 出題中のクイズは数えない（選び直して点数の変化から正解を探れないようにするため）。
+- 出題中のクイズは数えない（選び直して点数の変化から正解を探れないようにするため）。下書きのゲームも数えない。
 - 回答の保存はクイズを含むトランザクションにしない（全員が一斉に答えると TransactionConflict が多発するため）。出題中かを強い整合性で読み、その後の時刻を `answeredAt` にして保存する。読んでから保存するまでの数十ミリ秒の間に締め切られた場合、その回答は `answeredAt` が `closedAt` より前なら数え、後なら数えない（締め切りの瞬間の扱いの誤差として許容する）。
-- **順位**: 合計の高い順。合計が同じ人は `tieBreakOrder` の順に、その項目のポイント（`approvedCount × uploadPoints`・`favoritesGiven × favoriteGivenPoints`・`favoritesReceived × favoritePoints`・クイズの点数）が多い人を上にする。`registered` は先に登録した人を上にする。順位は並びのとおり 1 から 1 人ずつ付け、同じ順位は作らない（登録の時刻まで同じなら userId で並べる）。参加者向けに紐づけを解除した人を除くときは、残った人に 1 から付け直す。
-- 回答した問題数・点数はユーザのカウンタに持たず、表示のたびにクイズと回答から数える（参加者は自分の回答、管理画面はクイズごとの回答を読む。問題数は数十程度の想定）。
+- **順位**: 合計の高い順。合計が同じ人は `tieBreakOrder` の順に、その項目のポイント（`approvedCount × uploadPoints`・`favoritesGiven × favoriteGivenPoints`・`favoritesReceived × favoritePoints`・クイズの点数・ゲームの点数）が多い人を上にする。`registered` は先に登録した人を上にする。順位は並びのとおり 1 から 1 人ずつ付け、同じ順位は作らない（登録の時刻まで同じなら userId で並べる）。参加者向けに紐づけを解除した人を除くときは、残った人に 1 から付け直す。
+- 回答した問題数・点数はユーザのカウンタに持たず、表示のたびにクイズと回答から数える（参加者は自分の回答、管理画面はクイズごとの回答を読む。問題数は数十程度の想定）。ゲームの点数も同じく、表示のたびに全ゲームを読んで数える（ゲームは多くても数十の想定）。
 
 ### 3.4 整合性
 
@@ -394,7 +410,7 @@ sequenceDiagram
 | POST | `/api/auth/qr` | トークンでログイン。未紐づけなら `unbound` を返す |
 | POST | `/api/auth/register` | 未紐づけトークンに名前を登録（二つ名自動付与） |
 | POST | `/api/auth/logout` | Cookie 削除 |
-| GET | `/api/me` | 自分の情報（表示名・アップロード数・ポイント・お気に入りの数・回答した問題数・クイズの点数）とポイントのルール。CloudFront Cookie の再発行 |
+| GET | `/api/me` | 自分の情報（表示名・アップロード数・ポイント・お気に入りの数・回答した問題数・クイズの点数・ゲームの点数と入った枠 `gameAwards`）とポイントのルール。CloudFront Cookie の再発行 |
 | GET | `/api/quiz/current` | 出題中のクイズ（問題文・選択肢・自分の回答）。無ければ `null`。正解がわからないよう選択肢の点数は返さない。画面の表示中は 5 秒ごとと、別のアプリから戻ったときに呼ぶ（画面が見えていない間は呼ばない）。出題・締め切りが自動で反映される |
 | GET | `/api/ranking` | ランキング（推移なし）。設定 `rankingVisible` がオフなら 404。紐づけを解除した人は除き、順位を付け直す。名前を伏せるときは全員の名前・称号・表示名を `???` にし、ユーザ ID を順番の番号（`r1`…）に置き換え、推移の始まり（登録した時刻）も全員そろえる。ポイントを伏せるときは、最大値を 100 とした割合（小数第 1 位まで）だけを返す。応答に `hideNames`・`hidePoints` を含む |
 | GET | `/api/trend` | ランキングと累計ポイントの推移。`trendVisible` がオフなら 404。伏せ方は `/api/ranking` と同じ（`trendHideNames`・`trendHidePoints` に従う） |
@@ -415,8 +431,8 @@ sequenceDiagram
 | POST | `/api/admin/logout` | Cookie 削除 |
 | POST | `/api/admin/tokens` | QR トークンを N 件発行 `{count}` |
 | GET | `/api/admin/tokens` | トークン一覧（印刷・配布管理用） |
-| GET | `/api/admin/users` | ユーザ一覧（アップロード数・ポイント・お気に入りの数・クイズの回答数と点数付き） |
-| GET | `/api/admin/ranking` | ポイントの高い順のランキング（同点の決め方は「3.3 ポイントの計算」の順位）と、各ユーザの累計ポイントの推移。推移は保存せず、公開中の写真（公開した時刻）・そのお気に入り（選ばれた時刻）・締め切ったクイズ（締め切った時刻）から現在の設定で組み立てる。削除した写真や外したお気に入りは含めず、最後の点はユーザ一覧と同じポイント |
+| GET | `/api/admin/users` | ユーザ一覧（アップロード数・ポイント・お気に入りの数・クイズの回答数と点数・ゲームの点数付き） |
+| GET | `/api/admin/ranking` | ポイントの高い順のランキング（同点の決め方は「3.3 ポイントの計算」の順位）と、各ユーザの累計ポイントの推移。推移は保存せず、公開中の写真（公開した時刻）・そのお気に入り（選ばれた時刻）・締め切ったクイズ（締め切った時刻）・確定したゲーム（確定した時刻）から現在の設定で組み立てる。削除した写真や外したお気に入りは含めず、最後の点はユーザ一覧と同じポイント |
 | PATCH | `/api/admin/users/{userId}` | 名前・二つ名の変更 |
 | POST | `/api/admin/users/{userId}/unbind` | QR との紐づけ解除 |
 | GET | `/api/admin/photos?status=` | 状態別写真一覧（検閲待ちは署名付き URL 付き） |
@@ -430,6 +446,12 @@ sequenceDiagram
 | DELETE | `/api/admin/quizzes/{quizId}` | 削除（回答と点数も消える）。出題中は 409 |
 | POST | `/api/admin/quizzes/{quizId}/open` | 出題。下書きでなければ・別の問題が出題中なら 409 |
 | POST | `/api/admin/quizzes/{quizId}/close` | 締め切り。出題中でなければ 409 |
+| GET | `/api/admin/games` | ゲームの一覧（作成順） |
+| POST | `/api/admin/games` | ゲームを作る `{name, slots: [{name, points, userIds}]}`（下書き）。同じ人が 2 つの枠に入る・登録されていない人を選ぶと 400 |
+| PUT | `/api/admin/games/{gameId}` | 名前・枠・選んだ人を直す（作るときと同じ形。既存の枠は `slotId` を付けて送る）。確定済みでも直せる |
+| POST | `/api/admin/games/{gameId}/confirm` | 確定（その時刻でポイントが入る）。下書きでなければ 409 |
+| POST | `/api/admin/games/{gameId}/unconfirm` | 確定を取り消して下書きに戻す（ポイントも消える）。確定していなければ 409 |
+| DELETE | `/api/admin/games/{gameId}` | 削除（確定済みなら入ったポイントも消える） |
 | GET | `/api/admin/prizes` | 景品の一覧（作成順、画像の署名付き URL 付き） |
 | POST | `/api/admin/prizes/image-upload` | 景品の画像を 1 枚、受け口へアップロードする署名付き POST と `imageId` を発行 |
 | POST | `/api/admin/prizes` | 景品を登録する `{name, quantity, positions, imageId?}`。割り当てが数量を超える・順位が重複するときは 400。`imageId` は受け口にアップロード済みであること（無い・別の景品で使った画像は 400）。保存時に配信する領域へ移す |
@@ -439,7 +461,7 @@ sequenceDiagram
 | POST | `/api/admin/schedule` | 項目を作る `{title, detail, startMinute, durationMinutes}`（時刻は 0:00 からの分。長さは 5 分以上、終わりは 24:00 まで。違えば 400） |
 | PUT | `/api/admin/schedule/{itemId}` | 項目を直す（作るときと同じ形。タイムラインのドラッグでも使う） |
 | DELETE | `/api/admin/schedule/{itemId}` | 項目を削除 |
-| GET / PUT | `/api/admin/settings` | 設定（公開方法・ポイント・お気に入り）の取得・更新。PUT は全項目を送る（後から追加した `showPoints`・`showQuizPoints`・`favoriteGivenPoints`・参加者への公開の項目（`prizesVisible` を含む）・`tieBreakOrder` は省略可で、省略時は今の値を残す。`tieBreakOrder` は 5 項目を 1 回ずつ並べたものでなければ 400） |
+| GET / PUT | `/api/admin/settings` | 設定（公開方法・ポイント・お気に入り）の取得・更新。PUT は全項目を送る（後から追加した `showPoints`・`showQuizPoints`・`showGamePoints`・`favoriteGivenPoints`・参加者への公開の項目（`prizesVisible` を含む）・`tieBreakOrder` は省略可で、省略時は今の値を残す。`tieBreakOrder` は 6 項目を 1 回ずつ並べたものでなければ 400） |
 
 ### 6.3 紐づけ解除の挙動
 
@@ -457,7 +479,7 @@ sequenceDiagram
 | パス | 画面 | 内容 |
 |---|---|---|
 | `/q/:token` | QR 着地 | ログイン処理 → 未紐づけなら名前入力、紐づけ済みならホームへ |
-| `/` | ホーム | 表示名・ポイント（公開中の写真数・選ばれた数）・ポイントのルール・お気に入りの選択数・撮影ボタン。回答した問題数とクイズの点数も出す。設定 `showPoints` がオフならポイント・選ばれた数を、`showQuizPoints` がオフならクイズの点数を出さない。未ログイン時は「QR を読み込んでください」 |
+| `/` | ホーム | 表示名・ポイント（公開中の写真数・選ばれた数）・ポイントのルール・お気に入りの選択数・撮影ボタン。回答した問題数とクイズの点数、ゲームの点数と入った枠（例: じゃんけん大会 優勝 +30）も出す。設定 `showPoints` がオフならポイント・選ばれた数を、`showQuizPoints` がオフならクイズの点数を、`showGamePoints` がオフならゲームの点数と入った枠を出さない。未ログイン時は「QR を読み込んでください」 |
 | `/gallery` | ギャラリー | 公開済み写真のグリッド表示、タップで拡大（アップロード者表示）。他の人の写真は ♡ でお気に入りの付け外し（選択数と上限を表示）。受付終了後は押せないが、選んだ写真は ♥ のまま見える |
 | `/mine` | 自分の写真 | 自分のアップロード一覧と状態（検閲待ち／公開／却下）、送信待ちキュー |
 | `/standings` | イベント情報 | スケジュール・ランキング・ポイントの推移・景品のうち、見せる設定のもの（複数なら切り替え）。見せ方は [機能仕様書 7.3・8・9・10](spec.md#73-参加者の画面イベント情報) |
@@ -470,11 +492,12 @@ sequenceDiagram
 | `/admin/login` | ログイン | パスワード入力 |
 | `/admin/tokens` | QR 管理 | トークン発行、紐づけ状況、印刷用ページ |
 | `/admin/tokens/print` | QR 印刷 | QR と通し番号を並べたページ。ブラウザの印刷機能で PDF 化 |
-| `/admin/users` | ユーザ管理 | 一覧（表示名・ポイント・アップロード数・公開数・選ばれた数・選んだ数・クイズの回答数と点数）、名前／二つ名の編集、紐づけ解除 |
+| `/admin/users` | ユーザ管理 | 一覧（表示名・ポイント・アップロード数・公開数・選ばれた数・選んだ数・クイズの回答数と点数・ゲームの点数）、名前／二つ名の編集、紐づけ解除 |
 | `/admin/ranking` | ランキング（Ranking） | 順位・表示名・ポイントと横棒、「推移を再生」のアニメーション、各行の景品。順位の付け方と見せ方は [機能仕様書 7](spec.md#7-ランキング推移) |
 | `/admin/trend` | ポイントの推移（Trend） | 累計ポイントの推移の折れ線（全員を灰色、選んだ 10 人までを色付き）。表の行にカーソルを合わせた人の線を強調する |
 | `/admin/photos` | 検閲・写真管理 | 検閲待ちの承認／却下、公開済みの削除 |
 | `/admin/quizzes` | クイズ | 問題の作成・編集・削除、出題・締め切り、選択肢ごとの回答数と回答者の一覧。問題は番号の新しい順に並べ、状態（出題中・下書き・締め切り）ごとに表示・非表示を選べる（このブラウザに覚える） |
+| `/admin/games` | ゲーム（Game） | ゲームの作成・編集・削除（名前と、枠の名前・点数・並び）、枠ごとに人を選ぶ（名前・二つ名・通し番号で絞り込み、チェックで複数選択、全員を選ぶ・選択を外す）、確定・確定の取り消し。操作は [機能仕様書 6.2](spec.md#62-ゲーム) |
 | `/admin/prizes` | 景品（Prize） | 景品の登録・編集（画像・名前・数量・渡す順位を「1, 3, 5-10」のように指定）・削除と、順位ごとの景品の一覧 |
 | `/admin/schedule` | スケジュール（Schedule） | 縦の時間軸のタイムラインで項目を作る・動かす・長さを変える・編集する・削除する、イベントの日付。操作は [機能仕様書 9](spec.md#9-スケジュール) |
 | `/admin/settings` | 設定 | 検閲モード（事前承認／即時公開）、ポイント、お気に入りの受付・上限、同じポイントのときの順位（各項目の左の ⋮⋮ をドラッグするか ↑↓ で並べ替え。ドラッグ中は Esc で取り消し）、参加者への公開（ランキング・推移・景品） |
@@ -508,7 +531,6 @@ sequenceDiagram
 
 ## 9. 今後の拡張
 
-- **クイズ以外の余興のポイント**: 管理者が手動で加点する台帳（`USER#<userId>` / `POINT#<timestamp>`）を同テーブルに追加し、合算する想定。ランキングは全ユーザを読んで計算する（80 名程度なら十分）。
 - **クイズの拡張**: 問題への画像の添付、正解のアプリ上での発表、制限時間。
 - **自前カメラ UI**: `getUserMedia` でフレーム・スタンプ合成撮影。
 - **写真の保存期間**: S3 ライフサイクルルールで自動削除。
