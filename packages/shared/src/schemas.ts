@@ -58,7 +58,7 @@ export const photoStatusSchema = z.enum(["pending", "approved", "rejected"]);
 export const POINTS_MAX = 100;
 
 /** ポイントの内訳の項目 */
-export const POINT_KEYS = ["upload", "favoriteGiven", "favoriteReceived", "quiz"] as const;
+export const POINT_KEYS = ["upload", "favoriteGiven", "favoriteReceived", "quiz", "game"] as const;
 
 /**
  * 同じポイントのときに比べる項目（既定の優先順に並べている）。ポイントの内訳の項目と、登録順（先に登録した人が上）。
@@ -72,7 +72,8 @@ export const TIE_BREAK_LABEL: Record<TieBreakKey, string> = {
   favoriteGiven: "お気に入りを選んだ",
   favoriteReceived: "お気に入りに選ばれた",
   quiz: "クイズ",
-  registered: "登録順（先に登録した人が上）",
+  game: "ゲーム",
+  registered: "登録順",
 };
 export const FAVORITE_LIMIT_MAX = 100;
 
@@ -88,6 +89,7 @@ export const updateSettingsRequestSchema = z.object({
   favoriteGivenPoints: points.optional(),
   showPoints: z.boolean().optional(),
   showQuizPoints: z.boolean().optional(),
+  showGamePoints: z.boolean().optional(),
   rankingVisible: z.boolean().optional(),
   rankingHideNames: z.boolean().optional(),
   rankingHidePoints: z.boolean().optional(),
@@ -214,3 +216,50 @@ export const scheduleItemRequestSchema = z
   });
 
 export type ScheduleItemRequest = z.infer<typeof scheduleItemRequestSchema>;
+
+export const GAME_NAME_MAX_LENGTH = 50;
+export const GAME_SLOT_NAME_MAX_LENGTH = 30;
+export const GAME_SLOTS_MAX = 20;
+/** 1 つのゲームで選べる人数の上限（参加者は 80 名程度の想定） */
+export const GAME_MEMBERS_MAX = 1000;
+
+/**
+ * ゲーム。枠（優勝・準優勝など）ごとに点数と、その枠に入る人を決める。1 人は 1 つの枠にだけ入る。
+ * slotId は既存の枠を直すときに指定する。新しい枠には付けない
+ */
+export const gameRequestSchema = z
+  .object({
+    name: normalized(GAME_NAME_MAX_LENGTH),
+    slots: z
+      .array(
+        z.object({
+          slotId: idSchema.optional(),
+          name: normalized(GAME_SLOT_NAME_MAX_LENGTH),
+          points,
+          userIds: z.array(idSchema).max(GAME_MEMBERS_MAX),
+        }),
+      )
+      // 名前だけで作り、枠は後から足せる（枠が無いゲームは確定できない）
+      .max(GAME_SLOTS_MAX),
+    /**
+     * 更新のとき、画面が持っているゲームの updatedAt。保存済みのものと違えば（ほかで直されていれば）上書きせず 409 にする。
+     * 省くと確かめない
+     */
+    baseUpdatedAt: z.string().max(40).optional(),
+  })
+  .refine(
+    (v) => {
+      const ids = v.slots.flatMap((s) => s.userIds);
+      return new Set(ids).size === ids.length;
+    },
+    { message: "同じ人が複数の枠に入っています", path: ["slots"] },
+  )
+  .refine(
+    (v) => {
+      const ids = v.slots.flatMap((s) => (s.slotId ? [s.slotId] : []));
+      return new Set(ids).size === ids.length;
+    },
+    { message: "同じ枠が重複しています", path: ["slots"] },
+  );
+
+export type GameRequest = z.infer<typeof gameRequestSchema>;

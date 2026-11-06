@@ -26,7 +26,7 @@ export function Home() {
       </section>
       <CaptureButtons />
       <section className="card">
-        {/* ポイント・クイズの点数を伏せている間は出さない（API からも返らない） */}
+        {/* ポイント・クイズ・ゲームの点数を伏せている間は出さない（API からも返らない） */}
         {rules.showPoints && (
           <p className="points">
             <span className="points-value">{user.points}</span>
@@ -54,8 +54,28 @@ export function Home() {
               <dd>{user.quizPoints}</dd>
             </div>
           )}
+          {rules.showGamePoints && (
+            <div>
+              <dt>ゲームの点数</dt>
+              <dd>{user.gamePoints}</dd>
+            </div>
+          )}
         </dl>
-        {(rules.showPoints || rules.showQuizPoints) && (
+        {rules.showGamePoints && user.gameAwards && user.gameAwards.length > 0 && (
+          <ul className="game-awards">
+            {user.gameAwards.map((a, i) => (
+              // 同じゲーム・枠の組は 1 人に 1 つだけだが、名前が同じゲームもあり得るので順番を混ぜる
+              // biome-ignore lint/suspicious/noArrayIndexKey: 並びは確定した順で、途中に増えたりしない
+              <li key={i}>
+                <span>
+                  {a.gameName} <strong>{a.slotName}</strong>
+                </span>
+                <span className="game-award-points">+{a.points}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {(rules.showPoints || rules.showQuizPoints || rules.showGamePoints) && (
           <p className="muted small">
             {rules.showPoints && (
               <>
@@ -68,8 +88,12 @@ export function Home() {
                   `・お気に入りを 1 枚選ぶと ${rules.favoriteGivenPoints} ポイント`}
               </>
             )}
-            {rules.showPoints && rules.showQuizPoints && "・"}
-            {rules.showQuizPoints && "クイズは締め切り後に、選んだ答えの点数が入ります"}
+            {[
+              rules.showQuizPoints && "クイズは締め切り後に、選んだ答えの点数が入ります",
+              rules.showGamePoints && "ゲームは結果が決まると、入った枠の点数が入ります",
+            ]
+              .filter(Boolean)
+              .map((text, i) => (rules.showPoints || i > 0 ? `・${text}` : text))}
           </p>
         )}
         {rules.favoritesEnabled && (

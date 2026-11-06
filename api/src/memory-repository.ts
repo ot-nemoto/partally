@@ -1,9 +1,10 @@
-import type { PhotoStatus, Settings } from "@partally/shared";
+import type { GameStatus, PhotoStatus, Settings } from "@partally/shared";
 import {
   DEFAULT_SETTINGS,
   EpithetTakenError,
   FavoriteLimitError,
   formatLabel,
+  type GameRecord,
   InvalidStateError,
   NotFoundError,
   type Page,
@@ -34,6 +35,7 @@ export class MemoryRepository implements Repository {
   private openQuizId: string | undefined;
   private prizes = new Map<string, PrizeRecord>();
   private scheduleItems = new Map<string, ScheduleItemRecord>();
+  private games = new Map<string, GameRecord>();
   private settings: Settings = { ...DEFAULT_SETTINGS };
   private labelCounter = 0;
 
@@ -346,6 +348,48 @@ export class MemoryRepository implements Repository {
 
   async deleteScheduleItem(itemId: string) {
     if (!this.scheduleItems.delete(itemId)) throw new NotFoundError();
+  }
+
+  async createGame(game: GameRecord) {
+    this.games.set(game.gameId, clone(game));
+  }
+
+  async getGame(gameId: string) {
+    return clone(this.games.get(gameId));
+  }
+
+  async listGames() {
+    return [...this.games.values()]
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.gameId.localeCompare(b.gameId))
+      .map(clone);
+  }
+
+  async updateGame(
+    gameId: string,
+    changes: Pick<GameRecord, "name" | "slots">,
+    updatedAt: string,
+    expectedUpdatedAt?: string,
+  ) {
+    const game = this.games.get(gameId);
+    if (!game) throw new NotFoundError();
+    if (expectedUpdatedAt !== undefined && game.updatedAt !== expectedUpdatedAt) throw new InvalidStateError();
+    Object.assign(game, clone(changes), { updatedAt });
+    return clone(game);
+  }
+
+  async setGameStatus(gameId: string, status: GameStatus, at: string) {
+    const game = this.games.get(gameId);
+    if (!game) throw new NotFoundError();
+    if (game.status === status) throw new InvalidStateError();
+    game.status = status;
+    game.updatedAt = at;
+    if (status === "confirmed") game.confirmedAt = at;
+    else delete game.confirmedAt;
+    return clone(game);
+  }
+
+  async deleteGame(gameId: string) {
+    if (!this.games.delete(gameId)) throw new NotFoundError();
   }
 
   async getSettings() {
