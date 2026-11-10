@@ -131,9 +131,9 @@ export function ParticipantLayout() {
             <span className="quiz-banner-sub">
               {game.format === "quiz"
                 ? game.myChoiceId
-                  ? `\${game.name}・回答済み（締め切りまで選び直せます）`
-                  : `\${game.name}・タップして回答する`
-                : `\${game.name}・タップして見る`}
+                  ? `${game.name}・回答済み（締め切りまで選び直せます）`
+                  : `${game.name}・タップして回答する`
+                : `${game.name}・タップして見る`}
             </span>
           </Link>
         )}
