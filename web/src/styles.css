@@ -1811,6 +1811,50 @@ table.prize-table td {
   margin: 0;
 }
 
+.prize-import-dialog {
+  max-width: 40rem;
+}
+
+.prize-import-list {
+  max-height: min(45vh, 22rem);
+  overflow-y: auto;
+}
+
+table.prize-import-table td {
+  vertical-align: middle;
+  white-space: normal;
+}
+
+.prize-import-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.75rem 0;
+  padding: 0;
+  border: none;
+}
+
+.prize-import-mode legend {
+  margin-bottom: 0.25rem;
+  font-weight: 600;
+}
+
+.prize-import-mode label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.prize-import-mode input[type="radio"] {
+  flex: none;
+  width: auto;
+  margin: 0;
+}
+
+.prize-import-mode p {
+  margin: 0;
+}
+
 .prize-dialog {
   max-width: 30rem;
 }
