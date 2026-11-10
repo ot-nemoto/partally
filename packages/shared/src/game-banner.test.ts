@@ -7,10 +7,7 @@ const game = (format: CurrentGameDto["format"], mine: Partial<CurrentGameDto> = 
   format,
   name: "第 1 問",
   description: "",
-  slots: [],
   choices: [],
-  ranks: [],
-  voterPoints: 0,
   ...mine,
 });
 

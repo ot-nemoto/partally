@@ -571,7 +571,7 @@ const FORMAT_TEXT: Record<
     descriptionLabel: "問題文",
     description: "例: 瓶の中に飴は何個入っている？",
     imageLabel: "問題の画像（任意）",
-    note: "正解に近い順に順位を付け、順位が入る範囲の点数が入ります（同じだけ離れた人は同じ順位。どの範囲にも入らない順位は 0 点）。順位の範囲は参加者にも見せ、正解の数は見せません。",
+    note: "正解に近い順に順位を付け、順位が入る範囲の点数が入ります（同じだけ離れた人は同じ順位。どの範囲にも入らない順位は 0 点）。点数と正解の数は参加者には見せません。",
   },
   vote: {
     summary: "1 人に投票する",
@@ -580,7 +580,7 @@ const FORMAT_TEXT: Record<
     descriptionLabel: "説明（任意）",
     description: "例: 今日いちばん盛り上げた人に投票してください",
     imageLabel: "画像（任意）",
-    note: "票の多い順に順位を付け、選ばれた人に順位が入る範囲の点数が入ります（同じ票数は同じ順位。0 票の人とどの範囲にも入らない順位は 0 点）。自分と、紐づけを解除した人には投票できません。誰が誰に投票したかは参加者には見せません。",
+    note: "票の多い順に順位を付け、選ばれた人に順位が入る範囲の点数が入ります（同じ票数は同じ順位。0 票の人とどの範囲にも入らない順位は 0 点）。自分と、紐づけを解除した人には投票できません。点数と、誰が誰に投票したかは参加者には見せません。",
   },
   keyword: {
     summary: "見つけた言葉を入れる",
@@ -589,7 +589,7 @@ const FORMAT_TEXT: Record<
     descriptionLabel: "説明（任意）",
     description: "例: 会場のどこかに合言葉が隠れています。見つけたら入れてください",
     imageLabel: "画像（任意）",
-    note: "正解した順に番号を付け、番号が入る範囲の点数が入ります（どの範囲にも入らない番号は 0 点）。全角・半角、大文字・小文字、カタカナ・ひらがな、空白の違いは同じ言葉として扱います。合言葉は参加者には見せません。",
+    note: "正解した順に番号を付け、番号が入る範囲の点数が入ります（どの範囲にも入らない番号は 0 点）。全角・半角、大文字・小文字、カタカナ・ひらがな、空白の違いは同じ言葉として扱います。点数と合言葉は参加者には見せません。",
   },
   lottery: {
     summary: "参加して抽選",
@@ -1188,10 +1188,7 @@ function toPreviewGame(game: GameDto): CurrentGameDto {
     name: game.name,
     description: game.description,
     imageUrl: game.imageUrl,
-    slots: game.slots.map(({ name, points }) => ({ name, points })),
     choices: game.choices.map(({ choiceId, text, imageUrl }) => ({ choiceId, text, imageUrl })),
-    ranks: game.ranks,
-    voterPoints: game.voterPoints,
     myKeywordCorrect: game.format === "keyword" ? false : undefined,
     myEntry: game.format === "lottery" ? false : undefined,
   };
