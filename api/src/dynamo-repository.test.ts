@@ -444,6 +444,13 @@ describe("DynamoRepository", () => {
       });
       await repo.updateGame("G1", changes, "t3");
       expect(ddb.commandCalls(UpdateCommand)[1]!.args[0].input.ConditionExpression).toBe("attribute_exists(PK)");
+      // 画像が無ければ消し、あれば付ける
+      expect(ddb.commandCalls(UpdateCommand)[1]!.args[0].input.UpdateExpression).toMatch(/ REMOVE imageId$/);
+      await repo.updateGame("G1", { ...changes, imageId: "IMG1" }, "t3");
+      expect(ddb.commandCalls(UpdateCommand)[2]!.args[0].input).toMatchObject({
+        UpdateExpression: expect.stringMatching(/, imageId = :imageId$/),
+        ExpressionAttributeValues: { ":imageId": "IMG1" },
+      });
 
       const failed = new ConditionalCheckFailedException({ message: "failed", $metadata: {} });
       ddb.on(UpdateCommand).rejects(failed);

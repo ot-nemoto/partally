@@ -4,7 +4,7 @@ import { ingestUpload } from "./ingest.js";
 import { MemoryRepository } from "./memory-repository.js";
 import { MemoryPhotoStorage } from "./memory-storage.js";
 import { photoKey, prizeImageKey } from "./photo-storage.js";
-import { DEFAULT_SETTINGS, type UserRecord } from "./repository.js";
+import { DEFAULT_SETTINGS, InvalidStateError, type UserRecord } from "./repository.js";
 import type { UrlSigner } from "./url-signer.js";
 
 const ADMIN_PASSWORD = "secret-password";
@@ -961,6 +961,126 @@ describe("API", () => {
       await answer(a, c1);
       await admin("POST", `/api/admin/games/${quiz.gameId}/confirm`);
       expect((await me(a.request)).user.points).toBe(10);
+    });
+
+    /** 管理画面と同じく、アップロード URL をもらって画像を置く */
+    async function uploadImage(admin: ReturnType<typeof createClient>) {
+      const res = await admin("POST", "/api/admin/games/image-upload", {});
+      expect(res.status).toBe(200);
+      storage.put(res.body.upload.fields.key, new Uint8Array([1, 2, 3]), "");
+      return res.body.imageId as string;
+    }
+    const served = (imageId: string) => storage.get(prizeImageKey(imageId)) !== undefined;
+
+    it("問題と選択肢に画像を付けられ、差し替え・外す・削除で古い画像を消す。参加者には署名付き URL で返す", async () => {
+      const admin = await adminClient();
+      const a = await participant("田中");
+      const q = await uploadImage(admin);
+      const c1 = await uploadImage(admin);
+      const created = await admin("POST", "/api/admin/games", {
+        format: "quiz",
+        name: "この人は誰？",
+        imageId: q,
+        choices: [
+          { text: "A", points: 10, imageId: c1 },
+          { text: "B", points: 0 },
+        ],
+      });
+      expect(created.status).toBe(201);
+      const game = created.body.game;
+      expect(game.imageId).toBe(q);
+      expect(game.imageUrl).toBe(`/prizes/${q}.jpg?signed`);
+      expect(game.choices.map((ch: any) => ch.imageUrl)).toEqual([`/prizes/${c1}.jpg?signed`, undefined]);
+      expect([served(q), served(c1)]).toEqual([true, true]);
+      expect(storage.get(prizeImageKey(q, "uploads"))).toBeUndefined();
+
+      // 参加者には開催中だけ、画像の URL も返す
+      await admin("POST", `/api/admin/games/${game.gameId}/open`);
+      const current = (await a.request("GET", "/api/game/current")).body.game;
+      expect(current.imageUrl).toBe(`/prizes/${q}.jpg?signed`);
+      expect(current.choices.map((ch: any) => ch.imageUrl)).toEqual([`/prizes/${c1}.jpg?signed`, undefined]);
+
+      // 問題の画像を差し替え、選択肢 A の画像を外して B に付ける
+      const q2 = await uploadImage(admin);
+      const c2 = await uploadImage(admin);
+      const [ch1, ch2] = game.choices;
+      const updated = await admin("PUT", `/api/admin/games/${game.gameId}`, {
+        format: "quiz",
+        name: "この人は誰？",
+        imageId: q2,
+        choices: [
+          { choiceId: ch1.choiceId, text: "A", points: 10 },
+          { choiceId: ch2.choiceId, text: "B", points: 0, imageId: c2 },
+        ],
+      });
+      expect(updated.status).toBe(200);
+      expect(updated.body.game.choices.map((ch: any) => ch.imageId)).toEqual([undefined, c2]);
+      expect([served(q), served(c1), served(q2), served(c2)]).toEqual([false, false, true, true]);
+
+      // アップロードしていない画像・ほかで使った画像は 400 で、何も変えない
+      const bad = (imageId: string) =>
+        admin("PUT", `/api/admin/games/${game.gameId}`, {
+          format: "quiz",
+          name: "この人は誰？",
+          imageId,
+          choices: [
+            { choiceId: ch1.choiceId, text: "A", points: 10 },
+            { choiceId: ch2.choiceId, text: "B", points: 0, imageId: c2 },
+          ],
+        });
+      expect((await bad("NOTUPLOADED")).status).toBe(400);
+      expect((await bad(q)).status).toBe(400);
+      expect(served(q2)).toBe(true);
+      // 同じ画像を 2 か所には付けられない
+      expect(
+        (
+          await admin("PUT", `/api/admin/games/${game.gameId}`, {
+            format: "quiz",
+            name: "この人は誰？",
+            imageId: c2,
+            choices: [
+              { choiceId: ch1.choiceId, text: "A", points: 10 },
+              { choiceId: ch2.choiceId, text: "B", points: 0, imageId: c2 },
+            ],
+          })
+        ).status,
+      ).toBe(400);
+
+      // 版が古ければ、新しい画像は移さずに 409（受け口に残り、1 日で消える）
+      const q3 = await uploadImage(admin);
+      const stale = await admin("PUT", `/api/admin/games/${game.gameId}`, {
+        format: "quiz",
+        name: "この人は誰？",
+        imageId: q3,
+        choices: [
+          { choiceId: ch1.choiceId, text: "A", points: 10 },
+          { choiceId: ch2.choiceId, text: "B", points: 0, imageId: c2 },
+        ],
+        baseUpdatedAt: game.updatedAt,
+      });
+      expect(stale.status).toBe(409);
+      expect(served(q3)).toBe(false);
+
+      // 画像を移した後に保存が失敗したら（同時の変更で版の条件に合わないなど）、移した画像を消す
+      const q4 = await uploadImage(admin);
+      const spy = vi.spyOn(repo, "updateGame").mockRejectedValueOnce(new InvalidStateError());
+      const failed = await admin("PUT", `/api/admin/games/${game.gameId}`, {
+        format: "quiz",
+        name: "この人は誰？",
+        imageId: q4,
+        choices: [
+          { choiceId: ch1.choiceId, text: "A", points: 10 },
+          { choiceId: ch2.choiceId, text: "B", points: 0, imageId: c2 },
+        ],
+      });
+      spy.mockRestore();
+      expect(failed.status).toBe(409);
+      expect([served(q4), served(q2), served(c2)]).toEqual([false, true, true]);
+
+      // 削除すると画像も消す
+      await admin("POST", `/api/admin/games/${game.gameId}/stop`);
+      expect((await admin("DELETE", `/api/admin/games/${game.gameId}`)).status).toBe(200);
+      expect([served(q2), served(c2)]).toEqual([false, false]);
     });
 
     it("開催中にできるのは 1 つだけ（形式によらない）。やめる・確定で次を開催できる", async () => {

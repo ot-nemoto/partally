@@ -116,6 +116,8 @@ export const PRIZE_QUANTITY_MAX = 100;
 export const PRIZE_POSITION_MAX = 1000;
 export const PRIZE_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 export const PRIZE_IMAGE_MAX_EDGE = 1200;
+/** クイズの選択肢の画像の長辺（参加者の画面では小さく並べるので、問題の画像より小さくする） */
+export const GAME_CHOICE_IMAGE_MAX_EDGE = 600;
 
 /** サーバが発行する ID（ULID）。画像の ID など、クライアントから受け取るときに形だけ確かめる */
 const idSchema = z.string().regex(/^[0-9A-Za-z]{1,40}$/);
@@ -217,8 +219,18 @@ export const gameRequestSchema = z
       .transform((s) => s.trim())
       .pipe(z.string().max(GAME_DESCRIPTION_MAX_LENGTH))
       .optional(),
+    /** 問題（ゲーム本体）の画像。画像のアップロード URL を発行したときの ID。省くと画像なし */
+    imageId: idSchema.optional(),
     choices: z
-      .array(z.object({ choiceId: idSchema.optional(), text: oneLine(GAME_CHOICE_TEXT_MAX_LENGTH), points }))
+      .array(
+        z.object({
+          choiceId: idSchema.optional(),
+          text: oneLine(GAME_CHOICE_TEXT_MAX_LENGTH),
+          points,
+          /** 選択肢の画像。省くと画像なし */
+          imageId: idSchema.optional(),
+        }),
+      )
       .max(GAME_CHOICES_MAX)
       .optional(),
     slots: z
@@ -252,6 +264,13 @@ export const gameRequestSchema = z
       return new Set(ids).size === ids.length;
     },
     { message: "同じ人が複数の枠に入っています", path: ["slots"] },
+  )
+  .refine(
+    (v) => {
+      const ids = [v.imageId, ...(v.choices ?? []).map((c) => c.imageId)].filter((id) => id !== undefined);
+      return new Set(ids).size === ids.length;
+    },
+    { message: "同じ画像が複数の所で使われています", path: ["choices"] },
   )
   .refine(
     (v) => {

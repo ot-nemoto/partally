@@ -61,7 +61,7 @@ flowchart LR
 | `/api/*` | API Gateway (HTTP API) | キャッシュ無効。Cookie・クエリ・必要ヘッダを転送 |
 | `/photos/approved/*` | photos バケット (OAC) | **署名付き Cookie または URL** 必須（公開済み写真） |
 | `/photos/pending/*` | photos バケット (OAC) | **署名付き URL** 必須（検閲待ち。管理者・本人のみ） |
-| `/prizes/*` | photos バケット (OAC) | **署名付き URL** 必須（景品の画像。管理者と、景品を見せる設定のときの参加者） |
+| `/prizes/*` | photos バケット (OAC) | **署名付き URL** 必須（景品の画像とゲームの画像（問題・選択肢）。管理者と、景品を見せる設定・開催中のゲームの参加者） |
 | `/*`（デフォルト） | web バケット (OAC) | CloudFront Function で拡張子のないパスを `/index.html` に書き換え（SPA ルーティング） |
 
 - S3 バケットはどちらも非公開（Block Public Access 有効）とし、CloudFront の OAC 経由でのみ読み取る。
@@ -209,8 +209,9 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `format` | `quiz` \| `result` | 形式。クイズ（参加者が選択肢から選ぶ）／結果入力（幹事が枠ごとに人を選ぶ）。作るときに決め、後から変えない（無いアイテムは `result` として読む） |
 | `name` | string | 名前（NFKC 正規化・前後空白除去、1〜50 文字） |
 | `description` | string | 説明（クイズなら問題文。前後の空白だけ除く、0〜500 文字、改行可。無いアイテムは空として読む） |
+| `imageId` | string? | 問題（ゲーム本体）の画像。景品と同じ置き場（`prizes/<imageId>.jpg`）に置く。無ければ画像なし |
 | `status` | `draft` \| `open` \| `confirmed` | 下書き（ポイントに入らない）／開催中（参加者に知らせる。同時に 1 つだけ）／確定 |
-| `choices` | list | クイズの選択肢 `{choiceId, text, points}` の配列（2〜10 個、text は 1〜100 文字、points は 0〜100）。結果入力では空 |
+| `choices` | list | クイズの選択肢 `{choiceId, text, points, imageId?}` の配列（2〜10 個、text は 1〜100 文字、points は 0〜100）。結果入力では空 |
 | `slots` | list | 結果入力の枠 `{slotId, name, points, userIds}` の配列（0〜20 個、name は 1〜30 文字、points は 0〜100）。1 人は 1 つの枠にだけ入る。クイズでは空 |
 | `openedAt` | string? | 最後に開催した時刻 |
 | `confirmedAt` | string? | 確定した時刻。確定を取り消すと消える |
@@ -405,7 +406,7 @@ sequenceDiagram
 | POST | `/api/auth/register` | 未紐づけトークンに名前を登録（二つ名自動付与） |
 | POST | `/api/auth/logout` | Cookie 削除 |
 | GET | `/api/me` | 自分の情報（表示名・アップロード数・ポイント・お気に入りの数・ゲームの点数と、点数が入ったもの `gameAwards`（ゲーム名・枠の名前かクイズで選んだ答え・点数））とポイントのルール。CloudFront Cookie の再発行 |
-| GET | `/api/game/current` | 開催中のゲーム（形式・名前・説明と、クイズなら選択肢と自分の答え、結果入力なら枠の名前と点数）。無ければ `null`。正解がわからないよう選択肢の点数は返さず、誰がどの枠に入ったかも返さない。画面の表示中は 5 秒ごとと、別のアプリから戻ったときに呼ぶ（画面が見えていない間は呼ばない）。開催・確定が自動で反映される |
+| GET | `/api/game/current` | 開催中のゲーム（形式・名前・説明・画像の署名付き URL と、クイズなら選択肢（画像の URL も）と自分の答え、結果入力なら枠の名前と点数）。画像の URL は景品と同じく 1 時間ごとの区切りの期限で、同じ期限の URL はサーバの中で使い回す（5 秒ごとに呼ばれても署名を作り直さない）。無ければ `null`。正解がわからないよう選択肢の点数は返さず、誰がどの枠に入ったかも返さない。画面の表示中は 5 秒ごとと、別のアプリから戻ったときに呼ぶ（画面が見えていない間は呼ばない）。開催・確定が自動で反映される |
 | GET | `/api/ranking` | ランキング（推移なし）。設定 `rankingVisible` がオフなら 404。紐づけを解除した人は除き、順位を付け直す。名前を伏せるときは全員の名前・称号・表示名を `???` にし、ユーザ ID を順番の番号（`r1`…）に置き換え、推移の始まり（登録した時刻）も全員そろえる。ポイントを伏せるときは、最大値を 100 とした割合（小数第 1 位まで）だけを返す。応答に `hideNames`・`hidePoints` を含む |
 | GET | `/api/trend` | ランキングと累計ポイントの推移。`trendVisible` がオフなら 404。伏せ方は `/api/ranking` と同じ（`trendHideNames`・`trendHidePoints` に従う） |
 | GET | `/api/prizes` | 景品の一覧（名前・数量・渡す順位・画像の署名付き URL）。`prizesVisible` がオフなら 404 |
@@ -435,13 +436,14 @@ sequenceDiagram
 | DELETE | `/api/admin/photos/{photoId}` | 削除 |
 | GET | `/api/admin/games` | ゲームの一覧（作成順、クイズ形式は選択肢ごとの回答数付き） |
 | GET | `/api/admin/games/{gameId}/answers` | クイズ形式のゲームと、答えた人の一覧 |
-| POST | `/api/admin/games` | ゲームを作る `{format, name, description?, choices?: [{text, points}], slots?: [{name, points, userIds}]}`（下書き）。クイズは選択肢 2〜10 個で枠なし、結果入力は選択肢なし（枠は空でもよい）。同じ人が 2 つの枠に入る・登録されていない人や紐づけを解除した人を新しく選ぶと 400 |
-| PUT | `/api/admin/games/{gameId}` | 名前・説明・選択肢・枠・選んだ人を直す（作るときと同じ形。既存の選択肢・枠は `choiceId`・`slotId` を付けて送る）。開催中・確定済みでも直せる。形式を変えると 400。クイズの選択肢の増減は、答えが無い下書きの間だけ（それ以外は 409）。画面が持っている `updatedAt` を `baseUpdatedAt` で送ると、ほかで直されていたとき（保存済みと違うとき）は上書きせず 409 |
+| POST | `/api/admin/games/image-upload` | ゲームの画像（問題・選択肢）を 1 枚、受け口へアップロードする署名付き POST と `imageId` を発行（景品と同じ受け口・置き場） |
+| POST | `/api/admin/games` | ゲームを作る `{format, name, description?, imageId?, choices?: [{text, points, imageId?}], slots?: [{name, points, userIds}]}`（下書き）。`imageId` は受け口にアップロード済みであること（無い・ほかで使った画像・同じ画像を 2 か所は 400）。保存時に配信する領域へ移す。クイズは選択肢 2〜10 個で枠なし、結果入力は選択肢なし（枠は空でもよい）。同じ人が 2 つの枠に入る・登録されていない人や紐づけを解除した人を新しく選ぶと 400 |
+| PUT | `/api/admin/games/{gameId}` | 名前・説明・選択肢・枠・選んだ人を直す（作るときと同じ形。既存の選択肢・枠は `choiceId`・`slotId` を付けて送る）。開催中・確定済みでも直せる。差し替えた・外した画像は消す（保存できなかったときは、新しく移した画像を消す）。形式を変えると 400。クイズの選択肢の増減は、答えが無い下書きの間だけ（それ以外は 409）。画面が持っている `updatedAt` を `baseUpdatedAt` で送ると、ほかで直されていたとき（保存済みと違うとき）は上書きせず 409 |
 | POST | `/api/admin/games/{gameId}/open` | 開催。下書きでない・別のゲームが開催中なら 409 |
 | POST | `/api/admin/games/{gameId}/stop` | 開催をやめて下書きに戻す（クイズの答えは残る）。開催中でなければ 409 |
 | POST | `/api/admin/games/{gameId}/confirm` | 確定（その時刻でポイントが入る）。下書き・開催中から。確定済み・結果入力で枠が 1 つも無いときは 409 |
 | POST | `/api/admin/games/{gameId}/unconfirm` | 確定を取り消して下書きに戻す（ポイントも消える）。確定していなければ 409 |
-| DELETE | `/api/admin/games/{gameId}` | 削除（答えも消え、確定済みなら入ったポイントも消える）。開催中は 409 |
+| DELETE | `/api/admin/games/{gameId}` | 削除（答え・画像も消え、確定済みなら入ったポイントも消える）。開催中は 409 |
 | GET | `/api/admin/prizes` | 景品の一覧（作成順、画像の署名付き URL 付き） |
 | POST | `/api/admin/prizes/image-upload` | 景品の画像を 1 枚、受け口へアップロードする署名付き POST と `imageId` を発行 |
 | POST | `/api/admin/prizes` | 景品を登録する `{name, quantity, positions, imageId?}`。割り当てが数量を超える・順位が重複するときは 400。`imageId` は受け口にアップロード済みであること（無い・別の景品で使った画像は 400）。保存時に配信する領域へ移す |
@@ -520,7 +522,7 @@ sequenceDiagram
 - すべてのリソースに `Project=partally` タグを付与し、コストを分離する。
 - 事前に数名でリハーサルし、会場の通信状況を確認する。QR は予備を印刷しておく。
 - API Gateway のステージ全体にスロットリング（例: 50 rps / バースト 100）を設定する。
-- **本番データの初期化**: GitHub Actions の Reset ワークフロー（手動実行、`production` Environment、確認欄に `初期化`）から初期化 Lambda（`partally-reset`）を呼び、テーブルの全アイテム（景品を含む）と写真バケットの全オブジェクト（景品の画像を含む）を消して `/photos/*`・`/prizes/*` を無効化する。管理画面からは実行できない（管理者パスワードを知っているだけでは消せないようにするため）。Lambda も決まった合言葉付きの呼び出しでなければ何もしない。手順は [初期設定・デプロイ手順](setup.md#本番データの初期化)。
+- **本番データの初期化**: GitHub Actions の Reset ワークフロー（手動実行、`production` Environment、確認欄に `初期化`）から初期化 Lambda（`partally-reset`）を呼び、テーブルの全アイテム（景品を含む）と写真バケットの全オブジェクト（景品・ゲームの画像を含む）を消して `/photos/*`・`/prizes/*` を無効化する。管理画面からは実行できない（管理者パスワードを知っているだけでは消せないようにするため）。Lambda も決まった合言葉付きの呼び出しでなければ何もしない。手順は [初期設定・デプロイ手順](setup.md#本番データの初期化)。
 
 ---
 
