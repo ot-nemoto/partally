@@ -118,6 +118,8 @@ export interface GameRecord {
   correctNumber?: number;
   /** 投票で、投票した人に入る点数（ほかの形式では 0） */
   voterPoints: number;
+  /** 合言葉（ほかの形式では無い） */
+  keyword?: string;
   createdAt: string;
   updatedAt: string;
   /** 最後に開催した時刻 */
@@ -126,7 +128,13 @@ export interface GameRecord {
   confirmedAt?: string;
 }
 
-/** クイズ・数値予想・投票のゲームへの答え。1 人 1 ゲームにつき 1 件で、答え直すと上書きする */
+/** ゲームを直すときに変える項目（形式・状態・時刻は変えない） */
+export type GameChanges = Pick<
+  GameRecord,
+  "name" | "description" | "imageId" | "slots" | "choices" | "ranks" | "correctNumber" | "voterPoints" | "keyword"
+>;
+
+/** クイズ・数値予想・投票・合言葉のゲームへの答え。1 人 1 ゲームにつき 1 件で、答え直すと上書きする */
 export interface GameAnswerRecord {
   gameId: string;
   userId: string;
@@ -136,6 +144,8 @@ export interface GameAnswerRecord {
   value?: number;
   /** 投票で選んだ人 */
   targetUserId?: string;
+  /** 合言葉で正解した言葉（正解したときだけ保存する） */
+  text?: string;
   answeredAt: string;
 }
 
@@ -347,15 +357,7 @@ export interface Repository {
    * 名前・説明・枠・選択肢を差し替える（開催中・確定済みでも直せる）。expectedUpdatedAt を渡すと、保存済みの updatedAt がそれと同じときだけ差し替える。
    * @throws NotFoundError / InvalidStateError ほかで直されていた
    */
-  updateGame(
-    gameId: string,
-    changes: Pick<
-      GameRecord,
-      "name" | "description" | "imageId" | "slots" | "choices" | "ranks" | "correctNumber" | "voterPoints"
-    >,
-    updatedAt: string,
-    expectedUpdatedAt?: string,
-  ): Promise<GameRecord>;
+  updateGame(gameId: string, changes: GameChanges, updatedAt: string, expectedUpdatedAt?: string): Promise<GameRecord>;
   /**
    * 状態を from から to に変える。開催中（open）は同時に 1 つだけで、開催中の印を一緒に作る・消す。
    * 確定（confirmed）にすると confirmedAt を付け、確定から戻すと消す。開催すると openedAt を付ける。

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatRankRange, rankNumberAnswers, tallyVotes } from "./number-game.js";
+import { formatRankRange, normalizeKeyword, rankNumberAnswers, tallyVotes } from "./number-game.js";
 
 describe("数値予想の順位", () => {
   const ranks = [
@@ -56,5 +56,14 @@ describe("投票の集計", () => {
 
   it("票が無ければ空", () => {
     expect(tallyVotes([], [{ from: 1, to: 1, points: 1 }])).toEqual([]);
+  });
+});
+
+describe("合言葉の比べ方", () => {
+  it("全角・半角、大文字・小文字、カタカナ・ひらがな、空白の違いをなくす", () => {
+    const base = normalizeKeyword("ぱーてぃー 2026");
+    for (const s of ["パーティー2026", "ﾊﾟｰﾃｨｰ ２０２６", " ぱーてぃー　2026 "]) expect(normalizeKeyword(s)).toBe(base);
+    expect(normalizeKeyword("ABC")).toBe(normalizeKeyword("ａｂｃ"));
+    expect(normalizeKeyword("ぱーてぃ")).not.toBe(base);
   });
 });

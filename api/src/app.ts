@@ -11,7 +11,9 @@ import {
   gameConfirmProblem,
   gameRequestSchema,
   hasGameAnswers,
+  hasGameRanks,
   issueTokensRequestSchema,
+  normalizeKeyword,
   type ParticipantRankingResponse,
   type PhotoDto,
   type PhotoStatus,
@@ -233,7 +235,7 @@ export function createApp(deps: AppDeps) {
 
   /**
    * 1 人分のゲームの点数。クイズ形式は自分の答えだけを読む。
-   * 数値予想は順位が他の人の答えで決まるので、自分が答えた確定済みのものだけ全員の答えを読む。
+   * 数値予想・合言葉は順位が他の人の答えで決まるので、自分が答えた確定済みのものだけ全員の答えを読む。
    * 投票は自分が投票していなくても選ばれていることがあるので、確定済みのものは全員の票を読む
    */
   const scoresOf = async (userId: string): Promise<GameStats> => {
@@ -241,7 +243,8 @@ export function createApp(deps: AppDeps) {
     const answered = new Set(mine.map((a) => a.gameId));
     const needsAll = (game: GameRecord) =>
       game.status === "confirmed" &&
-      (game.format === "vote" || (game.format === "number" && answered.has(game.gameId)));
+      (game.format === "vote" ||
+        ((game.format === "number" || game.format === "keyword") && answered.has(game.gameId)));
     const entries = await Promise.all(
       withAnswers(games, mine).map(async (entry) =>
         needsAll(entry.game)
@@ -429,7 +432,7 @@ export function createApp(deps: AppDeps) {
     if (!body.ok) return body.response;
     const game = await repo.getGame(c.req.param("gameId") ?? "");
     if (!game) return fail(c, 404, "not_found");
-    const { choiceId, value, targetUserId } = body.data;
+    const { choiceId, value, targetUserId, text } = body.data;
     const userId = c.get("user").userId;
     // クイズは選択肢、数値予想は数、投票は人で答える（形式に合わない答えや、結果入力への答えは受け付けない）
     const fits =
@@ -437,7 +440,9 @@ export function createApp(deps: AppDeps) {
         ? choiceId !== undefined
         : game.format === "number"
           ? value !== undefined
-          : game.format === "vote" && targetUserId !== undefined;
+          : game.format === "vote"
+            ? targetUserId !== undefined
+            : game.format === "keyword" && text !== undefined;
     if (!fits) return fail(c, 400, "bad_request", "このゲームには、その形では答えられません");
     if (game.status !== "open") return fail(c, 409, "game_closed");
     if (choiceId !== undefined && !game.choices.some((ch) => ch.choiceId === choiceId)) {
@@ -448,6 +453,14 @@ export function createApp(deps: AppDeps) {
       const target = await repo.getUser(targetUserId);
       if (target?.status !== "active") return fail(c, 400, "bad_request", "その人には投票できません");
     }
+    if (text !== undefined) {
+      // 合言葉は正解したときだけ保存する（不正解は何度でも試せる）。正解した後は、最初に正解した時刻のまま
+      const correct = isKeywordCorrect(game, text);
+      const existing = await repo.getGameAnswer(userId, game.gameId);
+      if (!correct || isKeywordCorrect(game, existing?.text)) {
+        return c.json({ game: toCurrentGameDto(game, existing, imageUrlOf), correct });
+      }
+    }
     // 時刻は開催中を確かめた後に付ける。この後に確定されて保存が遅れた答えは、点数の計算で除かれる
     const answer = {
       gameId: game.gameId,
@@ -455,10 +468,14 @@ export function createApp(deps: AppDeps) {
       choiceId,
       value,
       targetUserId,
+      text,
       answeredAt: now().toISOString(),
     };
     await repo.putGameAnswer(answer);
-    return c.json({ game: toCurrentGameDto(game, answer, imageUrlOf) });
+    return c.json({
+      game: toCurrentGameDto(game, answer, imageUrlOf),
+      ...(text !== undefined ? { correct: true } : {}),
+    });
   });
 
   // 投票で選べる人（自分と、紐づけを解除した人を除く）。ゲームの画面を開いたときに 1 回だけ読む
@@ -856,6 +873,7 @@ export function createApp(deps: AppDeps) {
             value: a.value,
             targetUserId: a.targetUserId,
             targetDisplayName: nameOf(a.targetUserId),
+            text: a.text,
             answeredAt: a.answeredAt,
           };
         }),
@@ -923,6 +941,7 @@ export function createApp(deps: AppDeps) {
       ranks: sortRanks(body.data.ranks ?? []),
       correctNumber: body.data.correctNumber,
       voterPoints: body.data.voterPoints ?? 0,
+      keyword: body.data.keyword,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -962,7 +981,7 @@ export function createApp(deps: AppDeps) {
     // 確定した数値予想・投票から正解の数や点数の範囲を外すと、入ったポイントが黙って消えるので受け付けない
     if (
       game.status === "confirmed" &&
-      (game.format === "number" || game.format === "vote") &&
+      hasGameRanks(game) &&
       gameConfirmProblem({
         format: game.format,
         slots: [],
@@ -986,6 +1005,7 @@ export function createApp(deps: AppDeps) {
       ranks: sortRanks(body.data.ranks ?? []),
       correctNumber: body.data.correctNumber,
       voterPoints: body.data.voterPoints ?? 0,
+      keyword: body.data.keyword,
     };
     const before = gameImageIds(game);
     const after = gameImageIds(changes);
@@ -1124,7 +1144,7 @@ interface GameAward extends GameAwardDto {
  * 確定したゲームで、誰に何点入ったか（確定した順）。下書き・開催中のゲームは数えない
  * （クイズを選び直して、点数の変化から正解が分からないように）。
  * 結果入力は枠に入った人に枠の点数、クイズは選んだ選択肢の点数、数値予想は正解に近い順の順位が入る範囲の点数、
- * 投票は得票の順位が入る範囲の点数（選ばれた人）と、投票した人の点数。確定の直前に受け付けて確定の後に保存された答え
+ * 投票は得票の順位が入る範囲の点数（選ばれた人）と、投票した人の点数、合言葉は正解した順が入る範囲の点数。確定の直前に受け付けて確定の後に保存された答え
  * （answeredAt > confirmedAt）は数えない
  */
 function gameAwards(entries: GameWithAnswers[]): GameAward[] {
@@ -1184,6 +1204,21 @@ function gameAwards(entries: GameWithAnswers[]): GameAward[] {
           awards.push({ userId: answer.userId, at, gameName: game.name, slotName: "投票", points: game.voterPoints });
         }
       }
+    } else if (game.format === "keyword") {
+      // 今の合言葉に合う答えを、正解した時刻の順に並べる（同じ時刻は userId の順）
+      const correct = answers
+        .filter((a) => a.answeredAt <= at && isKeywordCorrect(game, a.text))
+        .sort((a, b) => a.answeredAt.localeCompare(b.answeredAt) || a.userId.localeCompare(b.userId));
+      correct.forEach((answer, i) => {
+        const range = game.ranks.find((r) => r.from <= i + 1 && i + 1 <= r.to);
+        awards.push({
+          userId: answer.userId,
+          at,
+          gameName: game.name,
+          slotName: `${i + 1} 番目に正解`,
+          points: range?.points ?? 0,
+        });
+      });
     }
   }
   return awards;
@@ -1400,6 +1435,11 @@ function sortSchedule(items: ScheduleItemRecord[]): ScheduleItemDto[] {
 
 type ImageUrlOf = (imageId: string | undefined) => string | undefined;
 
+/** 合言葉に合っているか（表記の揺れは normalizeKeyword でなくす）。合言葉が無ければ合わない */
+function isKeywordCorrect(game: Pick<GameRecord, "keyword">, text: string | undefined): boolean {
+  return game.keyword !== undefined && text !== undefined && normalizeKeyword(text) === normalizeKeyword(game.keyword);
+}
+
 /** 数値予想の点数の範囲を、順位の小さい順に */
 function sortRanks(ranks: GameRank[]): GameRank[] {
   return [...ranks].sort((a, b) => a.from - b.from).map(({ from, to, points }) => ({ from, to, points }));
@@ -1425,6 +1465,7 @@ function toGameDto(game: GameRecord, answers: GameAnswerRecord[], imageUrlOf: Im
     ranks: game.ranks.map((r) => ({ ...r })),
     correctNumber: game.correctNumber,
     voterPoints: game.voterPoints,
+    keyword: game.keyword,
     answerCount: answers.length,
     createdAt: game.createdAt,
     openedAt: game.openedAt,
@@ -1436,7 +1477,7 @@ function toGameDto(game: GameRecord, answers: GameAnswerRecord[], imageUrlOf: Im
 /** 参加者に返す開催中のゲーム。誰がどの枠に入ったかと、クイズの選択肢の点数（正解が分かる）は含めない */
 function toCurrentGameDto(
   game: GameRecord,
-  answer: Pick<GameAnswerRecord, "choiceId" | "value" | "targetUserId"> | undefined,
+  answer: Pick<GameAnswerRecord, "choiceId" | "value" | "targetUserId" | "text"> | undefined,
   imageUrlOf: ImageUrlOf,
 ): CurrentGameDto {
   return {
@@ -1453,6 +1494,8 @@ function toCurrentGameDto(
     voterPoints: game.voterPoints,
     myValue: answer?.value,
     myTargetUserId: answer?.targetUserId,
+    // 合言葉そのものは返さず、正解したかだけ返す
+    myKeywordCorrect: game.format === "keyword" ? isKeywordCorrect(game, answer?.text) : undefined,
   };
 }
 

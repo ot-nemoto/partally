@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { EPITHET_MAX_LENGTH } from "./epithet.js";
+import { normalizeKeyword } from "./number-game.js";
 import type { TieBreakKey } from "./types.js";
 
 export const NAME_MAX_LENGTH = 20;
@@ -196,9 +197,10 @@ export const GAME_RANK_MAX = 1000;
 /**
  * ゲームの形式。quiz: 参加者が選択肢から選ぶ / result: 幹事が枠（優勝など）ごとに人を選ぶ /
  * number: 参加者が数を答え、正解に近い順の順位で点数が入る（数値予想・ニアピン） /
- * vote: 参加者が参加者全員から 1 人に投票し、得票の順位で選ばれた人に点数が入る
+ * vote: 参加者が参加者全員から 1 人に投票し、得票の順位で選ばれた人に点数が入る /
+ * keyword: 参加者が合言葉を入れ、正解した順（先着順）の順位で点数が入る
  */
-export const GAME_FORMATS = ["quiz", "result", "number", "vote"] as const;
+export const GAME_FORMATS = ["quiz", "result", "number", "vote", "keyword"] as const;
 
 /** 形式の名前（管理画面に出す） */
 export const GAME_FORMAT_LABEL: Record<(typeof GAME_FORMATS)[number], string> = {
@@ -206,7 +208,15 @@ export const GAME_FORMAT_LABEL: Record<(typeof GAME_FORMATS)[number], string> = 
   result: "結果入力",
   number: "数値予想",
   vote: "投票",
+  keyword: "合言葉",
 };
+
+/** 合言葉の長さの上限 */
+export const GAME_KEYWORD_MAX_LENGTH = 50;
+const keywordText = z
+  .string()
+  .transform((s) => s.trim())
+  .pipe(z.string().min(1).max(GAME_KEYWORD_MAX_LENGTH));
 
 const gameNumber = z.number().int().min(GAME_NUMBER_MIN).max(GAME_NUMBER_MAX);
 
@@ -223,6 +233,7 @@ const oneLine = (max: number) =>
  * - result: 枠（0〜20 個。名前だけで作り、枠は後から足せる）ごとに点数と人を決める。1 人は 1 つの枠にだけ入る。choices は送らない
  * - number: 点数の範囲（順位の始まりと終わり・点数。0〜20 個、重ねない）と、正解の数（確定までに入れる）を決める。choices・slots は送らない
  * - vote: 得票の順位の範囲ごとの点数（number と同じ形）と、投票した人の点数を決める。choices・slots は送らない
+ * - keyword: 合言葉と、正解した順の範囲ごとの点数（number と同じ形）を決める。choices・slots は送らない
  * choiceId・slotId は既存の選択肢・枠を直すときに指定する。新しいものには付けない
  */
 export const gameRequestSchema = z
@@ -275,6 +286,8 @@ export const gameRequestSchema = z
     correctNumber: gameNumber.optional(),
     /** 投票で、投票した人に入る点数。省くと 0（入らない） */
     voterPoints: points.optional(),
+    /** 合言葉（参加者には見せない）。合言葉の形式では必須 */
+    keyword: keywordText.optional(),
     /**
      * 更新のとき、画面が持っているゲームの updatedAt。保存済みのものと違えば（ほかで直されていれば）上書きせず 409 にする。
      * 省くと確かめない
@@ -293,13 +306,21 @@ export const gameRequestSchema = z
     message: "枠を付けられるのは結果入力だけです",
     path: ["slots"],
   })
-  .refine((v) => v.format === "number" || v.format === "vote" || !v.ranks?.length, {
-    message: "点数の範囲を付けられるのは数値予想と投票だけです",
+  .refine((v) => v.format === "number" || v.format === "vote" || v.format === "keyword" || !v.ranks?.length, {
+    message: "点数の範囲を付けられるのは数値予想・投票・合言葉だけです",
     path: ["ranks"],
   })
   .refine((v) => v.format === "number" || v.correctNumber === undefined, {
     message: "正解の数を付けられるのは数値予想だけです",
     path: ["correctNumber"],
+  })
+  .refine((v) => (v.format === "keyword") === (v.keyword !== undefined), {
+    message: "合言葉の形式では合言葉を入れてください（ほかの形式には付けられません）",
+    path: ["keyword"],
+  })
+  .refine((v) => v.keyword === undefined || normalizeKeyword(v.keyword) !== "", {
+    message: "合言葉に文字を入れてください",
+    path: ["keyword"],
   })
   .refine((v) => v.format === "vote" || !v.voterPoints, {
     message: "投票した人の点数を付けられるのは投票だけです",
@@ -342,9 +363,14 @@ export const gameRequestSchema = z
 
 export type GameRequest = z.infer<typeof gameRequestSchema>;
 
-/** ゲームへの答え。クイズは選んだ選択肢、数値予想は数（0〜100 の整数）、投票は選んだ人。どれか 1 つ */
+/** ゲームへの答え。クイズは選んだ選択肢、数値予想は数（0〜100 の整数）、投票は選んだ人、合言葉は言葉。どれか 1 つ */
 export const gameAnswerRequestSchema = z
-  .object({ choiceId: idSchema.optional(), value: gameNumber.optional(), targetUserId: idSchema.optional() })
-  .refine((v) => [v.choiceId, v.value, v.targetUserId].filter((x) => x !== undefined).length === 1, {
-    message: "選択肢・数・選んだ人のどれか 1 つを送ってください",
+  .object({
+    choiceId: idSchema.optional(),
+    value: gameNumber.optional(),
+    targetUserId: idSchema.optional(),
+    text: keywordText.optional(),
+  })
+  .refine((v) => [v.choiceId, v.value, v.targetUserId, v.text].filter((x) => x !== undefined).length === 1, {
+    message: "選択肢・数・選んだ人・言葉のどれか 1 つを送ってください",
   });

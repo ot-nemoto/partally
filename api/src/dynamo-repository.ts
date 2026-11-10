@@ -29,6 +29,7 @@ import {
   formatLabel,
   GameAlreadyOpenError,
   type GameAnswerRecord,
+  type GameChanges,
   type GameRecord,
   InvalidStateError,
   NotFoundError,
@@ -699,15 +700,7 @@ export class DynamoRepository implements Repository {
     return (await this.queryGsi1("GAMES")).map(toGameRecord);
   }
 
-  async updateGame(
-    gameId: string,
-    changes: Pick<
-      GameRecord,
-      "name" | "description" | "imageId" | "slots" | "choices" | "ranks" | "correctNumber" | "voterPoints"
-    >,
-    updatedAt: string,
-    expectedUpdatedAt?: string,
-  ) {
+  async updateGame(gameId: string, changes: GameChanges, updatedAt: string, expectedUpdatedAt?: string) {
     const check = expectedUpdatedAt !== undefined;
     const set = [
       "#name = :name",
@@ -719,11 +712,13 @@ export class DynamoRepository implements Repository {
       "updatedAt = :updatedAt",
     ];
     const remove: string[] = [];
-    // 画像と正解の数は、無ければ項目ごと消す
+    // 画像・正解の数・合言葉は、無ければ項目ごと消す
     if (changes.imageId) set.push("imageId = :imageId");
     else remove.push("imageId");
     if (changes.correctNumber !== undefined) set.push("correctNumber = :correctNumber");
     else remove.push("correctNumber");
+    if (changes.keyword !== undefined) set.push("keyword = :keyword");
+    else remove.push("keyword");
     try {
       const { Attributes } = await this.client.send(
         new UpdateCommand({
@@ -742,6 +737,7 @@ export class DynamoRepository implements Repository {
             ":voterPoints": changes.voterPoints,
             ...(changes.imageId ? { ":imageId": changes.imageId } : {}),
             ...(changes.correctNumber !== undefined ? { ":correctNumber": changes.correctNumber } : {}),
+            ...(changes.keyword !== undefined ? { ":keyword": changes.keyword } : {}),
             ...(check ? { ":expected": expectedUpdatedAt } : {}),
           },
           ReturnValues: "ALL_NEW",
@@ -1057,6 +1053,7 @@ function toGameRecord(item: Record<string, unknown>): GameRecord {
     })),
     correctNumber: item.correctNumber === undefined ? undefined : Number(item.correctNumber),
     voterPoints: Number(item.voterPoints ?? 0),
+    keyword: item.keyword as string | undefined,
     slots: ((item.slots ?? []) as Record<string, unknown>[]).map((s) => ({
       slotId: s.slotId as string,
       name: s.name as string,
@@ -1077,6 +1074,7 @@ function toGameAnswerRecord(item: Record<string, unknown>): GameAnswerRecord {
     choiceId: item.choiceId as string | undefined,
     value: item.value === undefined ? undefined : Number(item.value),
     targetUserId: item.targetUserId as string | undefined,
+    text: item.text as string | undefined,
     answeredAt: item.answeredAt as string,
   };
 }

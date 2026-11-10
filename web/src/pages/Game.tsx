@@ -1,13 +1,14 @@
 import {
   type CurrentGameDto,
-  type CurrentGameResponse,
   formatRankRange,
+  GAME_KEYWORD_MAX_LENGTH,
   GAME_NUMBER_MAX,
   GAME_NUMBER_MIN,
+  type GameAnswerResponse,
   type GameCandidateDto,
   type GameCandidatesResponse,
 } from "@partally/shared";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../api";
 import { NumberField } from "../components/NumberField";
@@ -48,13 +49,17 @@ export function Game() {
     setValue(myValue ?? Number.NaN);
   }, [gameId]);
 
-  async function answer(body: { choiceId: string } | { value: number } | { targetUserId: string }, key: string) {
+  async function answer(
+    body: { choiceId: string } | { value: number } | { targetUserId: string } | { text: string },
+    key: string,
+  ): Promise<GameAnswerResponse | undefined> {
     if (!game) return;
     setSending(key);
     setError(undefined);
     try {
-      const res = await api<CurrentGameResponse>("PUT", `/game/${game.gameId}/answer`, body);
+      const res = await api<GameAnswerResponse>("PUT", `/game/${game.gameId}/answer`, body);
       setGame(res.game);
+      return res;
     } catch (e) {
       // 次の確認を待たずに「終わりました」に切り替える
       if (e instanceof ApiError && e.code === "game_closed") setGame(null);
@@ -118,6 +123,13 @@ export function Game() {
             {game.myChoiceId ? "回答しました。締め切りまでは選び直せます。" : "選択肢を 1 つ選んでください。"}
           </p>
         </>
+      ) : game.format === "keyword" ? (
+        <KeywordSection
+          game={game}
+          sending={sending !== undefined}
+          error={error}
+          onSend={(text) => answer({ text }, "text")}
+        />
       ) : game.format === "vote" ? (
         <VoteSection
           game={game}
@@ -189,14 +201,14 @@ export function Game() {
 }
 
 /** 順位の範囲ごとの点数（数値予想・投票） */
-function RankPoints(props: { ranks: CurrentGameDto["ranks"]; note: string }) {
+function RankPoints(props: { ranks: CurrentGameDto["ranks"]; note: string; unit?: string }) {
   return (
     <section className="card">
       {props.ranks.length > 0 ? (
         <ul className="game-points">
           {props.ranks.map((r) => (
             <li key={r.from}>
-              <span>{formatRankRange(r)}</span>
+              <span>{formatRankRange(r, props.unit)}</span>
               <span className="game-award-points">{r.points} 点</span>
             </li>
           ))}
@@ -330,6 +342,79 @@ function VoteSection(props: {
         note={`票の多い順に順位が付き（同じ票数は同じ順位）、選ばれた人に順位に応じた点数が入ります。${
           game.voterPoints > 0 ? `投票した人にも ${game.voterPoints} 点入ります。` : ""
         }誰が誰に投票したかは、ほかの参加者には見えません。`}
+      />
+    </>
+  );
+}
+
+/** 合言葉。入れて送ると、その場で正解か分かる（不正解なら何度でも。正解した後は送らない） */
+function KeywordSection(props: {
+  game: CurrentGameDto;
+  sending: boolean;
+  error?: string;
+  onSend: (text: string) => Promise<GameAnswerResponse | undefined>;
+}) {
+  const { game } = props;
+  const [text, setText] = useState("");
+  /** 直前に送った言葉が正解だったか（まだ送っていなければ undefined） */
+  const [result, setResult] = useState<boolean>();
+
+  // 別のゲームに変わったら、入力と結果を消す
+  // biome-ignore lint/correctness/useExhaustiveDependencies: gameId が変わったときだけ消す
+  useEffect(() => {
+    setText("");
+    setResult(undefined);
+  }, [game.gameId]);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!text.trim()) return;
+    const res = await props.onSend(text);
+    if (res?.correct === undefined) return;
+    // 不正解でも入れた言葉は残す（打ち間違いを直して送り直せるように）
+    setResult(res.correct);
+  }
+
+  return (
+    <>
+      {game.myKeywordCorrect ? (
+        <section className="card game-keyword-done">
+          <p className="game-keyword-result correct">正解です！</p>
+          <p className="muted small">締め切られると、正解した順に点数が入ります。</p>
+        </section>
+      ) : (
+        <form className="card game-number-form" onSubmit={onSubmit}>
+          <label className="field">
+            <span>合言葉</span>
+            <input
+              value={text}
+              onChange={(e) => {
+                setText(e.target.value);
+                setResult(undefined);
+              }}
+              maxLength={GAME_KEYWORD_MAX_LENGTH}
+              autoComplete="off"
+              enterKeyHint="send"
+              required
+            />
+          </label>
+          <button type="submit" className="primary" disabled={props.sending || !text.trim()}>
+            送る
+          </button>
+          {props.error && <p className="error">{props.error}</p>}
+          <p className="small" aria-live="polite">
+            {result === false ? (
+              <span className="game-keyword-result wrong">ちがいます。もう一度どうぞ。</span>
+            ) : (
+              <span className="muted">見つけた合言葉を入れて「送る」を押してください。何度でも試せます。</span>
+            )}
+          </p>
+        </form>
+      )}
+      <RankPoints
+        ranks={game.ranks}
+        unit="番目"
+        note="正解した順に番号が付き、番号に応じた点数が入ります。全角・半角、カタカナ・ひらがなの違いは気にしなくて大丈夫です。"
       />
     </>
   );
