@@ -217,8 +217,18 @@ export const gameRequestSchema = z
       .transform((s) => s.trim())
       .pipe(z.string().max(GAME_DESCRIPTION_MAX_LENGTH))
       .optional(),
+    /** 問題（ゲーム本体）の画像。画像のアップロード URL を発行したときの ID。省くと画像なし */
+    imageId: idSchema.optional(),
     choices: z
-      .array(z.object({ choiceId: idSchema.optional(), text: oneLine(GAME_CHOICE_TEXT_MAX_LENGTH), points }))
+      .array(
+        z.object({
+          choiceId: idSchema.optional(),
+          text: oneLine(GAME_CHOICE_TEXT_MAX_LENGTH),
+          points,
+          /** 選択肢の画像。省くと画像なし */
+          imageId: idSchema.optional(),
+        }),
+      )
       .max(GAME_CHOICES_MAX)
       .optional(),
     slots: z
@@ -252,6 +262,13 @@ export const gameRequestSchema = z
       return new Set(ids).size === ids.length;
     },
     { message: "同じ人が複数の枠に入っています", path: ["slots"] },
+  )
+  .refine(
+    (v) => {
+      const ids = [v.imageId, ...(v.choices ?? []).map((c) => c.imageId)].filter((id) => id !== undefined);
+      return new Set(ids).size === ids.length;
+    },
+    { message: "同じ画像が複数の所で使われています", path: ["choices"] },
   )
   .refine(
     (v) => {

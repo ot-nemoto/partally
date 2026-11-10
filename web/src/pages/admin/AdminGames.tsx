@@ -15,6 +15,7 @@ import {
   type GameStatus,
   type GamesResponse,
   POINTS_MAX,
+  PRIZE_IMAGE_MAX_EDGE,
   type TokensResponse,
   type UserDto,
   type UsersResponse,
@@ -26,6 +27,8 @@ import { NumberField } from "../../components/NumberField";
 import { PageTitle } from "../../components/PageTitle";
 import { StatusFilter, useShownStatuses } from "../../components/StatusFilter";
 import { useOnReload } from "../../hooks/useReload";
+import { processImage } from "../../photos/process";
+import { uploadGameImage } from "./prizeImage";
 
 const STATUS_LABEL: Record<GameStatus, string> = { draft: "下書き", open: "開催中", confirmed: "確定" };
 /** 表示・非表示を切り替えるボタンの並び */
@@ -46,8 +49,9 @@ function gameBody(game: GameDto) {
     format: game.format,
     name: game.name,
     description: game.description,
+    imageId: game.imageId,
     slots: game.slots.map(({ slotId, name, points, userIds }) => ({ slotId, name, points, userIds })),
-    choices: game.choices.map(({ choiceId, text, points }) => ({ choiceId, text, points })),
+    choices: game.choices.map(({ choiceId, text, points, imageId }) => ({ choiceId, text, points, imageId })),
   };
 }
 
@@ -204,12 +208,16 @@ export function AdminGames() {
             {g.confirmedAt && <span className="muted small">{formatTime(g.confirmedAt)} に確定</span>}
           </header>
           <h2 className="game-name">{g.name}</h2>
+          {g.imageUrl && <img className="game-image" src={g.imageUrl} alt="" loading="lazy" />}
           {g.description && <p className="quiz-text game-description">{g.description}</p>}
           {g.format === "quiz" ? (
             <ul className="quiz-admin-choices">
               {g.choices.map((ch) => (
                 <li key={ch.choiceId}>
-                  <span>{ch.text}</span>
+                  <span className="game-choice-label">
+                    {ch.imageUrl && <img className="game-choice-thumb" src={ch.imageUrl} alt="" loading="lazy" />}
+                    {ch.text}
+                  </span>
                   <span className="muted small">{ch.points} 点</span>
                   <span className="num">{ch.answerCount} 人</span>
                 </li>
@@ -369,10 +377,27 @@ interface RowDraft {
   points: number;
   /** 結果入力の枠で選んだ人（クイズの選択肢では空） */
   userIds: string[];
+  /** クイズの選択肢の画像 */
+  image: ImageDraft;
+}
+
+/**
+ * 編集中の画像。imageId は保存済みの画像、blob は新しく選んだ画像（縮小済み）。
+ * url は表示用（保存済みなら署名付き URL、新しく選んだならその場で作った URL）。何も無ければ画像なし
+ */
+interface ImageDraft {
+  imageId?: string;
+  blob?: Blob;
+  url?: string;
 }
 
 let draftKey = 0;
-const newRow = (points = 10): RowDraft => ({ key: `new-${++draftKey}`, name: "", points, userIds: [] });
+const newRow = (points = 10): RowDraft => ({ key: `new-${++draftKey}`, name: "", points, userIds: [], image: {} });
+
+/** 新しく選んだ画像をアップロードし、付ける imageId を返す（そのままなら保存済みの imageId） */
+async function imageIdOf(image: ImageDraft): Promise<string | undefined> {
+  return image.blob ? uploadGameImage(image.blob) : image.imageId;
+}
 
 const SLOT_PLACEHOLDERS = ["例: 優勝", "例: 準優勝", "例: ベスト 4"];
 
@@ -388,7 +413,14 @@ function GameFormDialog(props: {
   const [description, setDescription] = useState(game?.description ?? "");
   // 結果入力は名前だけで作れるよう、枠の行なしで始める。クイズは選択肢 3 つ（最初を 10 点）で始める
   const [slots, setSlots] = useState<RowDraft[]>(
-    game?.slots.map((s) => ({ id: s.slotId, key: s.slotId, name: s.name, points: s.points, userIds: s.userIds })) ?? [],
+    game?.slots.map((s) => ({
+      id: s.slotId,
+      key: s.slotId,
+      name: s.name,
+      points: s.points,
+      userIds: s.userIds,
+      image: {},
+    })) ?? [],
   );
   const [choices, setChoices] = useState<RowDraft[]>(
     game?.choices.map((ch) => ({
@@ -397,7 +429,18 @@ function GameFormDialog(props: {
       name: ch.text,
       points: ch.points,
       userIds: [],
+      image: { imageId: ch.imageId, url: ch.imageUrl },
     })) ?? [newRow(10), newRow(0), newRow(0)],
+  );
+  const [image, setImage] = useState<ImageDraft>({ imageId: game?.imageId, url: game?.imageUrl });
+  // 新しく選んだ画像の表示用 URL は、閉じるときにまとめて解放する
+  const created = useRef<string[]>([]);
+  const track = (url: string) => created.current.push(url);
+  useEffect(
+    () => () => {
+      for (const url of created.current) URL.revokeObjectURL(url);
+    },
+    [],
   );
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
@@ -426,16 +469,27 @@ function GameFormDialog(props: {
     e.preventDefault();
     setSaving(true);
     setError(undefined);
-    const body = {
-      format,
-      name,
-      description,
-      slots: quiz ? [] : slots.map((s) => ({ slotId: s.id, name: s.name, points: s.points, userIds: s.userIds })),
-      choices: quiz ? choices.map((ch) => ({ choiceId: ch.id, text: ch.name, points: ch.points })) : [],
-      // 開いた後にほかで直されていたら、上書きせずに知らせる
-      baseUpdatedAt: game?.updatedAt,
-    };
     try {
+      // 新しく選んだ画像を先にアップロードする（保存したときに、サーバが受け口から移す）
+      const body = {
+        format,
+        name,
+        description,
+        imageId: await imageIdOf(image),
+        slots: quiz ? [] : slots.map((s) => ({ slotId: s.id, name: s.name, points: s.points, userIds: s.userIds })),
+        choices: quiz
+          ? await Promise.all(
+              choices.map(async (ch) => ({
+                choiceId: ch.id,
+                text: ch.name,
+                points: ch.points,
+                imageId: await imageIdOf(ch.image),
+              })),
+            )
+          : [],
+        // 開いた後にほかで直されていたら、上書きせずに知らせる
+        baseUpdatedAt: game?.updatedAt,
+      };
       const res = game
         ? await api<GameResponse>("PUT", `/admin/games/${game.gameId}`, body)
         : await api<GameResponse>("POST", "/admin/games", body);
@@ -500,6 +554,13 @@ function GameFormDialog(props: {
           />
           <span className="muted small">参加者のゲームの画面に出ます。</span>
         </label>
+        <ImageField
+          label={quiz ? "問題の画像（任意）" : "画像（任意）"}
+          image={image}
+          onChange={setImage}
+          onPicked={track}
+          disabled={saving}
+        />
         <fieldset className="game-form-slots">
           <legend>{label}と点数</legend>
           {rows.map((r, i) => (
@@ -554,6 +615,18 @@ function GameFormDialog(props: {
               {r.userIds.length > 0 && (
                 <p className="muted small game-form-slot-note">選んだ人: {r.userIds.length} 人</p>
               )}
+              {quiz && (
+                <div className="game-form-slot-note">
+                  <ImageField
+                    label={`${label} ${i + 1} の画像（任意）`}
+                    image={r.image}
+                    onChange={(image) => update(r.key, { image })}
+                    onPicked={track}
+                    disabled={saving}
+                    small
+                  />
+                </div>
+              )}
             </div>
           ))}
           {canChangeRows ? (
@@ -591,6 +664,85 @@ function GameFormDialog(props: {
   );
 }
 
+/** 画像を選ぶ・変える・外す。選んだ画像は端末で縮小・JPEG にしてから持つ（アップロードは保存のとき） */
+function ImageField(props: {
+  label: string;
+  image: ImageDraft;
+  onChange: (image: ImageDraft) => void;
+  /** 新しく作った表示用 URL（呼び出し側が閉じるときに解放する） */
+  onPicked: (url: string) => void;
+  disabled?: boolean;
+  small?: boolean;
+}) {
+  const { image } = props;
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState<string>();
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function pick(file: File | undefined) {
+    if (!file) return;
+    setProcessing(true);
+    setError(undefined);
+    try {
+      const blob = await processImage(file, PRIZE_IMAGE_MAX_EDGE);
+      const url = URL.createObjectURL(blob);
+      props.onPicked(url);
+      props.onChange({ blob, url });
+    } catch {
+      setError("画像を読み込めませんでした。別の画像を選んでください。");
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  return (
+    <div className={`field game-image-field${props.small ? " small" : ""}`}>
+      <span>{props.label}</span>
+      <div className="game-image-field-body">
+        {image.url ? (
+          <img className="game-image-preview" src={image.url} alt="選んだ画像" />
+        ) : (
+          <span className="game-image-preview placeholder" aria-hidden="true">
+            🖼
+          </span>
+        )}
+        <div className="game-image-actions">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={processing || props.disabled}
+            aria-label={`${props.label}を${image.url ? "変える" : "選ぶ"}`}
+          >
+            {processing ? "読み込み中…" : image.url ? "画像を変える" : "画像を選ぶ"}
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*,.heic,.heif"
+            hidden
+            onChange={(e) => {
+              void pick(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+          {image.url && (
+            <button
+              type="button"
+              className="link"
+              onClick={() => props.onChange({})}
+              disabled={props.disabled}
+              aria-label={`${props.label}を外す`}
+            >
+              外す
+            </button>
+          )}
+        </div>
+      </div>
+      {error && <span className="error small">{error}</span>}
+    </div>
+  );
+}
+
 /** クイズ形式で、だれがどの選択肢を選んだか */
 function GameAnswersDialog(props: { game: GameDto; onClose: () => void }) {
   const [data, setData] = useState<GameAnswersResponse>();
@@ -607,6 +759,7 @@ function GameAnswersDialog(props: { game: GameDto; onClose: () => void }) {
       <div className="card">
         <h2>回答者</h2>
         <p className="small">{props.game.name}</p>
+        {props.game.imageUrl && <img className="game-image" src={props.game.imageUrl} alt="" />}
         {props.game.description && <p className="quiz-text">{props.game.description}</p>}
         {error && <p className="error">{error}</p>}
         {!data && !error && <p className="muted">読み込み中…</p>}
@@ -614,7 +767,8 @@ function GameAnswersDialog(props: { game: GameDto; onClose: () => void }) {
           const names = data.answers.filter((a) => a.choiceId === ch.choiceId);
           return (
             <section key={ch.choiceId} className="quiz-result">
-              <h3>
+              <h3 className="game-choice-label">
+                {ch.imageUrl && <img className="game-choice-thumb" src={ch.imageUrl} alt="" />}
                 {ch.text}
                 <span className="muted small">
                   {" "}

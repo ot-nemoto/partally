@@ -60,14 +60,15 @@ export function Game() {
   return (
     <>
       <h1>{game.name}</h1>
-      {game.description && (
+      {(game.imageUrl || game.description) && (
         <section className="card">
-          <p className="quiz-text">{game.description}</p>
+          {game.imageUrl && <img className="game-image" src={game.imageUrl} alt="問題の画像" />}
+          {game.description && <p className="quiz-text">{game.description}</p>}
         </section>
       )}
       {game.format === "quiz" ? (
         <>
-          <div className="quiz-choices">
+          <div className={game.choices.some((ch) => ch.imageUrl) ? "quiz-choices with-images" : "quiz-choices"}>
             {game.choices.map((ch) => {
               const selected = game.myChoiceId === ch.choiceId;
               return (
@@ -79,10 +80,13 @@ export function Game() {
                   disabled={sending !== undefined}
                   onClick={() => answer(ch.choiceId)}
                 >
-                  <span className="quiz-check" aria-hidden="true">
-                    {selected ? "✓" : ""}
+                  {ch.imageUrl && <img className="quiz-choice-image" src={ch.imageUrl} alt="" />}
+                  <span className="quiz-choice-text">
+                    <span className="quiz-check" aria-hidden="true">
+                      {selected ? "✓" : ""}
+                    </span>
+                    <span>{ch.text}</span>
                   </span>
-                  <span>{ch.text}</span>
                 </button>
               );
             })}

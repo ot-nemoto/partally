@@ -89,6 +89,8 @@ export interface GameChoice {
   choiceId: string;
   text: string;
   points: number;
+  /** 画像（景品と同じ置き場の `prizes/<imageId>.jpg`）。無ければ画像なし */
+  imageId?: string;
 }
 
 export interface GameRecord {
@@ -96,6 +98,8 @@ export interface GameRecord {
   format: GameFormat;
   name: string;
   description: string;
+  /** 問題（ゲーム本体）の画像（景品と同じ置き場の `prizes/<imageId>.jpg`）。無ければ画像なし */
+  imageId?: string;
   status: GameStatus;
   /** 結果入力形式の枠（クイズ形式では空） */
   slots: GameSlot[];
@@ -327,7 +331,7 @@ export interface Repository {
    */
   updateGame(
     gameId: string,
-    changes: Pick<GameRecord, "name" | "description" | "slots" | "choices">,
+    changes: Pick<GameRecord, "name" | "description" | "imageId" | "slots" | "choices">,
     updatedAt: string,
     expectedUpdatedAt?: string,
   ): Promise<GameRecord>;

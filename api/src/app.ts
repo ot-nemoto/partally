@@ -194,21 +194,31 @@ export function createApp(deps: AppDeps) {
   };
 
   /**
-   * 景品の画像は管理画面でも参加者の画面でも署名付き URL で渡す。期限を 1 時間ごとの区切りにそろえ、
+   * 景品・ゲームの画像は管理画面でも参加者の画面でも署名付き URL で渡す。期限を 1 時間ごとの区切りにそろえ、
    * 同じ時間帯は同じ URL にして、ブラウザが持っている画像を確かめるだけで使えるようにする（期限までは 1〜2 時間残る）
    */
+  const imageUrls = new Map<string, string>();
+  const imageUrlOf = (imageId: string | undefined): string | undefined => {
+    if (!imageId) return undefined;
+    const expiresAt = (Math.floor(now().getTime() / SIGNED_URL_TTL_MS) + 2) * SIGNED_URL_TTL_MS;
+    // 参加者のゲームの画面は数秒ごとに読み直すので、同じ期限の URL は作り直さない（署名の計算を減らす）
+    const key = `${imageId}@${expiresAt}`;
+    let url = imageUrls.get(key);
+    if (!url) {
+      if (imageUrls.size > 1000) imageUrls.clear();
+      url = signer.signPath(prizeImagePath(imageId), new Date(expiresAt));
+      imageUrls.set(key, url);
+    }
+    return url;
+  };
+
   const toPrizeDto = (prize: PrizeRecord): PrizeDto => ({
     prizeId: prize.prizeId,
     name: prize.name,
     quantity: prize.quantity,
     positions: prize.positions,
     imageId: prize.imageId,
-    imageUrl: prize.imageId
-      ? signer.signPath(
-          prizeImagePath(prize.imageId),
-          new Date((Math.floor(now().getTime() / SIGNED_URL_TTL_MS) + 2) * SIGNED_URL_TTL_MS),
-        )
-      : undefined,
+    imageUrl: imageUrlOf(prize.imageId),
     createdAt: prize.createdAt,
   });
 
@@ -391,7 +401,7 @@ export function createApp(deps: AppDeps) {
     const game = gameId ? await repo.getGame(gameId) : undefined;
     if (game?.status !== "open") return c.json({ game: null });
     const answer = game.format === "quiz" ? await repo.getGameAnswer(c.get("user").userId, game.gameId) : undefined;
-    return c.json({ game: toCurrentGameDto(game, answer?.choiceId) });
+    return c.json({ game: toCurrentGameDto(game, answer?.choiceId, imageUrlOf) });
   });
 
   app.put("/game/:gameId/answer", requireUser, async (c) => {
@@ -410,7 +420,7 @@ export function createApp(deps: AppDeps) {
       choiceId,
       answeredAt: now().toISOString(),
     });
-    return c.json({ game: toCurrentGameDto(game, choiceId) });
+    return c.json({ game: toCurrentGameDto(game, choiceId, imageUrlOf) });
   });
 
   app.post("/photos/upload-url", requireUser, async (c) => {
@@ -627,16 +637,36 @@ export function createApp(deps: AppDeps) {
   const attachPrizeImage = async (c: Context, imageId: string | undefined, current?: string) => {
     if (imageId === undefined || imageId === current) return undefined;
     if (await storage.attachPrizeImage(imageId)) return undefined;
-    return fail(c, 400, "bad_request", "画像がアップロードされていないか、別の景品で使われています");
+    return fail(c, 400, "bad_request", "画像がアップロードされていないか、ほかで使われています");
   };
 
-  /** 使わなくなった画像を消す。景品は保存できているので、消せなくても失敗にはしない（残った画像は Reset で消える） */
+  /** 使わなくなった画像を消す。景品・ゲームは保存できているので、消せなくても失敗にはしない（残った画像は Reset で消える） */
   const removePrizeImage = async (imageId: string) => {
     try {
       await storage.removePrizeImage(imageId);
     } catch (e) {
-      console.error(`景品の画像 ${imageId} の削除か、CloudFront のキャッシュの無効化に失敗しました`, e);
+      console.error(`画像 ${imageId} の削除か、CloudFront のキャッシュの無効化に失敗しました`, e);
     }
+  };
+
+  /** ゲームが使っている画像（問題と選択肢） */
+  const gameImageIds = (game: Pick<GameRecord, "imageId" | "choices">) =>
+    [game.imageId, ...game.choices.map((ch) => ch.imageId)].filter((id): id is string => id !== undefined);
+
+  /**
+   * ゲームに新しく付ける画像（current に無いもの）を、受け口から配信する領域へ移す。
+   * 1 つでも受け口に無ければ、移した分を消して 400 のレスポンスを返す
+   */
+  const attachGameImages = async (c: Context, imageIds: string[], current: string[] = []) => {
+    const attached: string[] = [];
+    for (const imageId of imageIds.filter((id) => !current.includes(id))) {
+      if (!(await storage.attachPrizeImage(imageId))) {
+        for (const id of attached) await removePrizeImage(id);
+        return { response: fail(c, 400, "bad_request", "画像がアップロードされていないか、ほかで使われています") };
+      }
+      attached.push(imageId);
+    }
+    return { attached };
   };
 
   app.post("/admin/prizes", async (c) => {
@@ -741,9 +771,14 @@ export function createApp(deps: AppDeps) {
     }
   });
 
+  app.post("/admin/games/image-upload", async (c) => {
+    const imageId = newId();
+    return c.json({ imageId, upload: await storage.createPrizeImageUpload(imageId) });
+  });
+
   app.get("/admin/games", async (c) => {
     const entries = await gamesWithAnswers();
-    return c.json({ games: entries.map(({ game, answers }) => toGameDto(game, answers)) });
+    return c.json({ games: entries.map(({ game, answers }) => toGameDto(game, answers, imageUrlOf)) });
   });
 
   /** クイズ形式の答えた人の一覧 */
@@ -753,7 +788,7 @@ export function createApp(deps: AppDeps) {
     const answers = await repo.listGameAnswersByGame(game.gameId);
     const users = new Map((await repo.getUsers(answers.map((a) => a.userId))).map((u) => [u.userId, u]));
     return c.json({
-      game: toGameDto(game, answers),
+      game: toGameDto(game, answers, imageUrlOf),
       answers: answers
         .sort((a, b) => a.answeredAt.localeCompare(b.answeredAt))
         .map((a) => {
@@ -801,7 +836,12 @@ export function createApp(deps: AppDeps) {
     if (choices.some((ch) => ch.choiceId !== undefined && !existingIds.has(ch.choiceId))) {
       return fail(c, 400, "bad_request", "存在しない選択肢があります");
     }
-    return choices.map((ch) => ({ choiceId: ch.choiceId ?? newId(), text: ch.text, points: ch.points }));
+    return choices.map((ch) => ({
+      choiceId: ch.choiceId ?? newId(),
+      text: ch.text,
+      points: ch.points,
+      imageId: ch.imageId,
+    }));
   };
 
   app.post("/admin/games", async (c) => {
@@ -817,14 +857,22 @@ export function createApp(deps: AppDeps) {
       format: body.data.format,
       name: body.data.name,
       description: body.data.description ?? "",
+      imageId: body.data.imageId,
       status: "draft",
       slots,
       choices,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
-    await repo.createGame(game);
-    return c.json({ game: toGameDto(game, []) }, 201);
+    const images = await attachGameImages(c, gameImageIds(game));
+    if (images.response) return images.response;
+    try {
+      await repo.createGame(game);
+    } catch (e) {
+      for (const id of images.attached) await removePrizeImage(id);
+      throw e;
+    }
+    return c.json({ game: toGameDto(game, [], imageUrlOf) }, 201);
   });
 
   // 開催中・確定済みでも直せる（ポイントは直した内容で数え直し、推移では確定した時刻のまま）。
@@ -849,15 +897,25 @@ export function createApp(deps: AppDeps) {
     if (structureChanged && (game.status !== "draft" || answers.length > 0)) {
       return fail(c, 409, "invalid_state", "答えがある・開催した後のクイズは、選択肢を増やしたり減らしたりできません");
     }
+    const changes = {
+      name: body.data.name,
+      description: body.data.description ?? "",
+      imageId: body.data.imageId,
+      slots,
+      choices,
+    };
+    const before = gameImageIds(game);
+    const after = gameImageIds(changes);
+    const images = await attachGameImages(c, after, before);
+    if (images.response) return images.response;
     try {
-      const updated = await repo.updateGame(
-        game.gameId,
-        { name: body.data.name, description: body.data.description ?? "", slots, choices },
-        now().toISOString(),
-        body.data.baseUpdatedAt,
-      );
-      return c.json({ game: toGameDto(updated, answers) });
+      const updated = await repo.updateGame(game.gameId, changes, now().toISOString(), body.data.baseUpdatedAt);
+      // 差し替えた・外した画像は、保存できてから消す
+      for (const id of before.filter((id) => !after.includes(id))) await removePrizeImage(id);
+      return c.json({ game: toGameDto(updated, answers, imageUrlOf) });
     } catch (e) {
+      // 保存できなかったら、新しく移した画像を消す
+      for (const id of images.attached) await removePrizeImage(id);
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
       if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state", GAME_CONFLICT_MESSAGE);
       throw e;
@@ -869,7 +927,7 @@ export function createApp(deps: AppDeps) {
     try {
       const updated = await repo.changeGameStatus(game.gameId, game.status, to, now().toISOString());
       const answers = updated.format === "quiz" ? await repo.listGameAnswersByGame(updated.gameId) : [];
-      return c.json({ game: toGameDto(updated, answers) });
+      return c.json({ game: toGameDto(updated, answers, imageUrlOf) });
     } catch (e) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
       if (e instanceof GameAlreadyOpenError) {
@@ -909,8 +967,11 @@ export function createApp(deps: AppDeps) {
   app.post("/admin/games/:gameId/unconfirm", gameAction("draft", ["confirmed"], "確定していません"));
 
   app.delete("/admin/games/:gameId", async (c) => {
+    const game = await repo.getGame(c.req.param("gameId"));
+    if (!game) return fail(c, 404, "not_found");
     try {
-      await repo.deleteGame(c.req.param("gameId"));
+      await repo.deleteGame(game.gameId);
+      for (const id of gameImageIds(game)) await removePrizeImage(id);
       return c.json({});
     } catch (e) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
@@ -1221,7 +1282,9 @@ function sortSchedule(items: ScheduleItemRecord[]): ScheduleItemDto[] {
   return [...items].sort((a, b) => a.startMinute - b.startMinute).map(toScheduleItemDto);
 }
 
-function toGameDto(game: GameRecord, answers: GameAnswerRecord[]): GameDto {
+type ImageUrlOf = (imageId: string | undefined) => string | undefined;
+
+function toGameDto(game: GameRecord, answers: GameAnswerRecord[], imageUrlOf: ImageUrlOf): GameDto {
   const counts = new Map<string, number>();
   for (const a of answers) counts.set(a.choiceId, (counts.get(a.choiceId) ?? 0) + 1);
   return {
@@ -1229,9 +1292,15 @@ function toGameDto(game: GameRecord, answers: GameAnswerRecord[]): GameDto {
     format: game.format,
     name: game.name,
     description: game.description,
+    imageId: game.imageId,
+    imageUrl: imageUrlOf(game.imageId),
     status: game.status,
     slots: game.slots.map((s) => ({ slotId: s.slotId, name: s.name, points: s.points, userIds: [...s.userIds] })),
-    choices: game.choices.map((ch) => ({ ...ch, answerCount: counts.get(ch.choiceId) ?? 0 })),
+    choices: game.choices.map((ch) => ({
+      ...ch,
+      imageUrl: imageUrlOf(ch.imageId),
+      answerCount: counts.get(ch.choiceId) ?? 0,
+    })),
     answerCount: answers.length,
     createdAt: game.createdAt,
     openedAt: game.openedAt,
@@ -1241,14 +1310,15 @@ function toGameDto(game: GameRecord, answers: GameAnswerRecord[]): GameDto {
 }
 
 /** 参加者に返す開催中のゲーム。誰がどの枠に入ったかと、クイズの選択肢の点数（正解が分かる）は含めない */
-function toCurrentGameDto(game: GameRecord, myChoiceId: string | undefined): CurrentGameDto {
+function toCurrentGameDto(game: GameRecord, myChoiceId: string | undefined, imageUrlOf: ImageUrlOf): CurrentGameDto {
   return {
     gameId: game.gameId,
     format: game.format,
     name: game.name,
     description: game.description,
+    imageUrl: imageUrlOf(game.imageId),
     slots: game.slots.map(({ name, points }) => ({ name, points })),
-    choices: game.choices.map(({ choiceId, text }) => ({ choiceId, text })),
+    choices: game.choices.map(({ choiceId, text, imageId }) => ({ choiceId, text, imageUrl: imageUrlOf(imageId) })),
     myChoiceId,
   };
 }

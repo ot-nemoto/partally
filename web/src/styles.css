@@ -1438,6 +1438,97 @@ textarea {
   color: var(--accent-text);
 }
 
+.quiz-choice-text {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* 画像のある選択肢は、画像を上に大きく出したカードを 2 列に並べる */
+.quiz-choices.with-images {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.quiz-choices.with-images .quiz-choice {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  padding: 0.5rem;
+}
+
+.quiz-choice-image {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 0.5rem;
+  object-fit: cover;
+  background: var(--bg);
+}
+
+/* 問題・説明の画像（参加者のゲームの画面・管理画面のカード） */
+.game-image {
+  display: block;
+  max-width: 100%;
+  max-height: 50vh;
+  margin: 0.5rem auto;
+  border-radius: 0.5rem;
+  object-fit: contain;
+}
+
+.game-choice-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.game-choice-thumb {
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.25rem;
+  object-fit: cover;
+}
+
+/* 作る・編集の画面の画像の欄 */
+.game-image-field-body {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.game-image-preview {
+  flex: none;
+  width: 6rem;
+  height: 6rem;
+  border-radius: 0.5rem;
+  object-fit: cover;
+  background: var(--bg);
+}
+
+.game-image-preview.placeholder {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border);
+  font-size: 1.5rem;
+}
+
+.game-image-field.small .game-image-preview {
+  width: 3rem;
+  height: 3rem;
+}
+
+.game-image-field.small .game-image-preview.placeholder {
+  font-size: 1rem;
+}
+
+.game-image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 /* 一覧に出す状態の切り替え（複数選べる）。タイトルの行に置き、押されているものを強調する */
 .status-filter {
   display: flex;

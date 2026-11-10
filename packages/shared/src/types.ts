@@ -240,11 +240,14 @@ export interface PrizeResponse {
   prize: PrizeDto;
 }
 
-/** 景品の画像を 1 枚アップロードするための署名付き POST。保存するときに imageId を景品に付ける */
-export interface PrizeImageUploadResponse {
+/** 画像（景品・ゲーム）を 1 枚アップロードするための署名付き POST。保存するときに imageId を景品やゲームに付ける */
+export interface ImageUploadResponse {
   imageId: string;
   upload: PresignedPost;
 }
+
+/** 景品の画像のアップロード（ImageUploadResponse と同じ形） */
+export type PrizeImageUploadResponse = ImageUploadResponse;
 
 /** スケジュールの項目。時刻は 0:00 からの分 */
 export interface ScheduleItemDto {
@@ -288,6 +291,10 @@ export interface GameChoiceDto {
   choiceId: string;
   text: string;
   points: number;
+  /** 画像の ID。更新で同じ画像のままにするときはこれを送る */
+  imageId?: string;
+  /** 画像の URL（署名付き）。画像が無ければ無い */
+  imageUrl?: string;
   /** この選択肢を選んだ人数（管理画面のみ） */
   answerCount: number;
 }
@@ -299,6 +306,10 @@ export interface GameDto {
   name: string;
   /** 説明（ルールなど。クイズなら問題文。改行可、空でもよい） */
   description: string;
+  /** 問題（ゲーム本体）の画像の ID。更新で同じ画像のままにするときはこれを送る */
+  imageId?: string;
+  /** 問題の画像の URL（署名付き）。画像が無ければ無い */
+  imageUrl?: string;
   status: GameStatus;
   /** 結果入力形式の枠（クイズ形式では空） */
   slots: GameSlotDto[];
@@ -323,10 +334,12 @@ export interface CurrentGameDto {
   format: GameFormat;
   name: string;
   description: string;
+  /** 問題の画像の URL（署名付き） */
+  imageUrl?: string;
   /** 結果入力形式の枠と点数 */
   slots: { name: string; points: number }[];
-  /** クイズ形式の選択肢 */
-  choices: { choiceId: string; text: string }[];
+  /** クイズ形式の選択肢（画像があれば、その URL） */
+  choices: { choiceId: string; text: string; imageUrl?: string }[];
   /** クイズ形式で自分が選んでいる選択肢 */
   myChoiceId?: string;
 }

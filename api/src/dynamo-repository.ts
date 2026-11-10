@@ -701,18 +701,19 @@ export class DynamoRepository implements Repository {
 
   async updateGame(
     gameId: string,
-    changes: Pick<GameRecord, "name" | "description" | "slots" | "choices">,
+    changes: Pick<GameRecord, "name" | "description" | "imageId" | "slots" | "choices">,
     updatedAt: string,
     expectedUpdatedAt?: string,
   ) {
     const check = expectedUpdatedAt !== undefined;
+    const set =
+      "SET #name = :name, description = :description, slots = :slots, choices = :choices, updatedAt = :updatedAt";
     try {
       const { Attributes } = await this.client.send(
         new UpdateCommand({
           TableName: this.tableName,
           Key: keys.game(gameId),
-          UpdateExpression:
-            "SET #name = :name, description = :description, slots = :slots, choices = :choices, updatedAt = :updatedAt",
+          UpdateExpression: changes.imageId ? `${set}, imageId = :imageId` : `${set} REMOVE imageId`,
           ConditionExpression: check ? "attribute_exists(PK) AND updatedAt = :expected" : "attribute_exists(PK)",
           ExpressionAttributeNames: { "#name": "name" },
           ExpressionAttributeValues: {
@@ -721,6 +722,7 @@ export class DynamoRepository implements Repository {
             ":slots": changes.slots,
             ":choices": changes.choices,
             ":updatedAt": updatedAt,
+            ...(changes.imageId ? { ":imageId": changes.imageId } : {}),
             ...(check ? { ":expected": expectedUpdatedAt } : {}),
           },
           ReturnValues: "ALL_NEW",
@@ -1022,10 +1024,12 @@ function toGameRecord(item: Record<string, unknown>): GameRecord {
     name: item.name as string,
     description: (item.description as string | undefined) ?? "",
     status: item.status as GameStatus,
+    imageId: item.imageId as string | undefined,
     choices: ((item.choices ?? []) as Record<string, unknown>[]).map((c) => ({
       choiceId: c.choiceId as string,
       text: c.text as string,
       points: Number(c.points ?? 0),
+      imageId: c.imageId as string | undefined,
     })),
     slots: ((item.slots ?? []) as Record<string, unknown>[]).map((s) => ({
       slotId: s.slotId as string,
