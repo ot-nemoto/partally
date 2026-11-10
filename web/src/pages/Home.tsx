@@ -44,16 +44,6 @@ export function Home() {
               <dd>{user.favoritesReceived}</dd>
             </div>
           )}
-          <div>
-            <dt>回答した問題</dt>
-            <dd>{user.quizAnswered}</dd>
-          </div>
-          {rules.showQuizPoints && (
-            <div>
-              <dt>クイズの点数</dt>
-              <dd>{user.quizPoints}</dd>
-            </div>
-          )}
           {rules.showGamePoints && (
             <div>
               <dt>ゲームの点数</dt>
@@ -75,7 +65,7 @@ export function Home() {
             ))}
           </ul>
         )}
-        {(rules.showPoints || rules.showQuizPoints || rules.showGamePoints) && (
+        {(rules.showPoints || rules.showGamePoints) && (
           <p className="muted small">
             {rules.showPoints && (
               <>
@@ -88,12 +78,8 @@ export function Home() {
                   `・お気に入りを 1 枚選ぶと ${rules.favoriteGivenPoints} ポイント`}
               </>
             )}
-            {[
-              rules.showQuizPoints && "クイズは締め切り後に、選んだ答えの点数が入ります",
-              rules.showGamePoints && "ゲームは結果が決まると、入った枠の点数が入ります",
-            ]
-              .filter(Boolean)
-              .map((text, i) => (rules.showPoints || i > 0 ? `・${text}` : text))}
+            {rules.showGamePoints &&
+              `${rules.showPoints ? "・" : ""}ゲーム（クイズを含む）は結果が決まると、選んだ答えや入った枠の点数が入ります`}
           </p>
         )}
         {rules.favoritesEnabled && (

@@ -20,12 +20,11 @@ import {
   DEFAULT_SETTINGS,
   EpithetTakenError,
   FavoriteLimitError,
+  GameAlreadyOpenError,
   InvalidStateError,
   NotFoundError,
   type PhotoRecord,
   type PrizeRecord,
-  QuizAlreadyOpenError,
-  type QuizRecord,
   TokenNotAvailableError,
   type UserRecord,
 } from "./repository.js";
@@ -59,13 +58,12 @@ describe("DynamoRepository", () => {
   beforeEach(() => ddb.reset());
 
   describe("設定", () => {
-    it("保存済みの優先順は、知らない項目・重複を除き、足りない項目を既定の順で補う（登録順は最後）", async () => {
-      ddb.on(GetCommand).resolves({ Item: { tieBreakOrder: ["quiz", "x", "quiz", "upload"] } });
+    it("保存済みの優先順は、知らない項目（以前あった quiz など）・重複を除き、足りない項目を既定の順で補う（登録順は最後）", async () => {
+      ddb.on(GetCommand).resolves({ Item: { tieBreakOrder: ["favoriteReceived", "quiz", "x", "upload", "upload"] } });
       expect((await repo.getSettings()).tieBreakOrder).toEqual([
-        "quiz",
+        "favoriteReceived",
         "upload",
         "favoriteGiven",
-        "favoriteReceived",
         "game",
         "registered",
       ]);
@@ -73,14 +71,13 @@ describe("DynamoRepository", () => {
 
     it("登録順を保存済みなら、足りないポイントの項目（後から加えたゲームなど）は登録順の前に入れる", async () => {
       ddb.on(GetCommand).resolves({
-        Item: { tieBreakOrder: ["quiz", "registered", "upload", "favoriteGiven", "favoriteReceived"] },
+        Item: { tieBreakOrder: ["favoriteGiven", "registered", "upload", "favoriteReceived"] },
       });
       expect((await repo.getSettings()).tieBreakOrder).toEqual([
-        "quiz",
+        "favoriteGiven",
         "game",
         "registered",
         "upload",
-        "favoriteGiven",
         "favoriteReceived",
       ]);
     });
@@ -88,13 +85,6 @@ describe("DynamoRepository", () => {
     it("保存されていない項目は既定値で補う", async () => {
       ddb.on(GetCommand).resolves({ Item: { moderation: "post", uploadPoints: 3 } });
       expect(await repo.getSettings()).toEqual({ ...DEFAULT_SETTINGS, moderation: "post", uploadPoints: 3 });
-    });
-
-    it("クイズの点数の表示が未保存なら、以前一緒に伏せていた showPoints の値を引き継ぐ", async () => {
-      ddb.on(GetCommand).resolves({ Item: { showPoints: false } });
-      expect(await repo.getSettings()).toMatchObject({ showPoints: false, showQuizPoints: false });
-      ddb.on(GetCommand).resolves({ Item: { showPoints: false, showQuizPoints: true } });
-      expect(await repo.getSettings()).toMatchObject({ showPoints: false, showQuizPoints: true });
     });
   });
 
@@ -400,115 +390,6 @@ describe("DynamoRepository", () => {
     });
   });
 
-  describe("クイズ", () => {
-    const quiz: QuizRecord = {
-      quizId: "Q1",
-      text: "問題",
-      choices: [
-        { choiceId: "A", text: "a", points: 10 },
-        { choiceId: "B", text: "b", points: 0 },
-      ],
-      status: "draft",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    };
-    const quizItem = (status: QuizRecord["status"]) => ({ PK: "QUIZ#Q1", SK: "META", ...quiz, status });
-
-    it("出題は「出題中」の印と状態の変更を 1 トランザクションで行い、別の問題が出題中なら断る", async () => {
-      ddb
-        .on(TransactWriteCommand)
-        .resolvesOnce({})
-        .rejectsOnce(canceled(["ConditionalCheckFailed", "None"]))
-        .rejectsOnce(canceled(["None", "ConditionalCheckFailed"]))
-        .rejectsOnce(canceled(["ConditionalCheckFailed", "ConditionalCheckFailed"]));
-      ddb
-        .on(GetCommand)
-        .resolvesOnce({ Item: quizItem("open") })
-        .resolvesOnce({ Item: quizItem("closed") })
-        .resolvesOnce({});
-
-      expect((await repo.openQuiz("Q1", "2026-01-01T00:01:00.000Z")).status).toBe("open");
-      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
-      expect(items[0]!.Put).toMatchObject({
-        Item: { PK: "QUIZ_STATE", SK: "OPEN", quizId: "Q1" },
-        ConditionExpression: "attribute_not_exists(PK)",
-      });
-      expect(items[1]!.Update).toMatchObject({
-        Key: { PK: "QUIZ#Q1", SK: "META" },
-        ConditionExpression: "#status = :draft",
-      });
-
-      await expect(repo.openQuiz("Q1", "x")).rejects.toBeInstanceOf(QuizAlreadyOpenError);
-      await expect(repo.openQuiz("Q1", "x")).rejects.toBeInstanceOf(InvalidStateError);
-      await expect(repo.openQuiz("Q1", "x")).rejects.toBeInstanceOf(NotFoundError);
-    });
-
-    it("締め切りは、その問題が出題中のときだけ印を消して状態を変える", async () => {
-      ddb
-        .on(TransactWriteCommand)
-        .resolvesOnce({})
-        .rejectsOnce(canceled(["ConditionalCheckFailed", "None"]));
-      ddb
-        .on(GetCommand)
-        .resolvesOnce({ Item: quizItem("closed") })
-        .resolvesOnce({ Item: quizItem("draft") });
-      expect((await repo.closeQuiz("Q1", "2026-01-01T00:02:00.000Z")).status).toBe("closed");
-      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
-      expect(items[0]!.Delete).toMatchObject({
-        Key: { PK: "QUIZ_STATE", SK: "OPEN" },
-        ConditionExpression: "quizId = :quizId",
-        ExpressionAttributeValues: { ":quizId": "Q1" },
-      });
-      await expect(repo.closeQuiz("Q1", "x")).rejects.toBeInstanceOf(InvalidStateError);
-    });
-
-    it("回答はユーザの下に保存する（クイズを含むトランザクションにはしない）", async () => {
-      ddb.on(PutCommand).resolves({});
-      await repo.putQuizAnswer({ quizId: "Q1", userId: "u1", choiceId: "A", answeredAt: "2026-01-01T00:01:30.000Z" });
-      expect(ddb.commandCalls(PutCommand)[0]!.args[0].input.Item).toMatchObject({
-        PK: "USER#u1",
-        SK: "ANSWER#Q1",
-        GSI1PK: "ANSWERS#Q1",
-        choiceId: "A",
-      });
-      expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(0);
-    });
-
-    it("削除は出題中でなければクイズを消し、その回答もまとめて消す", async () => {
-      ddb.on(DeleteCommand).resolves({});
-      ddb.on(QueryCommand).resolves({
-        Items: [
-          { quizId: "Q1", userId: "u1", choiceId: "A", answeredAt: "x" },
-          { quizId: "Q1", userId: "u2", choiceId: "B", answeredAt: "x" },
-        ],
-      });
-      ddb.on(BatchWriteCommand).resolves({});
-      await repo.deleteQuiz("Q1");
-      expect(ddb.commandCalls(DeleteCommand)[0]!.args[0].input).toMatchObject({
-        Key: { PK: "QUIZ#Q1", SK: "META" },
-        ConditionExpression: "attribute_exists(PK) AND #status <> :open",
-      });
-      expect(ddb.commandCalls(QueryCommand)[0]!.args[0].input).toMatchObject({
-        IndexName: "GSI1",
-        ExpressionAttributeValues: { ":pk": "ANSWERS#Q1" },
-      });
-      const deletes = ddb.commandCalls(BatchWriteCommand)[0]!.args[0].input.RequestItems!.table!;
-      expect(deletes.map((d) => d.DeleteRequest!.Key)).toEqual([
-        { PK: "USER#u1", SK: "ANSWER#Q1" },
-        { PK: "USER#u2", SK: "ANSWER#Q1" },
-      ]);
-    });
-
-    it("選択肢の増減を伴う更新は、下書きのときだけ", async () => {
-      ddb.on(UpdateCommand).resolves({ Attributes: quizItem("draft") });
-      await repo.updateQuiz("Q1", { text: "問題", choices: quiz.choices }, "x", true);
-      await repo.updateQuiz("Q1", { text: "問題", choices: quiz.choices }, "x", false);
-      const [draftOnly, any] = ddb.commandCalls(UpdateCommand).map((c) => c.args[0].input.ConditionExpression);
-      expect(draftOnly).toBe("attribute_exists(PK) AND #status = :draft");
-      expect(any).toBe("attribute_exists(PK)");
-    });
-  });
-
   describe("スケジュール", () => {
     it("作成順に並べるため GSI1 に入れ、無い項目の更新・削除は NotFoundError", async () => {
       ddb.on(PutCommand).resolves({});
@@ -542,33 +423,136 @@ describe("DynamoRepository", () => {
   describe("ゲーム", () => {
     const game = {
       gameId: "G1",
+      format: "result" as const,
       name: "大会",
+      description: "",
       status: "draft" as const,
       slots: [{ slotId: "S1", name: "優勝", points: 30, userIds: ["U1"] }],
+      choices: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:01:00.000Z",
     };
+    const gameItem = (status: string) => ({ PK: "GAME#G1", SK: "META", ...game, status });
+    const changes = { name: "大会", description: "", slots: game.slots, choices: [] };
 
     it("版を渡すと、保存済みの updatedAt が同じときだけ更新する。違えば InvalidStateError、無ければ NotFoundError", async () => {
-      ddb.on(UpdateCommand).resolves({ Attributes: { PK: "GAME#G1", SK: "META", ...game, updatedAt: "t2" } });
-      await repo.updateGame("G1", { name: "大会", slots: game.slots }, "t2", game.updatedAt);
+      ddb.on(UpdateCommand).resolves({ Attributes: { ...gameItem("draft"), updatedAt: "t2" } });
+      await repo.updateGame("G1", changes, "t2", game.updatedAt);
       expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input).toMatchObject({
         ConditionExpression: "attribute_exists(PK) AND updatedAt = :expected",
         ExpressionAttributeValues: { ":expected": game.updatedAt },
       });
-      await repo.updateGame("G1", { name: "大会", slots: game.slots }, "t3");
+      await repo.updateGame("G1", changes, "t3");
       expect(ddb.commandCalls(UpdateCommand)[1]!.args[0].input.ConditionExpression).toBe("attribute_exists(PK)");
 
       const failed = new ConditionalCheckFailedException({ message: "failed", $metadata: {} });
       ddb.on(UpdateCommand).rejects(failed);
-      ddb.on(GetCommand).resolves({ Item: { PK: "GAME#G1", SK: "META", ...game } });
-      await expect(repo.updateGame("G1", { name: "大会", slots: game.slots }, "t4", "old")).rejects.toBeInstanceOf(
-        InvalidStateError,
-      );
+      ddb.on(GetCommand).resolves({ Item: gameItem("draft") });
+      await expect(repo.updateGame("G1", changes, "t4", "old")).rejects.toBeInstanceOf(InvalidStateError);
       ddb.on(GetCommand).resolves({});
-      await expect(repo.updateGame("G1", { name: "大会", slots: game.slots }, "t4", "old")).rejects.toBeInstanceOf(
-        NotFoundError,
-      );
+      await expect(repo.updateGame("G1", changes, "t4", "old")).rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    it("形式を持つ前に作ったゲームは、結果入力として読む", async () => {
+      const { format: _f, description: _d, choices: _c, ...old } = game;
+      ddb.on(GetCommand).resolves({ Item: { PK: "GAME#G1", SK: "META", ...old } });
+      expect(await repo.getGame("G1")).toMatchObject({ format: "result", description: "", choices: [] });
+    });
+
+    it("開催は「開催中」の印と状態の変更を 1 トランザクションで行い、別のゲームが開催中なら断る", async () => {
+      ddb
+        .on(TransactWriteCommand)
+        .resolvesOnce({})
+        .rejectsOnce(canceled(["ConditionalCheckFailed", "None"]))
+        .rejectsOnce(canceled(["None", "ConditionalCheckFailed"]))
+        .rejectsOnce(canceled(["ConditionalCheckFailed", "ConditionalCheckFailed"]));
+      ddb
+        .on(GetCommand)
+        .resolvesOnce({ Item: gameItem("open") })
+        .resolvesOnce({ Item: gameItem("draft") })
+        .resolvesOnce({ Item: gameItem("confirmed") })
+        .resolvesOnce({});
+
+      expect((await repo.changeGameStatus("G1", "draft", "open", "2026-01-01T00:01:00.000Z")).status).toBe("open");
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items[0]!.Put).toMatchObject({
+        Item: { PK: "GAME_STATE", SK: "OPEN", gameId: "G1" },
+        ConditionExpression: "attribute_not_exists(PK)",
+      });
+      expect(items[1]!.Update).toMatchObject({
+        Key: { PK: "GAME#G1", SK: "META" },
+        UpdateExpression: "SET #status = :to, updatedAt = :at, openedAt = :at",
+        ConditionExpression: "#status = :from",
+        ExpressionAttributeValues: { ":to": "open", ":from": "draft" },
+      });
+
+      await expect(repo.changeGameStatus("G1", "draft", "open", "x")).rejects.toBeInstanceOf(GameAlreadyOpenError);
+      await expect(repo.changeGameStatus("G1", "draft", "open", "x")).rejects.toBeInstanceOf(InvalidStateError);
+      await expect(repo.changeGameStatus("G1", "draft", "open", "x")).rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    it("開催中から変えるときは、そのゲームの印を消す。確定は confirmedAt を付け、確定から戻すと消す", async () => {
+      ddb.on(TransactWriteCommand).resolves({});
+      ddb.on(UpdateCommand).resolves({});
+      ddb.on(GetCommand).resolves({ Item: gameItem("confirmed") });
+      await repo.changeGameStatus("G1", "open", "confirmed", "t1");
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items[0]!.Delete).toMatchObject({
+        Key: { PK: "GAME_STATE", SK: "OPEN" },
+        ConditionExpression: "gameId = :gameId",
+        ExpressionAttributeValues: { ":gameId": "G1" },
+      });
+      expect(items[1]!.Update!.UpdateExpression).toBe("SET #status = :to, updatedAt = :at, confirmedAt = :at");
+
+      // 開催中を通らない変更は、ゲームのアイテムだけ
+      await repo.changeGameStatus("G1", "confirmed", "draft", "t2");
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input).toMatchObject({
+        UpdateExpression: "SET #status = :to, updatedAt = :at REMOVE confirmedAt",
+        ExpressionAttributeValues: { ":to": "draft", ":from": "confirmed" },
+      });
+      expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(1);
+    });
+
+    it("答えはユーザの下に保存する（ゲームを含むトランザクションにはしない）", async () => {
+      ddb.on(PutCommand).resolves({});
+      await repo.putGameAnswer({ gameId: "G1", userId: "u1", choiceId: "A", answeredAt: "2026-01-01T00:01:30.000Z" });
+      expect(ddb.commandCalls(PutCommand)[0]!.args[0].input.Item).toMatchObject({
+        PK: "USER#u1",
+        SK: "GANSWER#G1",
+        GSI1PK: "GANSWERS#G1",
+        choiceId: "A",
+      });
+      expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(0);
+    });
+
+    it("削除は開催中でなければゲームを消し、その答えもまとめて消す", async () => {
+      ddb.on(DeleteCommand).resolves({});
+      ddb.on(QueryCommand).resolves({
+        Items: [
+          { gameId: "G1", userId: "u1", choiceId: "A", answeredAt: "x" },
+          { gameId: "G1", userId: "u2", choiceId: "B", answeredAt: "x" },
+        ],
+      });
+      ddb.on(BatchWriteCommand).resolves({});
+      await repo.deleteGame("G1");
+      expect(ddb.commandCalls(DeleteCommand)[0]!.args[0].input).toMatchObject({
+        Key: { PK: "GAME#G1", SK: "META" },
+        ConditionExpression: "attribute_exists(PK) AND #status <> :open",
+      });
+      expect(ddb.commandCalls(QueryCommand)[0]!.args[0].input).toMatchObject({
+        IndexName: "GSI1",
+        ExpressionAttributeValues: { ":pk": "GANSWERS#G1" },
+      });
+      const deletes = ddb.commandCalls(BatchWriteCommand)[0]!.args[0].input.RequestItems!.table!;
+      expect(deletes.map((d) => d.DeleteRequest!.Key)).toEqual([
+        { PK: "USER#u1", SK: "GANSWER#G1" },
+        { PK: "USER#u2", SK: "GANSWER#G1" },
+      ]);
+
+      const failed = new ConditionalCheckFailedException({ message: "failed", $metadata: {} });
+      ddb.on(DeleteCommand).rejects(failed);
+      ddb.on(GetCommand).resolves({ Item: gameItem("open") });
+      await expect(repo.deleteGame("G1")).rejects.toBeInstanceOf(InvalidStateError);
     });
   });
 

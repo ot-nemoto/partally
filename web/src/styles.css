@@ -1561,8 +1561,74 @@ textarea {
 }
 
 .game-name {
-  margin: 0;
+  margin: 0.25rem 0 0;
   font-size: 1.1rem;
+}
+
+.game-open {
+  border-color: var(--accent);
+}
+
+/* ゲームの形式（クイズ・結果入力）の印 */
+.game-format {
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.game-description {
+  margin: 0.5rem 0;
+}
+
+.game-format-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  border: none;
+}
+
+.game-format-choice legend {
+  margin-bottom: 0.25rem;
+  font-weight: 600;
+}
+
+.game-format-choice label {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.game-format-choice input[type="radio"] {
+  flex: none;
+  width: auto;
+  margin-top: 0.3rem;
+}
+
+.game-format-choice .game-format-text {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 参加者のゲームの画面の、枠ごとの点数 */
+.game-points {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.game-points li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
 }
 
 .game-confirmed {

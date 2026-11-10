@@ -58,7 +58,7 @@ export const photoStatusSchema = z.enum(["pending", "approved", "rejected"]);
 export const POINTS_MAX = 100;
 
 /** ポイントの内訳の項目 */
-export const POINT_KEYS = ["upload", "favoriteGiven", "favoriteReceived", "quiz", "game"] as const;
+export const POINT_KEYS = ["upload", "favoriteGiven", "favoriteReceived", "game"] as const;
 
 /**
  * 同じポイントのときに比べる項目（既定の優先順に並べている）。ポイントの内訳の項目と、登録順（先に登録した人が上）。
@@ -71,7 +71,6 @@ export const TIE_BREAK_LABEL: Record<TieBreakKey, string> = {
   upload: "写真のアップロード",
   favoriteGiven: "お気に入りを選んだ",
   favoriteReceived: "お気に入りに選ばれた",
-  quiz: "クイズ",
   game: "ゲーム",
   registered: "登録順",
 };
@@ -88,7 +87,6 @@ export const updateSettingsRequestSchema = z.object({
   // 以下は後から追加した項目。古い画面から保存されても 400 にせず、今の値を残す
   favoriteGivenPoints: points.optional(),
   showPoints: z.boolean().optional(),
-  showQuizPoints: z.boolean().optional(),
   showGamePoints: z.boolean().optional(),
   rankingVisible: z.boolean().optional(),
   rankingHideNames: z.boolean().optional(),
@@ -111,45 +109,6 @@ export const updateSettingsRequestSchema = z.object({
 });
 
 export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
-
-export const QUIZ_TEXT_MAX_LENGTH = 500;
-export const QUIZ_CHOICE_TEXT_MAX_LENGTH = 100;
-export const QUIZ_CHOICES_MIN = 2;
-export const QUIZ_CHOICES_MAX = 10;
-
-/**
- * 問題文は書いたとおりに残す（前後の空白だけ除き、改行や全角の記号はそのまま）。
- * 選択肢は 1 行なので、連続する空白も 1 つにする
- */
-const quizText = z
-  .string()
-  .transform((s) => s.trim())
-  .pipe(z.string().min(1).max(QUIZ_TEXT_MAX_LENGTH));
-const quizChoiceText = z
-  .string()
-  .transform((s) => s.trim().replace(/\s+/g, " "))
-  .pipe(z.string().min(1).max(QUIZ_CHOICE_TEXT_MAX_LENGTH));
-
-/** choiceId は既存の選択肢を直すときに指定する。新しい選択肢には付けない */
-export const quizRequestSchema = z.object({
-  text: quizText,
-  choices: z
-    .array(
-      z.object({
-        choiceId: z.string().min(1).max(40).optional(),
-        text: quizChoiceText,
-        points,
-      }),
-    )
-    .min(QUIZ_CHOICES_MIN)
-    .max(QUIZ_CHOICES_MAX),
-});
-
-export const quizAnswerRequestSchema = z.object({
-  choiceId: z.string().min(1).max(40),
-});
-
-export type QuizRequest = z.infer<typeof quizRequestSchema>;
 
 export const PRIZE_NAME_MAX_LENGTH = 50;
 export const PRIZE_QUANTITY_MAX = 100;
@@ -183,7 +142,6 @@ export const prizeRequestSchema = z
   });
 
 export type PrizeRequest = z.infer<typeof prizeRequestSchema>;
-export type QuizAnswerRequest = z.infer<typeof quizAnswerRequestSchema>;
 
 export const SCHEDULE_TITLE_MAX_LENGTH = 50;
 export const SCHEDULE_DETAIL_MAX_LENGTH = 500;
@@ -218,55 +176,96 @@ export const scheduleItemRequestSchema = z
 export type ScheduleItemRequest = z.infer<typeof scheduleItemRequestSchema>;
 
 export const GAME_NAME_MAX_LENGTH = 50;
+export const GAME_DESCRIPTION_MAX_LENGTH = 500;
 export const GAME_SLOT_NAME_MAX_LENGTH = 30;
 export const GAME_SLOTS_MAX = 20;
-export const GAME_DESCRIPTION_MAX_LENGTH = 500;
+export const GAME_CHOICE_TEXT_MAX_LENGTH = 100;
+export const GAME_CHOICES_MIN = 2;
+export const GAME_CHOICES_MAX = 10;
 /** 1 つのゲームで選べる人数の上限（参加者は 80 名程度の想定） */
 export const GAME_MEMBERS_MAX = 1000;
 
+/** ゲームの形式。quiz: 参加者が選択肢から選ぶ / result: 幹事が枠（優勝など）ごとに人を選ぶ */
+export const GAME_FORMATS = ["quiz", "result"] as const;
+
+/** 形式の名前（管理画面に出す） */
+export const GAME_FORMAT_LABEL: Record<(typeof GAME_FORMATS)[number], string> = {
+  quiz: "クイズ",
+  result: "結果入力",
+};
+
+/** 選択肢・枠の名前は 1 行なので、連続する空白も 1 つにする */
+const oneLine = (max: number) =>
+  z
+    .string()
+    .transform((s) => s.trim().replace(/\s+/g, " "))
+    .pipe(z.string().min(1).max(max));
+
 /**
- * ゲーム。枠（優勝・準優勝など）ごとに点数と、その枠に入る人を決める。1 人は 1 つの枠にだけ入る。
- * slotId は既存の枠を直すときに指定する。新しい枠には付けない
+ * ゲーム。形式は作るときに決め、後から変えない（更新で違う形式を送ると 400）。
+ * - quiz: 選択肢（2〜10 個）ごとに点数を決める。slots は送らない
+ * - result: 枠（0〜20 個。名前だけで作り、枠は後から足せる）ごとに点数と人を決める。1 人は 1 つの枠にだけ入る。choices は送らない
+ * choiceId・slotId は既存の選択肢・枠を直すときに指定する。新しいものには付けない
  */
 export const gameRequestSchema = z
   .object({
+    format: z.enum(GAME_FORMATS),
     name: normalized(GAME_NAME_MAX_LENGTH),
-    /** 説明は書いたとおりに残す（前後の空白だけ除く）。省くと空 */
+    /** 説明（クイズなら問題文）。書いたとおりに残す（前後の空白だけ除く）。省くと空 */
     description: z
       .string()
       .transform((s) => s.trim())
       .pipe(z.string().max(GAME_DESCRIPTION_MAX_LENGTH))
       .optional(),
+    choices: z
+      .array(z.object({ choiceId: idSchema.optional(), text: oneLine(GAME_CHOICE_TEXT_MAX_LENGTH), points }))
+      .max(GAME_CHOICES_MAX)
+      .optional(),
     slots: z
       .array(
         z.object({
           slotId: idSchema.optional(),
-          name: normalized(GAME_SLOT_NAME_MAX_LENGTH),
+          name: oneLine(GAME_SLOT_NAME_MAX_LENGTH),
           points,
           userIds: z.array(idSchema).max(GAME_MEMBERS_MAX),
         }),
       )
-      // 名前だけで作り、枠は後から足せる（枠が無いゲームは確定できない）
-      .max(GAME_SLOTS_MAX),
+      .max(GAME_SLOTS_MAX)
+      .optional(),
     /**
      * 更新のとき、画面が持っているゲームの updatedAt。保存済みのものと違えば（ほかで直されていれば）上書きせず 409 にする。
      * 省くと確かめない
      */
     baseUpdatedAt: z.string().max(40).optional(),
   })
+  .refine((v) => v.format !== "quiz" || ((v.choices?.length ?? 0) >= GAME_CHOICES_MIN && !v.slots?.length), {
+    message: `クイズは選択肢を ${GAME_CHOICES_MIN}〜${GAME_CHOICES_MAX} 個にしてください`,
+    path: ["choices"],
+  })
+  .refine((v) => v.format !== "result" || !v.choices?.length, {
+    message: "結果入力のゲームに選択肢は付けられません",
+    path: ["choices"],
+  })
   .refine(
     (v) => {
-      const ids = v.slots.flatMap((s) => s.userIds);
+      const ids = (v.slots ?? []).flatMap((s) => s.userIds);
       return new Set(ids).size === ids.length;
     },
     { message: "同じ人が複数の枠に入っています", path: ["slots"] },
   )
   .refine(
     (v) => {
-      const ids = v.slots.flatMap((s) => (s.slotId ? [s.slotId] : []));
+      const ids = [...(v.slots ?? []).map((s) => s.slotId), ...(v.choices ?? []).map((c) => c.choiceId)].filter(
+        (id) => id !== undefined,
+      );
       return new Set(ids).size === ids.length;
     },
-    { message: "同じ枠が重複しています", path: ["slots"] },
+    { message: "同じ枠・選択肢が重複しています", path: ["slots"] },
   );
 
 export type GameRequest = z.infer<typeof gameRequestSchema>;
+
+/** クイズ形式のゲームへの答え */
+export const gameAnswerRequestSchema = z.object({
+  choiceId: idSchema,
+});
