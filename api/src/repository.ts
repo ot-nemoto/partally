@@ -1,7 +1,7 @@
 import {
+  type GameFormat,
   type GameStatus,
   type PhotoStatus,
-  type QuizStatus,
   type Settings,
   TIE_BREAK_KEYS,
   type TokenStatus,
@@ -55,31 +55,6 @@ export interface FavoriteRecord {
   createdAt: string;
 }
 
-export interface QuizChoice {
-  choiceId: string;
-  text: string;
-  points: number;
-}
-
-export interface QuizRecord {
-  quizId: string;
-  text: string;
-  choices: QuizChoice[];
-  status: QuizStatus;
-  createdAt: string;
-  updatedAt: string;
-  openedAt?: string;
-  closedAt?: string;
-}
-
-/** クイズへの回答。1 人 1 問につき 1 件で、選び直すと上書きする */
-export interface QuizAnswerRecord {
-  quizId: string;
-  userId: string;
-  choiceId: string;
-  answeredAt: string;
-}
-
 export interface PrizeRecord {
   prizeId: string;
   name: string;
@@ -109,15 +84,37 @@ export interface GameSlot {
   userIds: string[];
 }
 
+/** クイズ形式の選択肢 */
+export interface GameChoice {
+  choiceId: string;
+  text: string;
+  points: number;
+}
+
 export interface GameRecord {
   gameId: string;
+  format: GameFormat;
   name: string;
+  description: string;
   status: GameStatus;
+  /** 結果入力形式の枠（クイズ形式では空） */
   slots: GameSlot[];
+  /** クイズ形式の選択肢（結果入力形式では空） */
+  choices: GameChoice[];
   createdAt: string;
   updatedAt: string;
+  /** 最後に開催した時刻 */
+  openedAt?: string;
   /** 確定した時刻。確定を取り消すと消える */
   confirmedAt?: string;
+}
+
+/** クイズ形式のゲームへの答え。1 人 1 ゲームにつき 1 件で、選び直すと上書きする */
+export interface GameAnswerRecord {
+  gameId: string;
+  userId: string;
+  choiceId: string;
+  answeredAt: string;
 }
 
 export interface Page<T> {
@@ -134,7 +131,6 @@ export const DEFAULT_SETTINGS: Settings = {
   favoritePoints: 1,
   favoriteGivenPoints: 10,
   showPoints: true,
-  showQuizPoints: true,
   showGamePoints: true,
   // 参加者へのランキング・トレンドは、管理者が見せると決めるまで出さない
   rankingVisible: false,
@@ -186,11 +182,11 @@ export class FavoriteLimitError extends Error {
   }
 }
 
-/** 別のクイズが出題中 */
-export class QuizAlreadyOpenError extends Error {
+/** 別のゲームが開催中 */
+export class GameAlreadyOpenError extends Error {
   constructor() {
-    super("another quiz is open");
-    this.name = "QuizAlreadyOpenError";
+    super("another game is open");
+    this.name = "GameAlreadyOpenError";
   }
 }
 
@@ -287,54 +283,6 @@ export interface Repository {
   /** photoId へのお気に入りをすべて外す（写真の削除時） */
   clearFavorites(photoId: string): Promise<void>;
 
-  // ---- クイズ ----
-
-  createQuiz(quiz: QuizRecord): Promise<void>;
-  getQuiz(quizId: string): Promise<QuizRecord | undefined>;
-  /** 作成順（古い順）で返す */
-  listQuizzes(): Promise<QuizRecord[]>;
-
-  /**
-   * 問題文と選択肢を差し替える。onlyIfDraft なら下書きのときだけ（選択肢の追加・削除は下書きの間だけにするため）。
-   * @throws NotFoundError / InvalidStateError
-   */
-  updateQuiz(
-    quizId: string,
-    changes: Pick<QuizRecord, "text" | "choices">,
-    updatedAt: string,
-    onlyIfDraft: boolean,
-  ): Promise<QuizRecord>;
-
-  /**
-   * 下書きか締め切り済みのクイズと、その回答を削除する。
-   * @throws NotFoundError / InvalidStateError 出題中
-   */
-  deleteQuiz(quizId: string): Promise<void>;
-
-  /**
-   * draft → open。出題中は同時に 1 問だけ。
-   * @throws NotFoundError / InvalidStateError 下書きでない / QuizAlreadyOpenError 別のクイズが出題中
-   */
-  openQuiz(quizId: string, openedAt: string): Promise<QuizRecord>;
-
-  /**
-   * open → closed。
-   * @throws NotFoundError / InvalidStateError 出題中でない
-   */
-  closeQuiz(quizId: string, closedAt: string): Promise<QuizRecord>;
-
-  /** 出題中のクイズの ID */
-  getOpenQuizId(): Promise<string | undefined>;
-
-  /**
-   * 回答を保存する（選び直しは上書き）。出題中かどうかは呼び出し側が強い整合性で読んで確かめ、
-   * その後に answeredAt を付けて呼ぶ（全員が一斉に答えるため、クイズのアイテムを含むトランザクションにはしない）
-   */
-  putQuizAnswer(answer: QuizAnswerRecord): Promise<void>;
-  getQuizAnswer(userId: string, quizId: string): Promise<QuizAnswerRecord | undefined>;
-  listQuizAnswersByUser(userId: string): Promise<QuizAnswerRecord[]>;
-  listQuizAnswersByQuiz(quizId: string): Promise<QuizAnswerRecord[]>;
-
   // ---- 景品 ----
 
   createPrize(prize: PrizeRecord): Promise<void>;
@@ -374,22 +322,34 @@ export interface Repository {
   /** 作成順（古い順）で返す */
   listGames(): Promise<GameRecord[]>;
   /**
-   * 名前と枠を差し替える（確定済みでも直せる）。expectedUpdatedAt を渡すと、保存済みの updatedAt がそれと同じときだけ差し替える。
+   * 名前・説明・枠・選択肢を差し替える（開催中・確定済みでも直せる）。expectedUpdatedAt を渡すと、保存済みの updatedAt がそれと同じときだけ差し替える。
    * @throws NotFoundError / InvalidStateError ほかで直されていた
    */
   updateGame(
     gameId: string,
-    changes: Pick<GameRecord, "name" | "slots">,
+    changes: Pick<GameRecord, "name" | "description" | "slots" | "choices">,
     updatedAt: string,
     expectedUpdatedAt?: string,
   ): Promise<GameRecord>;
   /**
-   * draft → confirmed（confirmedAt を付ける）、または confirmed → draft（confirmedAt を消す）。
-   * @throws NotFoundError / InvalidStateError 今の状態が前提と合わない
+   * 状態を from から to に変える。開催中（open）は同時に 1 つだけで、開催中の印を一緒に作る・消す。
+   * 確定（confirmed）にすると confirmedAt を付け、確定から戻すと消す。開催すると openedAt を付ける。
+   * @throws NotFoundError / InvalidStateError 今の状態が from でない / GameAlreadyOpenError 別のゲームが開催中
    */
-  setGameStatus(gameId: string, status: GameStatus, at: string): Promise<GameRecord>;
-  /** @throws NotFoundError */
+  changeGameStatus(gameId: string, from: GameStatus, to: GameStatus, at: string): Promise<GameRecord>;
+  /** 開催中のゲームの ID */
+  getOpenGameId(): Promise<string | undefined>;
+  /** ゲームと、その答えを削除する。@throws NotFoundError / InvalidStateError 開催中 */
   deleteGame(gameId: string): Promise<void>;
+
+  /**
+   * クイズ形式の答えを保存する（選び直しは上書き）。開催中かどうかは呼び出し側が強い整合性で読んで確かめ、
+   * その後に answeredAt を付けて呼ぶ（全員が一斉に答えるため、ゲームのアイテムを含むトランザクションにはしない）
+   */
+  putGameAnswer(answer: GameAnswerRecord): Promise<void>;
+  getGameAnswer(userId: string, gameId: string): Promise<GameAnswerRecord | undefined>;
+  listGameAnswersByUser(userId: string): Promise<GameAnswerRecord[]>;
+  listGameAnswersByGame(gameId: string): Promise<GameAnswerRecord[]>;
 
   // ---- 設定 ----
 

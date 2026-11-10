@@ -4,15 +4,14 @@ import {
   EpithetTakenError,
   FavoriteLimitError,
   formatLabel,
+  GameAlreadyOpenError,
+  type GameAnswerRecord,
   type GameRecord,
   InvalidStateError,
   NotFoundError,
   type Page,
   type PhotoRecord,
   type PrizeRecord,
-  QuizAlreadyOpenError,
-  type QuizAnswerRecord,
-  type QuizRecord,
   type Repository,
   type ScheduleItemRecord,
   TokenNotAvailableError,
@@ -29,13 +28,12 @@ export class MemoryRepository implements Repository {
   private photos = new Map<string, PhotoRecord>();
   /** 「選んだ人 → 写真」の組と選んだ時刻。キーは `${userId}#${photoId}` */
   private favorites = new Map<string, string>();
-  private quizzes = new Map<string, QuizRecord>();
-  /** キーは `${userId}#${quizId}` */
-  private quizAnswers = new Map<string, QuizAnswerRecord>();
-  private openQuizId: string | undefined;
   private prizes = new Map<string, PrizeRecord>();
   private scheduleItems = new Map<string, ScheduleItemRecord>();
   private games = new Map<string, GameRecord>();
+  private openGameId: string | undefined;
+  /** キーは `${userId}#${gameId}` */
+  private gameAnswers = new Map<string, GameAnswerRecord>();
   private settings: Settings = { ...DEFAULT_SETTINGS };
   private labelCounter = 0;
 
@@ -220,80 +218,6 @@ export class MemoryRepository implements Repository {
     for (const { userId } of await this.listFavoritesOfPhoto(photoId)) await this.removeFavorite(userId, photo);
   }
 
-  async createQuiz(quiz: QuizRecord) {
-    this.quizzes.set(quiz.quizId, clone(quiz));
-  }
-
-  async getQuiz(quizId: string) {
-    return clone(this.quizzes.get(quizId));
-  }
-
-  async listQuizzes() {
-    return [...this.quizzes.values()]
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.quizId.localeCompare(b.quizId))
-      .map(clone);
-  }
-
-  async updateQuiz(
-    quizId: string,
-    changes: Pick<QuizRecord, "text" | "choices">,
-    updatedAt: string,
-    onlyIfDraft: boolean,
-  ) {
-    const quiz = this.quizzes.get(quizId);
-    if (!quiz) throw new NotFoundError();
-    if (onlyIfDraft && quiz.status !== "draft") throw new InvalidStateError();
-    Object.assign(quiz, clone(changes), { updatedAt });
-    return clone(quiz);
-  }
-
-  async deleteQuiz(quizId: string) {
-    const quiz = this.quizzes.get(quizId);
-    if (!quiz) throw new NotFoundError();
-    if (quiz.status === "open") throw new InvalidStateError();
-    this.quizzes.delete(quizId);
-    for (const [key, answer] of this.quizAnswers) if (answer.quizId === quizId) this.quizAnswers.delete(key);
-  }
-
-  async openQuiz(quizId: string, openedAt: string) {
-    const quiz = this.quizzes.get(quizId);
-    if (!quiz) throw new NotFoundError();
-    if (quiz.status !== "draft") throw new InvalidStateError();
-    if (this.openQuizId !== undefined) throw new QuizAlreadyOpenError();
-    this.openQuizId = quizId;
-    Object.assign(quiz, { status: "open", openedAt, updatedAt: openedAt });
-    return clone(quiz);
-  }
-
-  async closeQuiz(quizId: string, closedAt: string) {
-    const quiz = this.quizzes.get(quizId);
-    if (!quiz) throw new NotFoundError();
-    if (quiz.status !== "open" || this.openQuizId !== quizId) throw new InvalidStateError();
-    this.openQuizId = undefined;
-    Object.assign(quiz, { status: "closed", closedAt, updatedAt: closedAt });
-    return clone(quiz);
-  }
-
-  async getOpenQuizId() {
-    return this.openQuizId;
-  }
-
-  async putQuizAnswer(answer: QuizAnswerRecord) {
-    this.quizAnswers.set(`${answer.userId}#${answer.quizId}`, clone(answer));
-  }
-
-  async getQuizAnswer(userId: string, quizId: string) {
-    return clone(this.quizAnswers.get(`${userId}#${quizId}`));
-  }
-
-  async listQuizAnswersByUser(userId: string) {
-    return [...this.quizAnswers.values()].filter((a) => a.userId === userId).map(clone);
-  }
-
-  async listQuizAnswersByQuiz(quizId: string) {
-    return [...this.quizAnswers.values()].filter((a) => a.quizId === quizId).map(clone);
-  }
-
   async createPrize(prize: PrizeRecord) {
     this.prizes.set(prize.prizeId, clone(prize));
   }
@@ -366,7 +290,7 @@ export class MemoryRepository implements Repository {
 
   async updateGame(
     gameId: string,
-    changes: Pick<GameRecord, "name" | "slots">,
+    changes: Pick<GameRecord, "name" | "description" | "slots" | "choices">,
     updatedAt: string,
     expectedUpdatedAt?: string,
   ) {
@@ -377,19 +301,49 @@ export class MemoryRepository implements Repository {
     return clone(game);
   }
 
-  async setGameStatus(gameId: string, status: GameStatus, at: string) {
+  async changeGameStatus(gameId: string, from: GameStatus, to: GameStatus, at: string) {
     const game = this.games.get(gameId);
     if (!game) throw new NotFoundError();
-    if (game.status === status) throw new InvalidStateError();
-    game.status = status;
+    if (game.status !== from || from === to) throw new InvalidStateError();
+    if (to === "open" && this.openGameId !== undefined) throw new GameAlreadyOpenError();
+    if (to === "open") {
+      this.openGameId = gameId;
+      game.openedAt = at;
+    }
+    if (from === "open") this.openGameId = undefined;
+    if (to === "confirmed") game.confirmedAt = at;
+    if (from === "confirmed") delete game.confirmedAt;
+    game.status = to;
     game.updatedAt = at;
-    if (status === "confirmed") game.confirmedAt = at;
-    else delete game.confirmedAt;
     return clone(game);
   }
 
+  async getOpenGameId() {
+    return this.openGameId;
+  }
+
   async deleteGame(gameId: string) {
-    if (!this.games.delete(gameId)) throw new NotFoundError();
+    const game = this.games.get(gameId);
+    if (!game) throw new NotFoundError();
+    if (game.status === "open") throw new InvalidStateError();
+    this.games.delete(gameId);
+    for (const [key, answer] of this.gameAnswers) if (answer.gameId === gameId) this.gameAnswers.delete(key);
+  }
+
+  async putGameAnswer(answer: GameAnswerRecord) {
+    this.gameAnswers.set(`${answer.userId}#${answer.gameId}`, clone(answer));
+  }
+
+  async getGameAnswer(userId: string, gameId: string) {
+    return clone(this.gameAnswers.get(`${userId}#${gameId}`));
+  }
+
+  async listGameAnswersByUser(userId: string) {
+    return [...this.gameAnswers.values()].filter((a) => a.userId === userId).map(clone);
+  }
+
+  async listGameAnswersByGame(gameId: string) {
+    return [...this.gameAnswers.values()].filter((a) => a.gameId === gameId).map(clone);
   }
 
   async getSettings() {

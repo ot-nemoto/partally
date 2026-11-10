@@ -1,4 +1,4 @@
-import type { POINT_KEYS, TIE_BREAK_KEYS } from "./schemas.js";
+import type { GAME_FORMATS, POINT_KEYS, TIE_BREAK_KEYS } from "./schemas.js";
 
 export type UserStatus = "active" | "unbound";
 export type TokenStatus = "unbound" | "bound";
@@ -16,16 +16,12 @@ export interface UserDto {
   favoritesGiven: number;
   /** 自分の写真が他の人にお気に入りに選ばれた数。ポイントを伏せている間、参加者向けの応答には無い */
   favoritesReceived?: number;
-  /** 回答したクイズの数 */
-  quizAnswered: number;
-  /** 締め切ったクイズで選んだ選択肢の点数の合計。ポイントを伏せている間、参加者向けの応答には無い */
-  quizPoints?: number;
   /** 確定したゲームで入った点数の合計。ゲームの点数を伏せている間、参加者向けの応答には無い */
   gamePoints?: number;
-  /** 確定したゲームで入った枠（確定した順）。参加者本人にだけ返し、ゲームの点数を伏せている間は無い */
+  /** 確定したゲームで点数が入ったもの（確定した順）。参加者本人にだけ返し、ゲームの点数を伏せている間は無い */
   gameAwards?: GameAwardDto[];
   /**
-   * 現在の設定で計算したポイント（公開枚数 × 1 枚あたり + 選ばれた数 × 1 件あたり + クイズの点数 + ゲームの点数）。
+   * 現在の設定で計算したポイント（公開枚数 × 1 枚あたり + 選ばれた数 × 1 件あたり + 選んだ数 × 1 枚あたり + ゲームの点数）。
    * ポイントを伏せている間、参加者向けの応答には無い
    */
   points?: number;
@@ -74,7 +70,7 @@ export type ApiErrorCode =
   | "invalid_state"
   | "favorites_disabled"
   | "favorite_limit"
-  | "quiz_closed"
+  | "game_closed"
   | "not_found"
   | "internal_error";
 
@@ -141,8 +137,6 @@ export interface Settings {
   favoriteGivenPoints: number;
   /** 参加者のホーム画面にポイントを表示するか（発表まで伏せておきたいときに切る） */
   showPoints: boolean;
-  /** 参加者のホーム画面にクイズの点数を表示するか */
-  showQuizPoints: boolean;
   /** 参加者のホーム画面にゲームの点数と、入った枠を表示するか */
   showGamePoints: boolean;
   /** 参加者にランキングを見せるか */
@@ -186,64 +180,6 @@ export interface FavoriteResponse {
 
 export interface SettingsResponse {
   settings: Settings;
-}
-
-/** draft: 下書き / open: 出題中（同時に 1 問だけ） / closed: 締め切り */
-export type QuizStatus = "draft" | "open" | "closed";
-
-export interface QuizChoiceDto {
-  choiceId: string;
-  text: string;
-  /** 選んだ人に入る点数（管理画面のみ） */
-  points?: number;
-  /** この選択肢を選んだ人数（管理画面のみ） */
-  answerCount?: number;
-}
-
-/** 管理画面に返すクイズ */
-export interface QuizDto {
-  quizId: string;
-  text: string;
-  status: QuizStatus;
-  choices: QuizChoiceDto[];
-  /** 回答した人数 */
-  answerCount: number;
-  createdAt: string;
-  openedAt?: string;
-  closedAt?: string;
-}
-
-export interface QuizzesResponse {
-  quizzes: QuizDto[];
-}
-
-export interface QuizResponse {
-  quiz: QuizDto;
-}
-
-export interface QuizAnswerDto {
-  userId: string;
-  displayName?: string;
-  choiceId: string;
-  answeredAt: string;
-}
-
-export interface QuizResultsResponse {
-  quiz: QuizDto;
-  answers: QuizAnswerDto[];
-}
-
-/** 参加者に返す出題中のクイズ。正解がわからないよう、選択肢の点数は含めない */
-export interface CurrentQuizDto {
-  quizId: string;
-  text: string;
-  choices: { choiceId: string; text: string }[];
-  /** 自分が選んでいる選択肢 */
-  myChoiceId?: string;
-}
-
-export interface CurrentQuizResponse {
-  quiz: CurrentQuizDto | null;
 }
 
 /** 累計ポイントの推移の 1 点 */
@@ -330,10 +266,16 @@ export interface ScheduleItemResponse {
   item: ScheduleItemDto;
 }
 
-/** draft: 下書き（ポイントは入らない） / confirmed: 確定（確定した時刻でポイントが入る） */
-export type GameStatus = "draft" | "confirmed";
+/**
+ * draft: 下書き（ポイントは入らない） / open: 開催中（参加者に知らせる。同時に 1 つだけ。ポイントはまだ入らない） /
+ * confirmed: 確定（確定した時刻でポイントが入る）
+ */
+export type GameStatus = "draft" | "open" | "confirmed";
 
-/** ゲームの枠。userIds の人に points が入る */
+/** ゲームの形式（一覧は GAME_FORMATS） */
+export type GameFormat = (typeof GAME_FORMATS)[number];
+
+/** 結果入力形式の枠。userIds の人に points が入る */
 export interface GameSlotDto {
   slotId: string;
   name: string;
@@ -341,16 +283,56 @@ export interface GameSlotDto {
   userIds: string[];
 }
 
+/** クイズ形式の選択肢。選んだ人に points が入る */
+export interface GameChoiceDto {
+  choiceId: string;
+  text: string;
+  points: number;
+  /** この選択肢を選んだ人数（管理画面のみ） */
+  answerCount: number;
+}
+
+/** 管理画面に返すゲーム */
 export interface GameDto {
   gameId: string;
+  format: GameFormat;
   name: string;
+  /** 説明（ルールなど。クイズなら問題文。改行可、空でもよい） */
+  description: string;
   status: GameStatus;
+  /** 結果入力形式の枠（クイズ形式では空） */
   slots: GameSlotDto[];
+  /** クイズ形式の選択肢（結果入力形式では空） */
+  choices: GameChoiceDto[];
+  /** クイズ形式で答えた人数 */
+  answerCount: number;
   createdAt: string;
-  /** 最後に変えた時刻（名前・枠・人・状態）。更新のときに baseUpdatedAt として送り返す */
+  /** 最後に開催した時刻 */
+  openedAt?: string;
+  /** 最後に変えた時刻（名前・説明・枠・選択肢・人・状態）。更新のときに baseUpdatedAt として送り返す */
   updatedAt: string;
-  /** 確定した時刻（推移ではこの時刻にポイントが入る）。下書きには無い */
+  /** 確定した時刻（推移ではこの時刻にポイントが入る）。下書き・開催中には無い */
   confirmedAt?: string;
+}
+
+/**
+ * 参加者に見せる開催中のゲーム。誰がどの枠に入ったかと、クイズの選択肢の点数（正解が分かる）は含めない
+ */
+export interface CurrentGameDto {
+  gameId: string;
+  format: GameFormat;
+  name: string;
+  description: string;
+  /** 結果入力形式の枠と点数 */
+  slots: { name: string; points: number }[];
+  /** クイズ形式の選択肢 */
+  choices: { choiceId: string; text: string }[];
+  /** クイズ形式で自分が選んでいる選択肢 */
+  myChoiceId?: string;
+}
+
+export interface CurrentGameResponse {
+  game: CurrentGameDto | null;
 }
 
 export interface GamesResponse {
@@ -361,9 +343,23 @@ export interface GameResponse {
   game: GameDto;
 }
 
-/** 参加者に見せる、自分が入った枠 */
+export interface GameAnswerDto {
+  userId: string;
+  displayName?: string;
+  choiceId: string;
+  answeredAt: string;
+}
+
+/** クイズ形式のゲームと、答えた人の一覧（管理画面） */
+export interface GameAnswersResponse {
+  game: GameDto;
+  answers: GameAnswerDto[];
+}
+
+/** 参加者に見せる、自分に点数が入ったゲーム（結果入力なら入った枠、クイズなら選んだ答え） */
 export interface GameAwardDto {
   gameName: string;
+  /** 結果入力なら枠の名前、クイズなら選んだ選択肢 */
   slotName: string;
   points: number;
 }

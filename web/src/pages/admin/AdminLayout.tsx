@@ -70,7 +70,6 @@ function AdminNav({ className }: { className: string }) {
       <NavLink to="/admin/ranking">Ranking</NavLink>
       <NavLink to="/admin/trend">Trend</NavLink>
       <NavLink to="/admin/photos">Photo</NavLink>
-      <NavLink to="/admin/quizzes">Quiz</NavLink>
       <NavLink to="/admin/games">Game</NavLink>
       <NavLink to="/admin/prizes">Prize</NavLink>
       <NavLink to="/admin/schedule">Schedule</NavLink>

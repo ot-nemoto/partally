@@ -1,12 +1,12 @@
-import type { CurrentQuizDto, CurrentQuizResponse, MeResponse, Rules, UserDto } from "@partally/shared";
+import type { CurrentGameDto, CurrentGameResponse, MeResponse, Rules, UserDto } from "@partally/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useOutletContext } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../api";
 import { useAutoRefresh } from "../hooks/useAutoRefresh";
 import { ReloadProvider } from "../hooks/useReload";
 
-/** 出題・締め切りにすぐ気づけるよう、表示中はこの間隔で出題中のクイズを確認する（文字だけの小さな通信） */
-const QUIZ_REFRESH_MS = 5_000;
+/** 開催・確定にすぐ気づけるよう、表示中はこの間隔で開催中のゲームを確認する（文字だけの小さな通信） */
+const GAME_REFRESH_MS = 5_000;
 
 export interface ParticipantContext {
   user: UserDto;
@@ -16,10 +16,10 @@ export interface ParticipantContext {
   reloadUser: () => void;
   /** API の応答で受け取った最新のユーザ情報に差し替える */
   setUser: (user: UserDto) => void;
-  /** 出題中のクイズ（無ければ null、確認前は undefined） */
-  quiz: CurrentQuizDto | null | undefined;
-  /** 回答の応答で受け取った最新の状態に差し替える */
-  setQuiz: (quiz: CurrentQuizDto | null) => void;
+  /** 開催中のゲーム（無ければ null、確認前は undefined） */
+  game: CurrentGameDto | null | undefined;
+  /** 答えの応答で受け取った最新の状態に差し替える */
+  setGame: (game: CurrentGameDto | null) => void;
 }
 
 export function useParticipant() {
@@ -65,22 +65,22 @@ export function ParticipantLayout() {
     [],
   );
 
-  const [quiz, setQuizState] = useState<CurrentQuizDto | null>();
+  const [game, setGameState] = useState<CurrentGameDto | null>();
   const loggedIn = useRef(false);
   loggedIn.current = state.kind === "user";
-  // 回答と確認のたびに増やす。確認の途中で回答されたり、後から送った確認が先に返ったりしたら、
-  // 古い応答で上書きしない（遅い通信で締め切り前の応答が後から届き、お知らせが戻るのを防ぐ）
-  const quizVersion = useRef(0);
-  const setQuiz = useCallback((next: CurrentQuizDto | null) => {
-    quizVersion.current++;
-    setQuizState(next);
+  // 答えと確認のたびに増やす。確認の途中で答えたり、後から送った確認が先に返ったりしたら、
+  // 古い応答で上書きしない（遅い通信で確定前の応答が後から届き、お知らせが戻るのを防ぐ）
+  const gameVersion = useRef(0);
+  const setGame = useCallback((next: CurrentGameDto | null) => {
+    gameVersion.current++;
+    setGameState(next);
   }, []);
-  const refreshQuiz = useCallback(async () => {
+  const refreshGame = useCallback(async () => {
     if (!loggedIn.current) return;
-    const version = ++quizVersion.current;
-    await api<CurrentQuizResponse>("GET", "/quiz/current")
+    const version = ++gameVersion.current;
+    await api<CurrentGameResponse>("GET", "/game/current")
       .then((res) => {
-        if (quizVersion.current === version) setQuizState(res.quiz);
+        if (gameVersion.current === version) setGameState(res.game);
       })
       .catch((e) => {
         // ログインが切れたら案内の画面にする（確認も止まる）。通信エラーは次の確認に任せる
@@ -88,19 +88,19 @@ export function ParticipantLayout() {
       });
   }, []);
   useEffect(() => {
-    if (state.kind === "user") void refreshQuiz();
-  }, [state.kind, refreshQuiz]);
-  useAutoRefresh(refreshQuiz, QUIZ_REFRESH_MS);
+    if (state.kind === "user") void refreshGame();
+  }, [state.kind, refreshGame]);
+  useAutoRefresh(refreshGame, GAME_REFRESH_MS);
 
-  // クイズ以外は自動では取り直さない。「更新」で自分の情報・ルール・出題中のクイズと、表示中の画面の一覧を取り直す
+  // ゲーム以外は自動では取り直さない。「更新」で自分の情報・ルール・開催中のゲームと、表示中の画面の一覧を取り直す
   const [reloadCount, setReloadCount] = useState(0);
   const [reloading, setReloading] = useState(false);
   const reload = useCallback(async () => {
     setReloading(true);
     setReloadCount((n) => n + 1);
-    await Promise.all([refreshQuietly(), refreshQuiz()]);
+    await Promise.all([refreshQuietly(), refreshGame()]);
     setReloading(false);
-  }, [refreshQuietly, refreshQuiz]);
+  }, [refreshQuietly, refreshGame]);
   const location = useLocation();
 
   if (state.kind === "loading") return <main className="page muted">読み込み中…</main>;
@@ -125,18 +125,22 @@ export function ParticipantLayout() {
   return (
     <div className="participant">
       <main className="page">
-        {quiz && location.pathname !== "/quiz" && (
-          <Link to="/quiz" className="quiz-banner">
-            <strong>問題が出ています</strong>
+        {game && location.pathname !== "/game" && (
+          <Link to="/game" className="quiz-banner">
+            <strong>{game.format === "quiz" ? "問題が出ています" : "ゲーム開催中"}</strong>
             <span className="quiz-banner-sub">
-              {quiz.myChoiceId ? "回答済み（締め切りまで選び直せます）" : "タップして回答する"}
+              {game.format === "quiz"
+                ? game.myChoiceId
+                  ? `${game.name}・回答済み（締め切りまで選び直せます）`
+                  : `${game.name}・タップして回答する`
+                : `${game.name}・タップして見る`}
             </span>
           </Link>
         )}
         <ReloadProvider value={reloadCount}>
           <Outlet
             context={
-              { user: state.user, rules: state.rules, reloadUser, setUser, quiz, setQuiz } satisfies ParticipantContext
+              { user: state.user, rules: state.rules, reloadUser, setUser, game, setGame } satisfies ParticipantContext
             }
           />
         </ReloadProvider>

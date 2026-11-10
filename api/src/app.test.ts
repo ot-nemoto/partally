@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildRanking, createApp, scoreQuizAnswers, toParticipantRanking } from "./app.js";
+import { buildRanking, createApp, toParticipantRanking } from "./app.js";
 import { ingestUpload } from "./ingest.js";
 import { MemoryRepository } from "./memory-repository.js";
 import { MemoryPhotoStorage } from "./memory-storage.js";
@@ -390,17 +390,17 @@ describe("API", () => {
       expect((await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post" })).status).toBe(200);
       expect((await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "x" })).status).toBe(400);
       expect((await admin("PUT", "/api/admin/settings", { moderation: "post" })).status).toBe(400);
-      // 同じポイントのときの優先順は、6 つの項目をすべて 1 回ずつ並べたものだけ
+      // 同じポイントのときの優先順は、5 つの項目をすべて 1 回ずつ並べたものだけ
       const order = (tieBreakOrder: unknown) =>
         admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post", tieBreakOrder }).then(
           (r) => r.status,
         );
-      expect(await order(["quiz", "registered", "game", "upload", "favoriteReceived", "favoriteGiven"])).toBe(200);
-      expect(await order(["quiz", "registered", "upload", "favoriteReceived", "favoriteGiven"])).toBe(400);
-      expect(await order(["quiz", "quiz", "game", "upload", "favoriteReceived", "favoriteGiven"])).toBe(400);
-      expect(await order(["quiz", "registered", "game", "upload", "favoriteReceived", "x"])).toBe(400);
+      expect(await order(["registered", "game", "upload", "favoriteReceived", "favoriteGiven"])).toBe(200);
+      expect(await order(["registered", "upload", "favoriteReceived", "favoriteGiven"])).toBe(400);
+      // 以前あった quiz の項目は受け付けない
+      expect(await order(["quiz", "registered", "game", "upload", "favoriteReceived", "favoriteGiven"])).toBe(400);
+      expect(await order(["game", "game", "upload", "favoriteReceived", "favoriteGiven"])).toBe(400);
       expect((await admin("GET", "/api/admin/settings")).body.settings.tieBreakOrder).toEqual([
-        "quiz",
         "registered",
         "game",
         "upload",
@@ -561,7 +561,6 @@ describe("API", () => {
         favoritePoints: 1,
         favoriteGivenPoints: 10,
         showPoints: true,
-        showQuizPoints: true,
         showGamePoints: true,
         rankingVisible: false,
         rankingHideNames: false,
@@ -570,7 +569,7 @@ describe("API", () => {
         trendHideNames: false,
         trendHidePoints: false,
         prizesVisible: false,
-        tieBreakOrder: ["upload", "favoriteGiven", "favoriteReceived", "quiz", "game", "registered"],
+        tieBreakOrder: ["upload", "favoriteGiven", "favoriteReceived", "game", "registered"],
         scheduleVisible: false,
         scheduleDate: "",
       });
@@ -855,7 +854,7 @@ describe("API", () => {
     });
   });
 
-  describe("クイズ", () => {
+  describe("ゲーム（クイズ形式）", () => {
     let participantSeq = 0;
     async function participant(name: string) {
       const token = await issueToken();
@@ -874,58 +873,72 @@ describe("API", () => {
     const me = async (request: ReturnType<typeof createClient>) => (await request("GET", "/api/me")).body;
 
     async function createQuiz(admin: ReturnType<typeof createClient>, points = [10, 0, 5]) {
-      const res = await admin("POST", "/api/admin/quizzes", {
-        text: "  幹事の出身地は？\n（ヒント: 海がある）  ",
+      const res = await admin("POST", "/api/admin/games", {
+        format: "quiz",
+        name: "第 1 問",
+        description: "  幹事の出身地は？\n（ヒント: 海がある）  ",
         choices: points.map((p, i) => ({ text: `選択肢${i + 1}`, points: p })),
       });
       expect(res.status).toBe(201);
-      return res.body.quiz;
+      return res.body.game;
     }
+    const choicesOf = (game: any) =>
+      game.choices.map((ch: any) => ({ choiceId: ch.choiceId, text: ch.text, points: ch.points }));
 
-    it("出題 → 回答（選び直し可）→ 締め切りで、選んだ選択肢の点数がポイントに加わる", async () => {
+    it("開催 → 答える（選び直し可）→ 確定で、選んだ選択肢の点数がポイントに加わる", async () => {
       const admin = await adminClient();
       const a = await participant("田中");
       const b = await participant("鈴木");
       const quiz = await createQuiz(admin);
-      expect(quiz).toMatchObject({ status: "draft", text: "幹事の出身地は？\n（ヒント: 海がある）", answerCount: 0 });
+      expect(quiz).toMatchObject({
+        format: "quiz",
+        status: "draft",
+        description: "幹事の出身地は？\n（ヒント: 海がある）",
+        answerCount: 0,
+        slots: [],
+      });
       const [c1, c2, c3] = quiz.choices.map((ch: any) => ch.choiceId);
+      const answer = (who: typeof a, choiceId: string) =>
+        who.request("PUT", `/api/game/${quiz.gameId}/answer`, { choiceId });
 
       // 下書きは参加者に見えず、答えられない
-      expect((await a.request("GET", "/api/quiz/current")).body.quiz).toBeNull();
-      expect((await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: c1 })).body.error).toBe(
-        "quiz_closed",
-      );
+      expect((await a.request("GET", "/api/game/current")).body.game).toBeNull();
+      expect((await answer(a, c1)).body.error).toBe("game_closed");
 
-      expect((await admin("POST", `/api/admin/quizzes/${quiz.quizId}/open`)).body.quiz.status).toBe("open");
-      const current = (await a.request("GET", "/api/quiz/current")).body.quiz;
+      expect((await admin("POST", `/api/admin/games/${quiz.gameId}/open`)).body.game.status).toBe("open");
+      const current = (await a.request("GET", "/api/game/current")).body.game;
       expect(current).toEqual({
-        quizId: quiz.quizId,
-        text: quiz.text,
+        gameId: quiz.gameId,
+        format: "quiz",
+        name: "第 1 問",
+        description: quiz.description,
+        slots: [],
         // 正解がわからないよう、点数は返さない
         choices: quiz.choices.map((ch: any) => ({ choiceId: ch.choiceId, text: ch.text })),
       });
 
-      expect((await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: c1 })).status).toBe(200);
-      const changed = await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: c3 });
-      expect(changed.body.quiz.myChoiceId).toBe(c3);
-      await b.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: c2 });
-      expect((await a.request("GET", "/api/quiz/current")).body.quiz.myChoiceId).toBe(c3);
-      expect((await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: "nope" })).status).toBe(400);
+      expect((await answer(a, c1)).status).toBe(200);
+      expect((await answer(a, c3)).body.game.myChoiceId).toBe(c3);
+      await answer(b, c2);
+      expect((await a.request("GET", "/api/game/current")).body.game.myChoiceId).toBe(c3);
+      expect((await answer(a, "NOPE")).status).toBe(400);
 
-      // 出題中は点数に数えない（選び直して正解を探れないように）
-      expect((await me(a.request)).user).toMatchObject({ quizAnswered: 1, quizPoints: 0, points: 0 });
+      // 開催中は点数に数えない（選び直して正解を探れないように）
+      expect((await me(a.request)).user).toMatchObject({ gamePoints: 0, points: 0, gameAwards: [] });
 
-      expect((await admin("POST", `/api/admin/quizzes/${quiz.quizId}/close`)).status).toBe(200);
-      expect((await a.request("GET", "/api/quiz/current")).body.quiz).toBeNull();
-      expect((await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: c1 })).body.error).toBe(
-        "quiz_closed",
-      );
-      expect((await me(a.request)).user).toMatchObject({ quizAnswered: 1, quizPoints: 5, points: 5 });
-      expect((await me(b.request)).user).toMatchObject({ quizAnswered: 1, quizPoints: 0, points: 0 });
+      const confirmed = await admin("POST", `/api/admin/games/${quiz.gameId}/confirm`);
+      expect(confirmed.body.game).toMatchObject({ status: "confirmed", answerCount: 2 });
+      expect((await a.request("GET", "/api/game/current")).body.game).toBeNull();
+      expect((await answer(a, c1)).body.error).toBe("game_closed");
+      expect((await me(a.request)).user).toMatchObject({
+        gamePoints: 5,
+        points: 5,
+        gameAwards: [{ gameName: "第 1 問", slotName: "選択肢3", points: 5 }],
+      });
+      expect((await me(b.request)).user).toMatchObject({ gamePoints: 0, points: 0 });
 
-      const results = (await admin("GET", `/api/admin/quizzes/${quiz.quizId}`)).body;
-      expect(results.quiz.answerCount).toBe(2);
-      expect(results.quiz.choices.map((ch: any) => [ch.points, ch.answerCount])).toEqual([
+      const results = (await admin("GET", `/api/admin/games/${quiz.gameId}/answers`)).body;
+      expect(results.game.choices.map((ch: any) => [ch.points, ch.answerCount])).toEqual([
         [10, 0],
         [0, 1],
         [5, 1],
@@ -935,160 +948,155 @@ describe("API", () => {
         [false, c2],
       ]);
       const users = (await admin("GET", "/api/admin/users")).body.users;
-      expect(users.map((u: any) => [u.name, u.quizAnswered, u.quizPoints, u.points])).toEqual([
-        ["田中", 1, 5, 5],
-        ["鈴木", 1, 0, 0],
+      expect(users.map((u: any) => [u.name, u.gamePoints, u.points])).toEqual([
+        ["田中", 5, 5],
+        ["鈴木", 0, 0],
       ]);
+
+      // 取り消すとポイントが消え、もう一度開催すれば答え直せる（前の答えは残る）
+      expect((await admin("POST", `/api/admin/games/${quiz.gameId}/unconfirm`)).body.game.status).toBe("draft");
+      expect((await me(a.request)).user.points).toBe(0);
+      await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
+      expect((await a.request("GET", "/api/game/current")).body.game.myChoiceId).toBe(c3);
+      await answer(a, c1);
+      await admin("POST", `/api/admin/games/${quiz.gameId}/confirm`);
+      expect((await me(a.request)).user.points).toBe(10);
     });
 
-    it("出題中にできるのは 1 問だけで、締め切った問題は出し直せない", async () => {
+    it("開催中にできるのは 1 つだけ（形式によらない）。やめる・確定で次を開催できる", async () => {
       const admin = await adminClient();
       const q1 = await createQuiz(admin);
       const q2 = await createQuiz(admin);
-      await admin("POST", `/api/admin/quizzes/${q1.quizId}/open`);
-      expect((await admin("POST", `/api/admin/quizzes/${q2.quizId}/open`)).status).toBe(409);
-      expect((await admin("POST", `/api/admin/quizzes/${q2.quizId}/close`)).status).toBe(409);
-      await admin("POST", `/api/admin/quizzes/${q1.quizId}/close`);
-      expect((await admin("POST", `/api/admin/quizzes/${q1.quizId}/open`)).status).toBe(409);
-      expect((await admin("POST", `/api/admin/quizzes/${q2.quizId}/open`)).status).toBe(200);
-      // 出題中の問題があっても、無い問題は 404
-      expect((await admin("POST", "/api/admin/quizzes/NOPE/open")).status).toBe(404);
-      const list = (await admin("GET", "/api/admin/quizzes")).body.quizzes;
-      expect(list.map((q: any) => q.status)).toEqual(["closed", "open"]);
+      const r1 = (await admin("POST", "/api/admin/games", { format: "result", name: "大会", slots: [] })).body.game;
+      const post = (id: string, action: string) =>
+        admin("POST", `/api/admin/games/${id}/${action}`).then((r) => r.status);
+      expect(await post(q1.gameId, "open")).toBe(200);
+      expect(await post(q2.gameId, "open")).toBe(409);
+      expect(await post(r1.gameId, "open")).toBe(409);
+      expect(await post(q2.gameId, "stop")).toBe(409);
+      expect(await post(q1.gameId, "open")).toBe(409);
+      expect(await post(q1.gameId, "stop")).toBe(200);
+      expect(await post(r1.gameId, "open")).toBe(200);
+      expect(await post(r1.gameId, "confirm")).toBe(409); // 枠が無い
+      expect(await post(q2.gameId, "confirm")).toBe(200); // 下書きから直接確定もできる
+      expect(await post(q2.gameId, "confirm")).toBe(409);
+      expect(await post(q2.gameId, "unconfirm")).toBe(200);
+      expect(await post(q2.gameId, "unconfirm")).toBe(409);
+      // 開催中のゲームがあっても、無いゲームは 404
+      expect(await post("NOPE", "open")).toBe(404);
+      const list = (await admin("GET", "/api/admin/games")).body.games;
+      expect(list.map((g: any) => [g.format, g.status])).toEqual([
+        ["quiz", "draft"],
+        ["quiz", "draft"],
+        ["result", "open"],
+      ]);
     });
 
-    it("出題後も文言と点数は直せて、点数を直すと数え直す。選択肢の増減は下書きの間だけ", async () => {
+    it("開催した後も文言と点数は直せて、点数を直すと数え直す。選択肢の増減は答えが無い下書きの間だけ", async () => {
       const admin = await adminClient();
       const a = await participant("田中");
       const quiz = await createQuiz(admin);
-      const [c1, c2, c3] = quiz.choices.map((ch: any) => ch.choiceId);
+      const [c1] = quiz.choices.map((ch: any) => ch.choiceId);
+      const put = (body: Record<string, unknown>) =>
+        admin("PUT", `/api/admin/games/${quiz.gameId}`, { format: "quiz", name: "第 1 問", ...body });
 
-      // 下書きなら選択肢を増やせる
-      const added = await admin("PUT", `/api/admin/quizzes/${quiz.quizId}`, {
-        text: quiz.text,
-        choices: [
-          ...quiz.choices.map((ch: any) => ({ choiceId: ch.choiceId, text: ch.text, points: ch.points })),
-          { text: "選択肢4", points: 1 },
-        ],
-      });
-      expect(added.body.quiz.choices).toHaveLength(4);
+      // 下書きで答えが無いなら選択肢を増やせる
+      const added = await put({ choices: [...choicesOf(quiz), { text: "選択肢4", points: 1 }] });
+      expect(added.body.game.choices).toHaveLength(4);
+      const kept = choicesOf(added.body.game);
 
-      await admin("POST", `/api/admin/quizzes/${quiz.quizId}/open`);
-      await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: c1 });
-      await admin("POST", `/api/admin/quizzes/${quiz.quizId}/close`);
+      await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
+      await a.request("PUT", `/api/game/${quiz.gameId}/answer`, { choiceId: c1 });
+      expect((await put({ choices: kept.slice(0, 3) })).status).toBe(409);
+      await admin("POST", `/api/admin/games/${quiz.gameId}/confirm`);
       expect((await me(a.request)).user.points).toBe(10);
+      // 答えがあれば、下書きに戻しても増減はできない
+      await admin("POST", `/api/admin/games/${quiz.gameId}/unconfirm`);
+      expect((await put({ choices: kept.slice(0, 3) })).status).toBe(409);
+      await admin("POST", `/api/admin/games/${quiz.gameId}/confirm`);
 
-      const kept = added.body.quiz.choices.map((ch: any) => ({
-        choiceId: ch.choiceId,
-        text: ch.text,
-        points: ch.points,
-      }));
-      const removed = await admin("PUT", `/api/admin/quizzes/${quiz.quizId}`, {
-        text: quiz.text,
-        choices: kept.slice(0, 3),
-      });
-      expect(removed.status).toBe(409);
-      const unknown = await admin("PUT", `/api/admin/quizzes/${quiz.quizId}`, {
-        text: quiz.text,
-        choices: [...kept.slice(0, 3), { choiceId: "NOPE", text: "x", points: 0 }],
-      });
-      expect(unknown.status).toBe(400);
-      const duplicated = await admin("PUT", `/api/admin/quizzes/${quiz.quizId}`, {
-        text: quiz.text,
-        choices: [kept[0], kept[0], kept[1], kept[2]],
-      });
-      expect(duplicated.status).toBe(400);
+      expect((await put({ choices: [...kept.slice(0, 3), { choiceId: "NOPE", text: "x", points: 0 }] })).status).toBe(
+        400,
+      );
+      expect((await put({ choices: [kept[0], kept[0], kept[1], kept[2]] })).status).toBe(400);
+      expect((await put({ format: "result", choices: [], slots: [] })).status).toBe(400);
 
-      const rescored = await admin("PUT", `/api/admin/quizzes/${quiz.quizId}`, {
-        text: "直した問題文",
+      const rescored = await put({
+        description: "直した問題文",
         choices: kept.map((ch: any) => (ch.choiceId === c1 ? { ...ch, text: "直した選択肢", points: 3 } : ch)),
       });
       expect(rescored.status).toBe(200);
-      expect(rescored.body.quiz).toMatchObject({ text: "直した問題文", status: "closed" });
-      expect((await me(a.request)).user).toMatchObject({ quizPoints: 3, points: 3 });
-      expect([c2, c3]).toHaveLength(2);
+      expect(rescored.body.game).toMatchObject({ description: "直した問題文", status: "confirmed" });
+      expect((await me(a.request)).user).toMatchObject({
+        gamePoints: 3,
+        points: 3,
+        gameAwards: [{ gameName: "第 1 問", slotName: "直した選択肢", points: 3 }],
+      });
     });
 
-    it("出題中は削除できず、締め切った問題を削除すると回答と点数も消える", async () => {
+    it("開催中は削除できず、確定したゲームを削除すると答えと点数も消える", async () => {
       const admin = await adminClient();
       const a = await participant("田中");
       const quiz = await createQuiz(admin);
-      await admin("POST", `/api/admin/quizzes/${quiz.quizId}/open`);
-      await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: quiz.choices[0].choiceId });
-      expect((await admin("DELETE", `/api/admin/quizzes/${quiz.quizId}`)).status).toBe(409);
-      await admin("POST", `/api/admin/quizzes/${quiz.quizId}/close`);
-      expect((await me(a.request)).user).toMatchObject({ quizAnswered: 1, points: 10 });
+      await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
+      await a.request("PUT", `/api/game/${quiz.gameId}/answer`, { choiceId: quiz.choices[0].choiceId });
+      expect((await admin("DELETE", `/api/admin/games/${quiz.gameId}`)).status).toBe(409);
+      await admin("POST", `/api/admin/games/${quiz.gameId}/confirm`);
+      expect((await me(a.request)).user.points).toBe(10);
 
-      expect((await admin("DELETE", `/api/admin/quizzes/${quiz.quizId}`)).status).toBe(200);
-      expect((await me(a.request)).user).toMatchObject({ quizAnswered: 0, quizPoints: 0, points: 0 });
-      expect((await admin("GET", "/api/admin/quizzes")).body.quizzes).toEqual([]);
-      expect((await admin("DELETE", `/api/admin/quizzes/${quiz.quizId}`)).status).toBe(404);
+      expect((await admin("DELETE", `/api/admin/games/${quiz.gameId}`)).status).toBe(200);
+      expect((await me(a.request)).user).toMatchObject({ gamePoints: 0, points: 0 });
+      expect((await admin("GET", "/api/admin/games")).body.games).toEqual([]);
+      expect(await repo.listGameAnswersByUser(a.userId)).toEqual([]);
+      expect((await admin("DELETE", `/api/admin/games/${quiz.gameId}`)).status).toBe(404);
     });
 
-    it("クイズの点数は写真のポイントとは別に伏せられる", async () => {
+    it("ゲームの点数は写真のポイントとは別に伏せられる", async () => {
       const admin = await adminClient();
       const a = await participant("田中");
       const quiz = await createQuiz(admin);
-      await admin("POST", `/api/admin/quizzes/${quiz.quizId}/open`);
-      await a.request("PUT", `/api/quiz/${quiz.quizId}/answer`, { choiceId: quiz.choices[0].choiceId });
-      await admin("POST", `/api/admin/quizzes/${quiz.quizId}/close`);
+      await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
+      await a.request("PUT", `/api/game/${quiz.gameId}/answer`, { choiceId: quiz.choices[0].choiceId });
+      await admin("POST", `/api/admin/games/${quiz.gameId}/confirm`);
 
-      // クイズの点数だけを伏せる。合計のポイント（クイズの分を含む）は見える
-      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, showQuizPoints: false });
+      // ゲームの点数だけを伏せる。合計のポイント（ゲームの分を含む）は見える
+      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, showGamePoints: false });
       let user = (await me(a.request)).user;
-      expect(user.quizAnswered).toBe(1);
-      expect(user).not.toHaveProperty("quizPoints");
+      expect(user).not.toHaveProperty("gamePoints");
+      expect(user).not.toHaveProperty("gameAwards");
       expect(user.points).toBe(10);
 
-      // 写真のポイントだけを伏せる。クイズの点数は見える
+      // 写真のポイントだけを伏せる。ゲームの点数は見える
       await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, showPoints: false });
       user = (await me(a.request)).user;
       expect(user).not.toHaveProperty("points");
-      expect(user.quizPoints).toBe(10);
-
-      const users = (await admin("GET", "/api/admin/users")).body.users;
-      expect(users[0]).toMatchObject({ quizPoints: 10, points: 10 });
+      expect(user.gamePoints).toBe(10);
     });
 
     it("入力の検証とログインの確認", async () => {
       const admin = await adminClient();
-      const bad = (body: unknown) => admin("POST", "/api/admin/quizzes", body);
-      expect((await bad({ text: "問題", choices: [{ text: "1つだけ", points: 1 }] })).status).toBe(400);
-      expect(
-        (
-          await bad({
-            text: " ",
-            choices: [
-              { text: "a", points: 1 },
-              { text: "b", points: 0 },
-            ],
-          })
-        ).status,
-      ).toBe(400);
-      expect(
-        (
-          await bad({
-            text: "問題",
-            choices: [
-              { text: "a", points: 101 },
-              { text: "b", points: 0 },
-            ],
-          })
-        ).status,
-      ).toBe(400);
-      expect(
-        (
-          await bad({
-            text: "問題",
-            choices: [
-              { choiceId: "X", text: "a", points: 1 },
-              { text: "b", points: 0 },
-            ],
-          })
-        ).status,
-      ).toBe(400);
-      expect((await createClient(app)("GET", "/api/quiz/current")).status).toBe(401);
-      expect((await createClient(app)("GET", "/api/admin/quizzes")).status).toBe(401);
+      const bad = (body: Record<string, unknown>) =>
+        admin("POST", "/api/admin/games", { format: "quiz", name: "問題", ...body }).then((r) => r.status);
+      const two = [
+        { text: "a", points: 1 },
+        { text: "b", points: 0 },
+      ];
+      expect(await bad({ choices: [{ text: "1つだけ", points: 1 }] })).toBe(400);
+      expect(await bad({ choices: [] })).toBe(400);
+      expect(await bad({ name: " ", choices: two })).toBe(400);
+      expect(await bad({ choices: [{ text: "a", points: 101 }, two[1]] })).toBe(400);
+      expect(await bad({ choices: [{ choiceId: "X", text: "a", points: 1 }, two[1]] })).toBe(400);
+      expect(await bad({ choices: two, slots: [{ name: "優勝", points: 1, userIds: [] }] })).toBe(400);
+      expect(await bad({ format: "result", choices: two })).toBe(400);
+      expect(await bad({ format: "other", choices: two })).toBe(400);
+      expect(await bad({ choices: two, description: "x".repeat(501) })).toBe(400);
+      // 結果入力のゲームには答えられない
+      const result = (await admin("POST", "/api/admin/games", { format: "result", name: "大会" })).body.game;
+      await admin("POST", `/api/admin/games/${result.gameId}/open`);
+      const a = await participant("田中");
+      expect((await a.request("PUT", `/api/game/${result.gameId}/answer`, { choiceId: "X" })).status).toBe(400);
+      expect((await createClient(app)("GET", "/api/game/current")).status).toBe(401);
+      expect((await createClient(app)("GET", "/api/admin/games")).status).toBe(401);
     });
   });
 
@@ -1350,6 +1358,7 @@ describe("API", () => {
       const b = await participant("鈴木");
       const c = await participant("佐藤");
       const created = await admin("POST", "/api/admin/games", {
+        format: "result",
         name: " じゃんけん大会 ",
         slots: [
           { name: "優勝", points: 30, userIds: [a.userId] },
@@ -1369,6 +1378,7 @@ describe("API", () => {
       // 人を選び直す（枠の ID は残し、新しい枠を足す）
       const [win, best] = game.slots;
       const edited = await admin("PUT", `/api/admin/games/${game.gameId}`, {
+        format: "result",
         name: "じゃんけん大会",
         slots: [
           { slotId: win.slotId, name: "優勝", points: 30, userIds: [a.userId] },
@@ -1406,6 +1416,7 @@ describe("API", () => {
 
       // 確定後に直すと数え直す（確定した時刻は変わらない）
       const fixed = await admin("PUT", `/api/admin/games/${game.gameId}`, {
+        format: "result",
         name: "じゃんけん大会",
         slots: [
           { slotId: win.slotId, name: "優勝", points: 50, userIds: [b.userId] },
@@ -1432,7 +1443,7 @@ describe("API", () => {
     it("入力を確かめる（点数の範囲・同じ人が 2 つの枠・知らない人や枠）", async () => {
       const admin = await adminClient();
       const a = await participant("田中");
-      const post = (slots: unknown[]) => admin("POST", "/api/admin/games", { name: "大会", slots });
+      const post = (slots: unknown[]) => admin("POST", "/api/admin/games", { format: "result", name: "大会", slots });
       expect((await post([{ name: "優勝", points: 101, userIds: [] }])).status).toBe(400);
       expect((await post([{ name: "優勝", points: -1, userIds: [] }])).status).toBe(400);
       expect(
@@ -1449,6 +1460,7 @@ describe("API", () => {
       expect(
         (
           await admin("PUT", "/api/admin/games/NONE", {
+            format: "result",
             name: "大会",
             slots: [{ name: "優勝", points: 1, userIds: [] }],
           })
@@ -1465,6 +1477,7 @@ describe("API", () => {
         const b = await participant("鈴木");
         const { game } = (
           await admin("POST", "/api/admin/games", {
+            format: "result",
             name: "大会",
             slots: [
               { name: "優勝", points: 30, userIds: [] },
@@ -1475,6 +1488,7 @@ describe("API", () => {
         expect(game.updatedAt).toBe("2026-01-01T01:00:00.000Z");
         const [win, second] = game.slots;
         const body = (winners: string[], seconds: string[], baseUpdatedAt?: string) => ({
+          format: "result",
           name: "大会",
           slots: [
             { slotId: win.slotId, name: "優勝", points: 30, userIds: winners },
@@ -1514,7 +1528,7 @@ describe("API", () => {
     it("名前だけで作れ、枠は後から足せる。枠が無いゲームは確定できない", async () => {
       const admin = await adminClient();
       const a = await participant("田中");
-      const created = await admin("POST", "/api/admin/games", { name: "ビンゴ", slots: [] });
+      const created = await admin("POST", "/api/admin/games", { format: "result", name: "ビンゴ", slots: [] });
       expect(created.status).toBe(201);
       const { game } = created.body;
       expect(game.slots).toEqual([]);
@@ -1522,6 +1536,7 @@ describe("API", () => {
       expect((await admin("GET", "/api/admin/games")).body.games[0].status).toBe("draft");
 
       const added = await admin("PUT", `/api/admin/games/${game.gameId}`, {
+        format: "result",
         name: "ビンゴ",
         slots: [{ name: "1 番乗り", points: 10, userIds: [a.userId] }],
         baseUpdatedAt: game.updatedAt,
@@ -1530,7 +1545,11 @@ describe("API", () => {
       expect((await admin("POST", `/api/admin/games/${game.gameId}/confirm`)).status).toBe(200);
       expect(await pointsOf(admin)).toMatchObject({ 田中: [10, 10] });
       // 確定後に枠を全部外すこともでき、そのときはポイントも入らない
-      const emptied = await admin("PUT", `/api/admin/games/${game.gameId}`, { name: "ビンゴ", slots: [] });
+      const emptied = await admin("PUT", `/api/admin/games/${game.gameId}`, {
+        format: "result",
+        name: "ビンゴ",
+        slots: [],
+      });
       expect(emptied.status).toBe(200);
       expect(await pointsOf(admin)).toMatchObject({ 田中: [0, 0] });
       expect((await admin("POST", "/api/admin/games/NONE/confirm")).status).toBe(404);
@@ -1542,6 +1561,7 @@ describe("API", () => {
       const b = await participant("鈴木");
       const { game } = (
         await admin("POST", "/api/admin/games", {
+          format: "result",
           name: "大会",
           slots: [{ name: "優勝", points: 10, userIds: [a.userId] }],
         })
@@ -1551,6 +1571,7 @@ describe("API", () => {
       const slotId = game.slots[0].slotId;
       const put = (userIds: string[]) =>
         admin("PUT", `/api/admin/games/${game.gameId}`, {
+          format: "result",
           name: "大会",
           slots: [{ slotId, name: "優勝", points: 10, userIds }],
         });
@@ -1559,6 +1580,7 @@ describe("API", () => {
       expect(
         (
           await admin("POST", "/api/admin/games", {
+            format: "result",
             name: "別",
             slots: [{ name: "優勝", points: 10, userIds: [a.userId] }],
           })
@@ -1571,6 +1593,7 @@ describe("API", () => {
       const a = await participant("田中");
       const { game } = (
         await admin("POST", "/api/admin/games", {
+          format: "result",
           name: "大会",
           slots: [{ name: "勝ち残り", points: 10, userIds: [a.userId] }],
         })
@@ -1630,28 +1653,6 @@ describe("API", () => {
   });
 });
 
-describe("scoreQuizAnswers", () => {
-  const quiz = {
-    quizId: "Q1",
-    text: "問題",
-    choices: [
-      { choiceId: "A", text: "a", points: 10 },
-      { choiceId: "B", text: "b", points: 0 },
-    ],
-    status: "closed" as const,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-    closedAt: "2026-01-01T00:10:00.000Z",
-  };
-
-  it("締め切り後に保存された回答と、削除されたクイズへの回答は数えない", () => {
-    const answer = (quizId: string, answeredAt: string) => ({ quizId, userId: "u1", choiceId: "A", answeredAt });
-    expect(scoreQuizAnswers([answer("Q1", "2026-01-01T00:09:59.999Z")], [quiz])).toEqual({ answered: 1, points: 10 });
-    expect(scoreQuizAnswers([answer("Q1", "2026-01-01T00:10:00.001Z")], [quiz])).toEqual({ answered: 1, points: 0 });
-    expect(scoreQuizAnswers([answer("GONE", "2026-01-01T00:01:00.000Z")], [quiz])).toEqual({ answered: 0, points: 0 });
-  });
-});
-
 describe("buildRanking", () => {
   const user = (userId: string, name: string, counts: Partial<UserRecord> = {}): UserRecord => ({
     userId,
@@ -1666,18 +1667,28 @@ describe("buildRanking", () => {
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...counts,
   });
-  const quiz = {
-    quizId: "Q1",
-    text: "問題",
+  /** クイズ形式のゲーム（確定は 2:00） */
+  const quiz = (gameId = "Q1", status: "open" | "confirmed" = "confirmed") => ({
+    gameId,
+    format: "quiz" as const,
+    name: "問題",
+    description: "",
+    status,
+    slots: [],
     choices: [
       { choiceId: "A", text: "a", points: 10 },
       { choiceId: "B", text: "b", points: 0 },
     ],
-    status: "closed" as const,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
-    closedAt: "2026-01-01T02:00:00.000Z",
-  };
+    ...(status === "confirmed" ? { confirmedAt: "2026-01-01T02:00:00.000Z" } : {}),
+  });
+  const answer = (gameId: string, userId: string, choiceId: string, answeredAt: string) => ({
+    gameId,
+    userId,
+    choiceId,
+    answeredAt,
+  });
   const photo = (photoId: string, uploaderId: string, createdAt: string, reviewedAt?: string) => ({
     photoId,
     uploaderId,
@@ -1687,7 +1698,7 @@ describe("buildRanking", () => {
     reviewedAt,
   });
 
-  it("写真は公開した時刻、お気に入りは選ばれた時刻（選んだ人も同じ時刻）、クイズは締め切った時刻に加え、同じ時刻はまとめる", () => {
+  it("写真は公開した時刻、お気に入りは選ばれた時刻（選んだ人も同じ時刻）、ゲームは確定した時刻に加え、同じ時刻はまとめる", () => {
     const result = buildRanking({
       users: [
         user("u1", "田中", { approvedCount: 2, favoritesReceived: 1 }),
@@ -1695,19 +1706,18 @@ describe("buildRanking", () => {
         user("u3", "佐藤", { approvedCount: 1 }),
       ],
       settings: { ...DEFAULT_SETTINGS, uploadPoints: 2, favoritePoints: 3, favoriteGivenPoints: 5 },
-      quizzes: [
+      games: [
         {
-          quiz,
+          game: quiz(),
           answers: [
-            { quizId: "Q1", userId: "u2", choiceId: "A", answeredAt: "2026-01-01T01:59:00.000Z" },
-            { quizId: "Q1", userId: "u3", choiceId: "B", answeredAt: "2026-01-01T01:59:00.000Z" },
+            answer("Q1", "u2", "A", "2026-01-01T01:59:00.000Z"),
+            answer("Q1", "u3", "B", "2026-01-01T01:59:00.000Z"),
+            // 確定の後に保存された答え（確定の直前に受け付けたもの）は数えない
+            answer("Q1", "u1", "A", "2026-01-01T02:00:00.001Z"),
           ],
         },
-        // 出題中のクイズは数えない
-        {
-          quiz: { ...quiz, quizId: "Q2", status: "open" as const, closedAt: undefined },
-          answers: [{ quizId: "Q2", userId: "u1", choiceId: "A", answeredAt: "2026-01-01T02:30:00.000Z" }],
-        },
+        // 開催中のゲームは数えない
+        { game: quiz("Q2", "open"), answers: [answer("Q2", "u1", "A", "2026-01-01T01:30:00.000Z")] },
       ],
       photos: [
         // 事前確認は承認した時刻
@@ -1750,7 +1760,6 @@ describe("buildRanking", () => {
     const result = buildRanking({
       users: [user("u3", "佐藤"), user("u1", "田中", { approvedCount: 1 }), user("u2", "鈴木", { approvedCount: 1 })],
       settings: DEFAULT_SETTINGS,
-      quizzes: [],
       photos: [],
       favorites: [],
       now: "2026-01-01T03:00:00.000Z",
@@ -1767,9 +1776,12 @@ describe("buildRanking", () => {
   it("確定したゲームの点数は合計に入り、同じポイントのときの項目としても比べる（下書きは数えない）", () => {
     const game = (status: "draft" | "confirmed", userIds: string[]) => ({
       gameId: `G-${status}`,
+      format: "result" as const,
       name: "大会",
+      description: "",
       status,
       slots: [{ slotId: "S1", name: "優勝", points: 10, userIds }],
+      choices: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
       ...(status === "confirmed" ? { confirmedAt: "2026-01-01T02:00:00.000Z" } : {}),
@@ -1779,10 +1791,9 @@ describe("buildRanking", () => {
         // u1 は写真で 10 点、u2 はゲームで 10 点（u3 は下書きのゲームだけなので 0 点）
         users: [user("u1", "田中", { approvedCount: 10 }), user("u2", "鈴木"), user("u3", "佐藤")],
         settings: { ...DEFAULT_SETTINGS, uploadPoints: 1, tieBreakOrder: order },
-        quizzes: [],
         photos: [],
         favorites: [],
-        games: [game("confirmed", ["u2"]), game("draft", ["u3"])],
+        games: [game("confirmed", ["u2"]), game("draft", ["u3"])].map((g) => ({ game: g, answers: [] })),
         now: "2026-01-01T03:00:00.000Z",
       }).ranking;
     const byDefault = rank(DEFAULT_SETTINGS.tieBreakOrder);
@@ -1796,9 +1807,11 @@ describe("buildRanking", () => {
       { at: "2026-01-01T02:00:00.000Z", points: 10 },
       { at: "2026-01-01T03:00:00.000Z", points: 10 },
     ]);
-    expect(
-      rank(["game", "upload", "favoriteGiven", "favoriteReceived", "quiz", "registered"]).map((r) => r.userId),
-    ).toEqual(["u2", "u1", "u3"]);
+    expect(rank(["game", "upload", "favoriteGiven", "favoriteReceived", "registered"]).map((r) => r.userId)).toEqual([
+      "u2",
+      "u1",
+      "u3",
+    ]);
   });
 
   it("登録の時刻まで同じ人も、ユーザ ID の順で別の順位にする", () => {
@@ -1806,7 +1819,6 @@ describe("buildRanking", () => {
     const result = buildRanking({
       users: [user("u2", "鈴木", { createdAt: at }), user("u1", "田中", { createdAt: at })],
       settings: DEFAULT_SETTINGS,
-      quizzes: [],
       photos: [],
       favorites: [],
       now: "2026-01-01T03:00:00.000Z",
@@ -1817,26 +1829,26 @@ describe("buildRanking", () => {
     ]);
   });
 
-  // 合計はどちらも 10 点。u1 は写真で 10 点、u2 はお気に入りを選んで 10 点、u3 はクイズで 10 点
+  // 合計はどちらも 10 点。u1 は写真で 10 点、u2 はお気に入りを選んで 10 点、u3 はゲーム（クイズ形式）で 10 点
   const tied = () => [
     user("u1", "田中", { approvedCount: 10 }),
     user("u2", "鈴木", { favoritesGiven: 1 }),
     user("u3", "佐藤"),
   ];
   const quizFor = (userId: string) => [
-    { quiz, answers: [{ quizId: "Q1", userId, choiceId: "A", answeredAt: "2026-01-01T01:00:00.000Z" }] },
+    { game: quiz(), answers: [answer("Q1", userId, "A", "2026-01-01T01:00:00.000Z")] },
   ];
   const rankOf = (settings: typeof DEFAULT_SETTINGS) =>
     buildRanking({
       users: tied(),
       settings: { ...settings, uploadPoints: 1, favoriteGivenPoints: 10 },
-      quizzes: quizFor("u3"),
+      games: quizFor("u3"),
       photos: [],
       favorites: [],
       now: "2026-01-01T03:00:00.000Z",
     }).ranking.map((r) => [r.rank, r.userId, r.points]);
 
-  it("同じポイントは、既定では写真のアップロード → お気に入りを選んだ → 選ばれた → クイズの順に比べ、順位も分ける", () => {
+  it("同じポイントは、既定では写真のアップロード → お気に入りを選んだ → 選ばれた → ゲームの順に比べ、順位も分ける", () => {
     expect(rankOf(DEFAULT_SETTINGS)).toEqual([
       [1, "u1", 10],
       [2, "u2", 10],
@@ -1848,7 +1860,7 @@ describe("buildRanking", () => {
     expect(
       rankOf({
         ...DEFAULT_SETTINGS,
-        tieBreakOrder: ["quiz", "favoriteGiven", "upload", "favoriteReceived", "game", "registered"],
+        tieBreakOrder: ["game", "favoriteGiven", "upload", "favoriteReceived", "registered"],
       }),
     ).toEqual([
       [1, "u3", 10],
@@ -1858,12 +1870,12 @@ describe("buildRanking", () => {
   });
 
   it("登録順を先頭にすると、ポイントの項目より先に登録順で比べる", () => {
-    // 合計はどちらも 10 点。先に登録した u1 はクイズで、u2 は写真で 10 点
+    // 合計はどちらも 10 点。先に登録した u1 はゲームで、u2 は写真で 10 点
     const rank = (tieBreakOrder: typeof DEFAULT_SETTINGS.tieBreakOrder) =>
       buildRanking({
         users: [user("u2", "鈴木", { approvedCount: 10 }), user("u1", "田中")],
         settings: { ...DEFAULT_SETTINGS, uploadPoints: 1, tieBreakOrder },
-        quizzes: quizFor("u1"),
+        games: quizFor("u1"),
         photos: [],
         favorites: [],
         now: "2026-01-01T03:00:00.000Z",
@@ -1872,7 +1884,7 @@ describe("buildRanking", () => {
       [1, "u2"],
       [2, "u1"],
     ]);
-    expect(rank(["registered", "upload", "favoriteGiven", "favoriteReceived", "quiz", "game"])).toEqual([
+    expect(rank(["registered", "upload", "favoriteGiven", "favoriteReceived", "game"])).toEqual([
       [1, "u1"],
       [2, "u2"],
     ]);
@@ -1887,7 +1899,6 @@ describe("buildRanking", () => {
         user("u4", "高橋", { favoritesGiven: 1 }),
       ],
       settings: { ...DEFAULT_SETTINGS, uploadPoints: 1, favoriteGivenPoints: 10 },
-      quizzes: [],
       photos: [],
       favorites: [],
       now: "2026-01-01T03:00:00.000Z",

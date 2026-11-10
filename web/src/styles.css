@@ -1438,10 +1438,6 @@ textarea {
   color: var(--accent-text);
 }
 
-.admin-quizzes {
-  max-width: 44rem;
-}
-
 /* 一覧に出す状態の切り替え（複数選べる）。タイトルの行に置き、押されているものを強調する */
 .status-filter {
   display: flex;
@@ -1483,10 +1479,6 @@ textarea {
   gap: 0.75rem;
 }
 
-.quiz-open {
-  border-color: var(--accent);
-}
-
 .status {
   padding: 0 0.5rem;
   border-radius: 0.25rem;
@@ -1516,35 +1508,6 @@ textarea {
   border-bottom: 1px solid var(--border);
 }
 
-.quiz-dialog {
-  max-width: 34rem;
-}
-
-.quiz-form-choices {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin: 0;
-  padding: 0;
-  border: none;
-}
-
-.quiz-form-choices legend {
-  margin-bottom: 0.5rem;
-  font-weight: 600;
-}
-
-.quiz-form-choice {
-  display: grid;
-  grid-template-columns: 1fr 6rem auto;
-  gap: 0.5rem;
-  align-items: start;
-}
-
-.quiz-form-choice .link {
-  margin-top: 1.9rem;
-}
-
 .quiz-result h3 {
   margin: 0 0 0.25rem;
   font-size: 1rem;
@@ -1561,8 +1524,74 @@ textarea {
 }
 
 .game-name {
-  margin: 0;
+  margin: 0.25rem 0 0;
   font-size: 1.1rem;
+}
+
+.game-open {
+  border-color: var(--accent);
+}
+
+/* ゲームの形式（クイズ・結果入力）の印 */
+.game-format {
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.game-description {
+  margin: 0.5rem 0;
+}
+
+.game-format-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  border: none;
+}
+
+.game-format-choice legend {
+  margin-bottom: 0.25rem;
+  font-weight: 600;
+}
+
+.game-format-choice label {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.game-format-choice input[type="radio"] {
+  flex: none;
+  width: auto;
+  margin-top: 0.3rem;
+}
+
+.game-format-choice .game-format-text {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 参加者のゲームの画面の、枠ごとの点数 */
+.game-points {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.game-points li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
 }
 
 .game-confirmed {

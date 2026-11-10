@@ -2,10 +2,12 @@ import { randomBytes, randomInt } from "node:crypto";
 import {
   type ApiErrorCode,
   adminLoginRequestSchema,
-  type CurrentQuizDto,
+  type CurrentGameDto,
   formatDisplayName,
   type GameAwardDto,
   type GameDto,
+  type GameRequest,
+  gameAnswerRequestSchema,
   gameRequestSchema,
   issueTokensRequestSchema,
   type ParticipantRankingResponse,
@@ -15,10 +17,7 @@ import {
   type PrizeDto,
   photoStatusSchema,
   prizeRequestSchema,
-  type QuizDto,
   qrLoginRequestSchema,
-  quizAnswerRequestSchema,
-  quizRequestSchema,
   type RandomInt,
   type RankingEntryDto,
   type RankingPointDto,
@@ -44,16 +43,15 @@ import {
   EpithetTakenError,
   FavoriteLimitError,
   type FavoriteRecord,
+  GameAlreadyOpenError,
+  type GameAnswerRecord,
+  type GameChoice,
   type GameRecord,
   type GameSlot,
   InvalidStateError,
   NotFoundError,
   type PhotoRecord,
   type PrizeRecord,
-  QuizAlreadyOpenError,
-  type QuizAnswerRecord,
-  type QuizChoice,
-  type QuizRecord,
   type Repository,
   type ScheduleItemRecord,
   TokenNotAvailableError,
@@ -218,21 +216,19 @@ export function createApp(deps: AppDeps) {
   const uploadersOf = async (photos: PhotoRecord[]) =>
     new Map((await repo.getUsers(photos.map((p) => p.uploaderId))).map((u) => [u.userId, u]));
 
-  /** 1 人分のクイズの回答数と点数、ゲームの点数 */
-  const scoresOf = async (userId: string): Promise<Scores> => {
-    const [quizzes, answers, games] = await Promise.all([
-      repo.listQuizzes(),
-      repo.listQuizAnswersByUser(userId),
-      repo.listGames(),
-    ]);
-    return { quiz: scoreQuizAnswers(answers, quizzes), game: gameStatsByUser(games).get(userId) ?? NO_GAME_STATS };
+  /** 1 人分のゲームの点数（クイズ形式は自分の答えだけを読む） */
+  const scoresOf = async (userId: string): Promise<GameStats> => {
+    const [games, answers] = await Promise.all([repo.listGames(), repo.listGameAnswersByUser(userId)]);
+    return gameStatsByUser(withAnswers(games, answers)).get(userId) ?? NO_GAME_STATS;
   };
 
-  /** 全クイズとそれぞれの回答（管理画面用。問題数は数十程度の想定なので、クイズごとに並行して読む） */
-  const quizzesWithAnswers = async () => {
-    const quizzes = await repo.listQuizzes();
-    const answers = await Promise.all(quizzes.map((q) => repo.listQuizAnswersByQuiz(q.quizId)));
-    return quizzes.map((quiz, i) => ({ quiz, answers: answers[i]! }));
+  /** 全ゲームと、クイズ形式の答え（ゲームは数十程度の想定なので、ゲームごとに並行して読む） */
+  const gamesWithAnswers = async (): Promise<GameWithAnswers[]> => {
+    const games = await repo.listGames();
+    const answers = await Promise.all(
+      games.map((g) => (g.format === "quiz" ? repo.listGameAnswersByGame(g.gameId) : Promise.resolve([]))),
+    );
+    return games.map((game, i) => ({ game, answers: answers[i]! }));
   };
 
   const listAllApprovedPhotos = async () => {
@@ -246,18 +242,13 @@ export function createApp(deps: AppDeps) {
     return photos;
   };
 
-  /** 全員分のクイズの回答数と点数、ゲームの点数（管理画面のユーザ一覧用） */
+  /** 全員分のゲームの点数（管理画面のユーザ一覧用） */
   const scoresOfAll = async () => {
-    const [quizzes, games] = await Promise.all([quizzesWithAnswers(), repo.listGames()]);
-    const quiz = quizStatsByUser(quizzes);
-    const game = gameStatsByUser(games);
-    return (userId: string): Scores => ({
-      quiz: quiz.get(userId) ?? NO_QUIZ_STATS,
-      game: game.get(userId) ?? NO_GAME_STATS,
-    });
+    const stats = gameStatsByUser(await gamesWithAnswers());
+    return (userId: string) => stats.get(userId) ?? NO_GAME_STATS;
   };
 
-  /** ユーザ情報を、設定とクイズ・ゲームの成績を添えて参加者向けに返す */
+  /** ユーザ情報を、設定とゲームの成績を添えて参加者向けに返す */
   const participantUser = async (user: UserRecord, settings?: Settings) => {
     const [resolved, scores] = await Promise.all([settings ?? repo.getSettings(), scoresOf(user.userId)]);
     return toParticipantUserDto(user, resolved, scores);
@@ -341,12 +332,7 @@ export function createApp(deps: AppDeps) {
 
   /** ランキングと推移を今のデータから組み立てる（管理画面と参加者の画面で共通） */
   async function loadRanking(settings: Settings) {
-    const [users, quizzes, photos, games] = await Promise.all([
-      repo.listUsers(),
-      quizzesWithAnswers(),
-      listAllApprovedPhotos(),
-      repo.listGames(),
-    ]);
+    const [users, photos, games] = await Promise.all([repo.listUsers(), listAllApprovedPhotos(), gamesWithAnswers()]);
     // 選ばれていない写真は読まない
     const chosen = photos.filter((p) => p.favoriteCount > 0);
     const favorites: FavoriteRecord[] = [];
@@ -356,11 +342,11 @@ export function createApp(deps: AppDeps) {
         favorites.push(...list);
       }
     }
-    return buildRanking({ users, settings, quizzes, photos, favorites, games, now: now().toISOString() });
+    return buildRanking({ users, settings, photos, favorites, games, now: now().toISOString() });
   }
 
   // 参加者に見せるランキング・推移。見せない設定のときは無いものとして扱う。
-  // 合計・順位は写真・お気に入り・クイズのすべてのポイントで出す（ホーム画面の表示設定とは別）
+  // 合計・順位は写真・お気に入り・ゲームのすべてのポイントで出す（ホーム画面の表示設定とは別）
   app.get("/ranking", requireUser, async (c) => {
     const settings = await repo.getSettings();
     if (!settings.rankingVisible) return fail(c, 404, "not_found");
@@ -400,30 +386,31 @@ export function createApp(deps: AppDeps) {
   });
 
   // 参加者の画面が数秒ごとに呼ぶので、読み込みは最小限にする
-  app.get("/quiz/current", requireUser, async (c) => {
-    const quizId = await repo.getOpenQuizId();
-    const quiz = quizId ? await repo.getQuiz(quizId) : undefined;
-    if (quiz?.status !== "open") return c.json({ quiz: null });
-    const answer = await repo.getQuizAnswer(c.get("user").userId, quiz.quizId);
-    return c.json({ quiz: toCurrentQuizDto(quiz, answer?.choiceId) });
+  app.get("/game/current", requireUser, async (c) => {
+    const gameId = await repo.getOpenGameId();
+    const game = gameId ? await repo.getGame(gameId) : undefined;
+    if (game?.status !== "open") return c.json({ game: null });
+    const answer = game.format === "quiz" ? await repo.getGameAnswer(c.get("user").userId, game.gameId) : undefined;
+    return c.json({ game: toCurrentGameDto(game, answer?.choiceId) });
   });
 
-  app.put("/quiz/:quizId/answer", requireUser, async (c) => {
-    const body = await parseBody(c, quizAnswerRequestSchema);
+  app.put("/game/:gameId/answer", requireUser, async (c) => {
+    const body = await parseBody(c, gameAnswerRequestSchema);
     if (!body.ok) return body.response;
-    const quiz = await repo.getQuiz(c.req.param("quizId") ?? "");
-    if (!quiz) return fail(c, 404, "not_found");
-    if (quiz.status !== "open") return fail(c, 409, "quiz_closed");
+    const game = await repo.getGame(c.req.param("gameId") ?? "");
+    if (!game) return fail(c, 404, "not_found");
+    if (game.format !== "quiz") return fail(c, 400, "bad_request", "このゲームには答えられません");
+    if (game.status !== "open") return fail(c, 409, "game_closed");
     const { choiceId } = body.data;
-    if (!quiz.choices.some((ch) => ch.choiceId === choiceId)) return fail(c, 400, "bad_request", "選択肢がありません");
-    // 時刻は出題中を確かめた後に付ける。この後に締め切られて保存が遅れた回答は、点数の計算で除かれる
-    await repo.putQuizAnswer({
-      quizId: quiz.quizId,
+    if (!game.choices.some((ch) => ch.choiceId === choiceId)) return fail(c, 400, "bad_request", "選択肢がありません");
+    // 時刻は開催中を確かめた後に付ける。この後に確定されて保存が遅れた答えは、点数の計算で除かれる
+    await repo.putGameAnswer({
+      gameId: game.gameId,
       userId: c.get("user").userId,
       choiceId,
       answeredAt: now().toISOString(),
     });
-    return c.json({ quiz: toCurrentQuizDto(quiz, choiceId) });
+    return c.json({ game: toCurrentGameDto(game, choiceId) });
   });
 
   app.post("/photos/upload-url", requireUser, async (c) => {
@@ -629,124 +616,6 @@ export function createApp(deps: AppDeps) {
     return c.json({});
   });
 
-  app.get("/admin/quizzes", async (c) => {
-    const entries = await quizzesWithAnswers();
-    return c.json({ quizzes: entries.map(({ quiz, answers }) => toQuizDto(quiz, answers)) });
-  });
-
-  app.post("/admin/quizzes", async (c) => {
-    const body = await parseBody(c, quizRequestSchema);
-    if (!body.ok) return body.response;
-    if (body.data.choices.some((ch) => ch.choiceId !== undefined)) {
-      return fail(c, 400, "bad_request", "新しい問題の選択肢に choiceId は指定できません");
-    }
-    const timestamp = now().toISOString();
-    const quiz: QuizRecord = {
-      quizId: newId(),
-      text: body.data.text,
-      choices: body.data.choices.map((ch) => ({ choiceId: newId(), text: ch.text, points: ch.points })),
-      status: "draft",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    await repo.createQuiz(quiz);
-    return c.json({ quiz: toQuizDto(quiz, []) }, 201);
-  });
-
-  app.get("/admin/quizzes/:quizId", async (c) => {
-    const quiz = await repo.getQuiz(c.req.param("quizId"));
-    if (!quiz) return fail(c, 404, "not_found");
-    const answers = await repo.listQuizAnswersByQuiz(quiz.quizId);
-    const users = new Map((await repo.getUsers(answers.map((a) => a.userId))).map((u) => [u.userId, u]));
-    return c.json({
-      quiz: toQuizDto(quiz, answers),
-      answers: answers
-        .sort((a, b) => a.answeredAt.localeCompare(b.answeredAt))
-        .map((a) => {
-          const user = users.get(a.userId);
-          return {
-            userId: a.userId,
-            displayName: user ? formatDisplayName(user.epithet, user.name) : undefined,
-            choiceId: a.choiceId,
-            answeredAt: a.answeredAt,
-          };
-        }),
-    });
-  });
-
-  // 問題文と選択肢の文言・点数はいつでも直せる（点数を直すと締め切り済みの分も数え直す）。
-  // 選択肢の追加・削除は、回答と食い違わないよう下書きの間だけ
-  app.put("/admin/quizzes/:quizId", async (c) => {
-    const body = await parseBody(c, quizRequestSchema);
-    if (!body.ok) return body.response;
-    const quiz = await repo.getQuiz(c.req.param("quizId"));
-    if (!quiz) return fail(c, 404, "not_found");
-    const existingIds = new Set(quiz.choices.map((ch) => ch.choiceId));
-    const sentIds = body.data.choices.flatMap((ch) => (ch.choiceId ? [ch.choiceId] : []));
-    if (sentIds.some((id) => !existingIds.has(id))) return fail(c, 400, "bad_request", "存在しない選択肢があります");
-    if (new Set(sentIds).size !== sentIds.length) return fail(c, 400, "bad_request", "同じ選択肢が重複しています");
-    const choices: QuizChoice[] = body.data.choices.map((ch) => ({
-      choiceId: ch.choiceId ?? newId(),
-      text: ch.text,
-      points: ch.points,
-    }));
-    const structureChanged = sentIds.length !== choices.length || sentIds.length !== existingIds.size;
-    if (structureChanged && quiz.status !== "draft") {
-      return fail(c, 409, "invalid_state", "出題した後は選択肢を増やしたり減らしたりできません");
-    }
-    try {
-      const updated = await repo.updateQuiz(
-        quiz.quizId,
-        { text: body.data.text, choices },
-        now().toISOString(),
-        structureChanged,
-      );
-      return c.json({ quiz: toQuizDto(updated, await repo.listQuizAnswersByQuiz(quiz.quizId)) });
-    } catch (e) {
-      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
-      if (e instanceof InvalidStateError) {
-        return fail(c, 409, "invalid_state", "出題した後は選択肢を増やしたり減らしたりできません");
-      }
-      throw e;
-    }
-  });
-
-  app.delete("/admin/quizzes/:quizId", async (c) => {
-    try {
-      await repo.deleteQuiz(c.req.param("quizId"));
-      return c.json({});
-    } catch (e) {
-      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
-      if (e instanceof InvalidStateError)
-        return fail(c, 409, "invalid_state", "出題中の問題は締め切ってから削除してください");
-      throw e;
-    }
-  });
-
-  app.post("/admin/quizzes/:quizId/open", async (c) => {
-    try {
-      const quiz = await repo.openQuiz(c.req.param("quizId"), now().toISOString());
-      return c.json({ quiz: toQuizDto(quiz, []) });
-    } catch (e) {
-      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
-      if (e instanceof QuizAlreadyOpenError)
-        return fail(c, 409, "invalid_state", "別の問題が出題中です。締め切ってから出題してください");
-      if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state", "出題できるのは下書きの問題だけです");
-      throw e;
-    }
-  });
-
-  app.post("/admin/quizzes/:quizId/close", async (c) => {
-    try {
-      const quiz = await repo.closeQuiz(c.req.param("quizId"), now().toISOString());
-      return c.json({ quiz: toQuizDto(quiz, await repo.listQuizAnswersByQuiz(quiz.quizId)) });
-    } catch (e) {
-      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
-      if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state", "出題中の問題ではありません");
-      throw e;
-    }
-  });
-
   app.get("/admin/prizes", async (c) => c.json({ prizes: (await repo.listPrizes()).map(toPrizeDto) }));
 
   app.post("/admin/prizes/image-upload", async (c) => {
@@ -872,7 +741,32 @@ export function createApp(deps: AppDeps) {
     }
   });
 
-  app.get("/admin/games", async (c) => c.json({ games: (await repo.listGames()).map(toGameDto) }));
+  app.get("/admin/games", async (c) => {
+    const entries = await gamesWithAnswers();
+    return c.json({ games: entries.map(({ game, answers }) => toGameDto(game, answers)) });
+  });
+
+  /** クイズ形式の答えた人の一覧 */
+  app.get("/admin/games/:gameId/answers", async (c) => {
+    const game = await repo.getGame(c.req.param("gameId"));
+    if (!game) return fail(c, 404, "not_found");
+    const answers = await repo.listGameAnswersByGame(game.gameId);
+    const users = new Map((await repo.getUsers(answers.map((a) => a.userId))).map((u) => [u.userId, u]));
+    return c.json({
+      game: toGameDto(game, answers),
+      answers: answers
+        .sort((a, b) => a.answeredAt.localeCompare(b.answeredAt))
+        .map((a) => {
+          const user = users.get(a.userId);
+          return {
+            userId: a.userId,
+            displayName: user ? formatDisplayName(user.epithet, user.name) : undefined,
+            choiceId: a.choiceId,
+            answeredAt: a.answeredAt,
+          };
+        }),
+    });
+  });
 
   /**
    * 送られた枠を保存する形にする。既存の枠の ID と、選んだ人が登録済みかを確かめる（問題があれば 400 のレスポンス）。
@@ -880,7 +774,7 @@ export function createApp(deps: AppDeps) {
    */
   const gameSlotsOf = async (
     c: Context,
-    slots: z.infer<typeof gameRequestSchema>["slots"],
+    slots: NonNullable<GameRequest["slots"]>,
     existing: GameSlot[] = [],
   ): Promise<GameSlot[] | Response> => {
     const existingIds = new Set(existing.map((s) => s.slotId));
@@ -897,71 +791,122 @@ export function createApp(deps: AppDeps) {
     return slots.map((s) => ({ slotId: s.slotId ?? newId(), name: s.name, points: s.points, userIds: s.userIds }));
   };
 
+  /** 送られた選択肢を保存する形にする。既存の選択肢を直すときは choiceId を付けて送る（無い ID は 400） */
+  const gameChoicesOf = (
+    c: Context,
+    choices: NonNullable<GameRequest["choices"]>,
+    existing: GameChoice[] = [],
+  ): GameChoice[] | Response => {
+    const existingIds = new Set(existing.map((ch) => ch.choiceId));
+    if (choices.some((ch) => ch.choiceId !== undefined && !existingIds.has(ch.choiceId))) {
+      return fail(c, 400, "bad_request", "存在しない選択肢があります");
+    }
+    return choices.map((ch) => ({ choiceId: ch.choiceId ?? newId(), text: ch.text, points: ch.points }));
+  };
+
   app.post("/admin/games", async (c) => {
     const body = await parseBody(c, gameRequestSchema);
     if (!body.ok) return body.response;
-    const slots = await gameSlotsOf(c, body.data.slots);
+    const slots = await gameSlotsOf(c, body.data.slots ?? []);
     if (slots instanceof Response) return slots;
+    const choices = gameChoicesOf(c, body.data.choices ?? []);
+    if (choices instanceof Response) return choices;
     const timestamp = now().toISOString();
     const game: GameRecord = {
       gameId: newId(),
+      format: body.data.format,
       name: body.data.name,
+      description: body.data.description ?? "",
       status: "draft",
       slots,
+      choices,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
     await repo.createGame(game);
-    return c.json({ game: toGameDto(game) }, 201);
+    return c.json({ game: toGameDto(game, []) }, 201);
   });
 
-  // 確定済みでも直せる（ポイントは直した内容で数え直し、推移では確定した時刻のまま）
+  // 開催中・確定済みでも直せる（ポイントは直した内容で数え直し、推移では確定した時刻のまま）。
+  // クイズの選択肢を増やす・減らすのは、答えと食い違わないよう、まだ答えが無い下書きの間だけ
   app.put("/admin/games/:gameId", async (c) => {
     const body = await parseBody(c, gameRequestSchema);
     if (!body.ok) return body.response;
     const game = await repo.getGame(c.req.param("gameId"));
     if (!game) return fail(c, 404, "not_found");
+    if (body.data.format !== game.format) return fail(c, 400, "bad_request", "ゲームの形式は変えられません");
     if (body.data.baseUpdatedAt !== undefined && body.data.baseUpdatedAt !== game.updatedAt) {
       return fail(c, 409, "invalid_state", GAME_CONFLICT_MESSAGE);
     }
-    const slots = await gameSlotsOf(c, body.data.slots, game.slots);
+    const slots = await gameSlotsOf(c, body.data.slots ?? [], game.slots);
     if (slots instanceof Response) return slots;
+    const choices = gameChoicesOf(c, body.data.choices ?? [], game.choices);
+    if (choices instanceof Response) return choices;
+    const sentIds = new Set((body.data.choices ?? []).flatMap((ch) => (ch.choiceId ? [ch.choiceId] : [])));
+    const structureChanged =
+      choices.length !== game.choices.length || game.choices.some((ch) => !sentIds.has(ch.choiceId));
+    const answers = game.format === "quiz" ? await repo.listGameAnswersByGame(game.gameId) : [];
+    if (structureChanged && (game.status !== "draft" || answers.length > 0)) {
+      return fail(c, 409, "invalid_state", "答えがある・開催した後のクイズは、選択肢を増やしたり減らしたりできません");
+    }
     try {
       const updated = await repo.updateGame(
         game.gameId,
-        { name: body.data.name, slots },
+        { name: body.data.name, description: body.data.description ?? "", slots, choices },
         now().toISOString(),
         body.data.baseUpdatedAt,
       );
-      return c.json({ game: toGameDto(updated) });
+      return c.json({ game: toGameDto(updated, answers) });
     } catch (e) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
-      if (e instanceof InvalidStateError) {
-        return fail(c, 409, "invalid_state", GAME_CONFLICT_MESSAGE);
-      }
+      if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state", GAME_CONFLICT_MESSAGE);
       throw e;
     }
   });
 
-  const changeGameStatus = async (c: Context, status: GameRecord["status"], message: string) => {
+  /** 状態を変える。from は今の状態の前提（違えば 409） */
+  const changeGameStatus = async (c: Context, game: GameRecord, to: GameRecord["status"], message: string) => {
     try {
-      const game = await repo.setGameStatus(c.req.param("gameId") ?? "", status, now().toISOString());
-      return c.json({ game: toGameDto(game) });
+      const updated = await repo.changeGameStatus(game.gameId, game.status, to, now().toISOString());
+      const answers = updated.format === "quiz" ? await repo.listGameAnswersByGame(updated.gameId) : [];
+      return c.json({ game: toGameDto(updated, answers) });
     } catch (e) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      if (e instanceof GameAlreadyOpenError) {
+        return fail(c, 409, "invalid_state", "別のゲームが開催中です。確定するか、開催をやめてから開催してください");
+      }
       if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state", message);
       throw e;
     }
   };
 
-  app.post("/admin/games/:gameId/confirm", async (c) => {
-    const game = await repo.getGame(c.req.param("gameId"));
-    if (!game) return fail(c, 404, "not_found");
-    // 枠が無いと入るポイントが無いので、確定させない
-    if (game.slots.length === 0) return fail(c, 409, "invalid_state", "枠を追加してから確定してください");
-    return changeGameStatus(c, "confirmed", "既に確定しています");
-  });
-  app.post("/admin/games/:gameId/unconfirm", (c) => changeGameStatus(c, "draft", "確定していません"));
+  /** 状態の操作。allowed は操作できる今の状態 */
+  const gameAction =
+    (
+      to: GameRecord["status"],
+      allowed: GameRecord["status"][],
+      message: string,
+      check?: (game: GameRecord) => string | undefined,
+    ) =>
+    async (c: Context) => {
+      const game = await repo.getGame(c.req.param("gameId") ?? "");
+      if (!game) return fail(c, 404, "not_found");
+      if (!allowed.includes(game.status)) return fail(c, 409, "invalid_state", message);
+      const problem = check?.(game);
+      if (problem) return fail(c, 409, "invalid_state", problem);
+      return changeGameStatus(c, game, to, message);
+    };
+
+  app.post("/admin/games/:gameId/open", gameAction("open", ["draft"], "開催できるのは下書きのゲームだけです"));
+  app.post("/admin/games/:gameId/stop", gameAction("draft", ["open"], "開催中のゲームではありません"));
+  // 結果入力は枠が無いと入るポイントが無いので、確定させない
+  app.post(
+    "/admin/games/:gameId/confirm",
+    gameAction("confirmed", ["draft", "open"], "既に確定しています", (game) =>
+      game.format === "result" && game.slots.length === 0 ? "枠を追加してから確定してください" : undefined,
+    ),
+  );
+  app.post("/admin/games/:gameId/unconfirm", gameAction("draft", ["confirmed"], "確定していません"));
 
   app.delete("/admin/games/:gameId", async (c) => {
     try {
@@ -969,6 +914,9 @@ export function createApp(deps: AppDeps) {
       return c.json({});
     } catch (e) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      if (e instanceof InvalidStateError) {
+        return fail(c, 409, "invalid_state", "開催中のゲームは、開催をやめてから削除してください");
+      }
       throw e;
     }
   });
@@ -1004,85 +952,77 @@ async function photoAction(c: Context, action: () => Promise<PhotoRecord>): Prom
   }
 }
 
-interface QuizStats {
-  /** 回答したクイズの数（削除されたクイズは数えない） */
-  answered: number;
-  /** 締め切ったクイズで選んだ選択肢の点数の合計 */
-  points: number;
+/** ゲームと、クイズ形式の答え（結果入力形式では空） */
+export interface GameWithAnswers {
+  game: GameRecord;
+  answers: GameAnswerRecord[];
 }
 
-const NO_QUIZ_STATS: QuizStats = { answered: 0, points: 0 };
-
-/**
- * 回答を点数にする。出題中のクイズは数えない（選び直して点数の変化から正解がわからないように）。
- * 締め切りの直前に受け付けて締め切り後に保存された回答（answeredAt > closedAt）も数えない
- */
-export function scoreQuizAnswers(answers: QuizAnswerRecord[], quizzes: QuizRecord[]): QuizStats {
-  const byId = new Map(quizzes.map((q) => [q.quizId, q]));
-  let answered = 0;
-  let points = 0;
-  for (const answer of answers) {
-    const quiz = byId.get(answer.quizId);
-    if (!quiz) continue;
-    answered++;
-    points += answerPoints(answer, quiz) ?? 0;
-  }
-  return { answered, points };
-}
-
-/** 回答 1 件の点数。まだ点数にならない回答（出題中・締め切り後に保存された）は undefined */
-function answerPoints(answer: QuizAnswerRecord, quiz: QuizRecord): number | undefined {
-  if (quiz.status !== "closed" || !quiz.closedAt || answer.answeredAt > quiz.closedAt) return undefined;
-  return quiz.choices.find((ch) => ch.choiceId === answer.choiceId)?.points ?? 0;
-}
-
-/** 全員分のクイズの回答数と点数 */
-function quizStatsByUser(entries: { quiz: QuizRecord; answers: QuizAnswerRecord[] }[]): Map<string, QuizStats> {
-  const quizzes = entries.map((e) => e.quiz);
-  const byUser = new Map<string, QuizAnswerRecord[]>();
-  for (const a of entries.flatMap((e) => e.answers)) appendTo(byUser, a.userId, a);
-  return new Map([...byUser].map(([userId, list]) => [userId, scoreQuizAnswers(list, quizzes)]));
+/** ゲームを、そのゲームに答えた分だけと組にする（1 人分の答えから点数を数えるとき） */
+function withAnswers(games: GameRecord[], answers: GameAnswerRecord[]): GameWithAnswers[] {
+  return games.map((game) => ({ game, answers: answers.filter((a) => a.gameId === game.gameId) }));
 }
 
 interface GameStats {
   /** 確定したゲームで入った点数の合計 */
   points: number;
-  /** 入った枠（確定した順） */
+  /** 点数が入ったもの（確定した順） */
   awards: GameAwardDto[];
 }
 
 const NO_GAME_STATS: GameStats = { points: 0, awards: [] };
 
-/** 確定したゲームだけを、確定した順に */
-function confirmedGames(games: GameRecord[]): (GameRecord & { confirmedAt: string })[] {
-  return games
-    .filter((g): g is GameRecord & { confirmedAt: string } => g.status === "confirmed" && g.confirmedAt !== undefined)
-    .sort((a, b) => a.confirmedAt.localeCompare(b.confirmedAt));
+interface GameAward extends GameAwardDto {
+  userId: string;
+  /** 確定した時刻（推移ではこの時刻に入る） */
+  at: string;
 }
 
-/** 全員分のゲームの点数と入った枠。下書きのゲームは数えない */
-function gameStatsByUser(games: GameRecord[]): Map<string, GameStats> {
-  const byUser = new Map<string, GameStats>();
-  for (const game of confirmedGames(games)) {
-    for (const slot of game.slots) {
-      for (const userId of slot.userIds) {
-        const stats = byUser.get(userId) ?? { points: 0, awards: [] };
-        stats.points += slot.points;
-        stats.awards.push({ gameName: game.name, slotName: slot.name, points: slot.points });
-        byUser.set(userId, stats);
+/**
+ * 確定したゲームで、誰に何点入ったか（確定した順）。下書き・開催中のゲームは数えない
+ * （クイズを選び直して、点数の変化から正解が分からないように）。
+ * 結果入力は枠に入った人に枠の点数、クイズは選んだ選択肢の点数。確定の直前に受け付けて確定の後に保存された答え
+ * （answeredAt > confirmedAt）は数えない
+ */
+function gameAwards(entries: GameWithAnswers[]): GameAward[] {
+  const awards: GameAward[] = [];
+  const confirmed = entries
+    .filter(
+      (e): e is GameWithAnswers & { game: { confirmedAt: string } } =>
+        e.game.status === "confirmed" && !!e.game.confirmedAt,
+    )
+    .sort((a, b) => a.game.confirmedAt.localeCompare(b.game.confirmedAt));
+  for (const { game, answers } of confirmed) {
+    const at = game.confirmedAt;
+    if (game.format === "result") {
+      for (const slot of game.slots) {
+        for (const userId of slot.userIds) {
+          awards.push({ userId, at, gameName: game.name, slotName: slot.name, points: slot.points });
+        }
+      }
+    } else {
+      const choices = new Map(game.choices.map((ch) => [ch.choiceId, ch]));
+      for (const answer of answers) {
+        const choice = choices.get(answer.choiceId);
+        if (!choice || answer.answeredAt > at) continue;
+        awards.push({ userId: answer.userId, at, gameName: game.name, slotName: choice.text, points: choice.points });
       }
     }
   }
+  return awards;
+}
+
+/** 全員分のゲームの点数と、点数が入ったもの */
+function gameStatsByUser(entries: GameWithAnswers[]): Map<string, GameStats> {
+  const byUser = new Map<string, GameStats>();
+  for (const { userId, at: _at, ...award } of gameAwards(entries)) {
+    const stats = byUser.get(userId) ?? { points: 0, awards: [] };
+    stats.points += award.points;
+    stats.awards.push(award);
+    byUser.set(userId, stats);
+  }
   return byUser;
 }
-
-/** ユーザ 1 人分の、カウンタ以外から数える成績 */
-interface Scores {
-  quiz: QuizStats;
-  game: GameStats;
-}
-
-const NO_SCORES: Scores = { quiz: NO_QUIZ_STATS, game: NO_GAME_STATS };
 
 function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
   const list = map.get(key);
@@ -1091,19 +1031,18 @@ function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
 }
 
 /** 項目ごとのポイント。同じポイントのときの順位の決め方（tieBreakOrder）でも使う */
-function pointsByKey(user: UserRecord, settings: Settings, scores: Scores): Record<PointKey, number> {
+function pointsByKey(user: UserRecord, settings: Settings, game: GameStats): Record<PointKey, number> {
   return {
     upload: user.approvedCount * settings.uploadPoints,
     favoriteGiven: user.favoritesGiven * settings.favoriteGivenPoints,
     favoriteReceived: user.favoritesReceived * settings.favoritePoints,
-    quiz: scores.quiz.points,
-    game: scores.game.points,
+    game: game.points,
   };
 }
 
 /** ポイントは保存せず、現在の設定で毎回計算する（設定を変えると全員に同じ基準で反映される） */
-export function calculatePoints(user: UserRecord, settings: Settings, scores: Scores = NO_SCORES): number {
-  return sumPoints(pointsByKey(user, settings, scores));
+export function calculatePoints(user: UserRecord, settings: Settings, game: GameStats = NO_GAME_STATS): number {
+  return sumPoints(pointsByKey(user, settings, game));
 }
 
 function sumPoints(byKey: Record<PointKey, number>): number {
@@ -1113,24 +1052,23 @@ function sumPoints(byKey: Record<PointKey, number>): number {
 export interface RankingSource {
   users: UserRecord[];
   settings: Settings;
-  quizzes: { quiz: QuizRecord; answers: QuizAnswerRecord[] }[];
   /** 公開中の写真 */
   photos: PhotoRecord[];
   /** 公開中の写真へのお気に入り */
   favorites: FavoriteRecord[];
-  /** ゲーム（確定したものだけを数える） */
-  games?: GameRecord[];
+  /** ゲームとクイズ形式の答え（確定したものだけを数える） */
+  games?: GameWithAnswers[];
   now: string;
 }
 
 /**
  * ランキングと累計ポイントの推移を作る。ポイントは保存していないので、今残っているデータから
- * 時刻つきの出来事（写真の公開・お気に入りに選ばれた・お気に入りを選んだ・クイズの締め切り・ゲームの確定）を組み立て、現在の設定で数える。
+ * 時刻つきの出来事（写真の公開・お気に入りに選ばれた・お気に入りを選んだ・ゲームの確定）を組み立て、現在の設定で数える。
  * 削除した写真や外したお気に入りは含めないので、推移の最後はユーザ管理と同じポイントになる
  * （GSI の反映待ちでずれることがあるため、最後の点は calculatePoints の値にそろえる）
  */
 export function buildRanking(source: RankingSource): RankingResponse {
-  const { users, settings, quizzes, photos, favorites, games = [], now } = source;
+  const { users, settings, photos, favorites, games = [], now } = source;
   const events = new Map<string, { at: string; points: number }[]>();
   const add = (userId: string, at: string, points: number | undefined) => {
     if (points) appendTo(events, userId, { at, points });
@@ -1147,24 +1085,13 @@ export function buildRanking(source: RankingSource): RankingResponse {
       add(favorite.userId, favorite.createdAt, settings.favoriteGivenPoints);
     }
   }
-  // クイズの点数は締め切った時刻に入る（scoreQuizAnswers と同じ answerPoints で数える）
-  for (const { quiz, answers } of quizzes) {
-    for (const answer of answers) if (quiz.closedAt) add(answer.userId, quiz.closedAt, answerPoints(answer, quiz));
-  }
+  // ゲームの点数は確定した時刻に入る（gameStatsByUser と同じ gameAwards で数える）
+  for (const award of gameAwards(games)) add(award.userId, award.at, award.points);
 
-  // ゲームの点数は確定した時刻に入る
-  for (const game of confirmedGames(games)) {
-    for (const slot of game.slots) for (const userId of slot.userIds) add(userId, game.confirmedAt, slot.points);
-  }
-
-  const quizStats = quizStatsByUser(quizzes);
   const gameStats = gameStatsByUser(games);
 
   const entries = users.map((user) => {
-    const byKey = pointsByKey(user, settings, {
-      quiz: quizStats.get(user.userId) ?? NO_QUIZ_STATS,
-      game: gameStats.get(user.userId) ?? NO_GAME_STATS,
-    });
+    const byKey = pointsByKey(user, settings, gameStats.get(user.userId) ?? NO_GAME_STATS);
     const points = sumPoints(byKey);
     const history: RankingPointDto[] = [{ at: user.createdAt, points: 0 }];
     let total = 0;
@@ -1212,7 +1139,7 @@ export function buildRanking(source: RankingSource): RankingResponse {
   return { ranking, generatedAt: now };
 }
 
-function toUserDto(user: UserRecord, settings: Settings, scores: Scores): UserDto {
+function toUserDto(user: UserRecord, settings: Settings, game: GameStats): UserDto {
   return {
     userId: user.userId,
     name: user.name,
@@ -1223,25 +1150,22 @@ function toUserDto(user: UserRecord, settings: Settings, scores: Scores): UserDt
     approvedCount: user.approvedCount,
     favoritesGiven: user.favoritesGiven,
     favoritesReceived: user.favoritesReceived,
-    quizAnswered: scores.quiz.answered,
-    quizPoints: scores.quiz.points,
-    gamePoints: scores.game.points,
-    points: calculatePoints(user, settings, scores),
+    gamePoints: game.points,
+    points: calculatePoints(user, settings, game),
     createdAt: user.createdAt,
   };
 }
 
 /**
  * 参加者本人に返すユーザ情報。ポイントを伏せている間は、ポイントとその元になる選ばれた数を含めない。
- * クイズ・ゲームの点数を伏せている間は、それぞれの点数（ゲームは入った枠も）を含めない
+ * ゲームの点数を伏せている間は、ゲームの点数と点数が入ったものを含めない
  */
-function toParticipantUserDto(user: UserRecord, settings: Settings, scores: Scores): UserDto {
-  const { points, favoritesReceived, quizPoints, gamePoints, ...rest } = toUserDto(user, settings, scores);
+function toParticipantUserDto(user: UserRecord, settings: Settings, game: GameStats): UserDto {
+  const { points, favoritesReceived, gamePoints, ...rest } = toUserDto(user, settings, game);
   return {
     ...rest,
     ...(settings.showPoints ? { points, favoritesReceived } : {}),
-    ...(settings.showQuizPoints ? { quizPoints } : {}),
-    ...(settings.showGamePoints ? { gamePoints, gameAwards: scores.game.awards } : {}),
+    ...(settings.showGamePoints ? { gamePoints, gameAwards: game.awards } : {}),
   };
 }
 
@@ -1297,39 +1221,34 @@ function sortSchedule(items: ScheduleItemRecord[]): ScheduleItemDto[] {
   return [...items].sort((a, b) => a.startMinute - b.startMinute).map(toScheduleItemDto);
 }
 
-function toGameDto(game: GameRecord): GameDto {
+function toGameDto(game: GameRecord, answers: GameAnswerRecord[]): GameDto {
+  const counts = new Map<string, number>();
+  for (const a of answers) counts.set(a.choiceId, (counts.get(a.choiceId) ?? 0) + 1);
   return {
     gameId: game.gameId,
+    format: game.format,
     name: game.name,
+    description: game.description,
     status: game.status,
     slots: game.slots.map((s) => ({ slotId: s.slotId, name: s.name, points: s.points, userIds: [...s.userIds] })),
+    choices: game.choices.map((ch) => ({ ...ch, answerCount: counts.get(ch.choiceId) ?? 0 })),
+    answerCount: answers.length,
     createdAt: game.createdAt,
+    openedAt: game.openedAt,
     updatedAt: game.updatedAt,
     confirmedAt: game.confirmedAt,
   };
 }
 
-function toQuizDto(quiz: QuizRecord, answers: QuizAnswerRecord[]): QuizDto {
-  const counts = new Map<string, number>();
-  for (const a of answers) counts.set(a.choiceId, (counts.get(a.choiceId) ?? 0) + 1);
+/** 参加者に返す開催中のゲーム。誰がどの枠に入ったかと、クイズの選択肢の点数（正解が分かる）は含めない */
+function toCurrentGameDto(game: GameRecord, myChoiceId: string | undefined): CurrentGameDto {
   return {
-    quizId: quiz.quizId,
-    text: quiz.text,
-    status: quiz.status,
-    choices: quiz.choices.map((ch) => ({ ...ch, answerCount: counts.get(ch.choiceId) ?? 0 })),
-    answerCount: answers.length,
-    createdAt: quiz.createdAt,
-    openedAt: quiz.openedAt,
-    closedAt: quiz.closedAt,
-  };
-}
-
-/** 参加者に返すクイズ。正解がわからないよう、選択肢の点数は含めない */
-function toCurrentQuizDto(quiz: QuizRecord, myChoiceId: string | undefined): CurrentQuizDto {
-  return {
-    quizId: quiz.quizId,
-    text: quiz.text,
-    choices: quiz.choices.map(({ choiceId, text }) => ({ choiceId, text })),
+    gameId: game.gameId,
+    format: game.format,
+    name: game.name,
+    description: game.description,
+    slots: game.slots.map(({ name, points }) => ({ name, points })),
+    choices: game.choices.map(({ choiceId, text }) => ({ choiceId, text })),
     myChoiceId,
   };
 }
