@@ -322,12 +322,14 @@ export interface GameDto {
   slots: GameSlotDto[];
   /** クイズ形式の選択肢（ほかの形式では空） */
   choices: GameChoiceDto[];
-  /** 数値予想・投票の点数の範囲（ほかの形式では空） */
+  /** 数値予想・投票・合言葉の点数の範囲（ほかの形式では空） */
   ranks: GameRankDto[];
   /** 数値予想の正解の数。まだ決めていなければ無い */
   correctNumber?: number;
   /** 投票で、投票した人に入る点数（0 なら入らない） */
   voterPoints: number;
+  /** 合言葉（管理画面だけ） */
+  keyword?: string;
   /** クイズ・数値予想・投票で答えた人数 */
   answerCount: number;
   createdAt: string;
@@ -353,7 +355,7 @@ export interface CurrentGameDto {
   slots: { name: string; points: number }[];
   /** クイズ形式の選択肢（画像があれば、その URL） */
   choices: { choiceId: string; text: string; imageUrl?: string }[];
-  /** 数値予想・投票の点数の範囲（数値予想の正解の数は返さない） */
+  /** 数値予想・投票・合言葉の点数の範囲（数値予想の正解の数・合言葉は返さない） */
   ranks: GameRankDto[];
   /** 投票で、投票した人に入る点数 */
   voterPoints: number;
@@ -363,6 +365,8 @@ export interface CurrentGameDto {
   myValue?: number;
   /** 投票で自分が選んでいる人（表示名は候補の一覧から引く） */
   myTargetUserId?: string;
+  /** 合言葉で、自分が正解したか（合言葉そのものは返さない） */
+  myKeywordCorrect?: boolean;
 }
 
 /** 投票で選べる人 */
@@ -378,6 +382,11 @@ export interface GameCandidatesResponse {
 
 export interface CurrentGameResponse {
   game: CurrentGameDto | null;
+}
+
+/** 答えたときの応答。合言葉では、送った言葉が正解だったかも返す */
+export interface GameAnswerResponse extends CurrentGameResponse {
+  correct?: boolean;
 }
 
 export interface GamesResponse {
@@ -398,6 +407,8 @@ export interface GameAnswerDto {
   /** 投票で選んだ人と、その表示名 */
   targetUserId?: string;
   targetDisplayName?: string;
+  /** 合言葉で正解した言葉（正解したときだけ保存する） */
+  text?: string;
   answeredAt: string;
 }
 
@@ -410,7 +421,7 @@ export interface GameAnswersResponse {
 /** 参加者に見せる、自分に点数が入ったゲーム（結果入力なら入った枠、クイズなら選んだ答え） */
 export interface GameAwardDto {
   gameName: string;
-  /** 結果入力なら枠の名前、クイズなら選んだ選択肢、数値予想なら順位と答えた数（例: 3 位（予想 42））、投票なら順位と票数（例: 1 位（5 票））か「投票」 */
+  /** 結果入力なら枠の名前、クイズなら選んだ選択肢、数値予想なら順位と答えた数（例: 3 位（予想 42））、投票なら順位と票数（例: 1 位（5 票））か「投票」、合言葉なら正解した順（例: 3 番目に正解） */
   slotName: string;
   points: number;
 }

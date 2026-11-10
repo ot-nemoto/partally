@@ -6,6 +6,7 @@ import {
   formatLabel,
   GameAlreadyOpenError,
   type GameAnswerRecord,
+  type GameChanges,
   type GameRecord,
   InvalidStateError,
   NotFoundError,
@@ -288,15 +289,7 @@ export class MemoryRepository implements Repository {
       .map(clone);
   }
 
-  async updateGame(
-    gameId: string,
-    changes: Pick<
-      GameRecord,
-      "name" | "description" | "imageId" | "slots" | "choices" | "ranks" | "correctNumber" | "voterPoints"
-    >,
-    updatedAt: string,
-    expectedUpdatedAt?: string,
-  ) {
+  async updateGame(gameId: string, changes: GameChanges, updatedAt: string, expectedUpdatedAt?: string) {
     const game = this.games.get(gameId);
     if (!game) throw new NotFoundError();
     if (expectedUpdatedAt !== undefined && game.updatedAt !== expectedUpdatedAt) throw new InvalidStateError();

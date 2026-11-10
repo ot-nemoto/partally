@@ -60,19 +60,41 @@ export function tallyVotes(targetUserIds: string[], ranks: NumberRank[]): VoteRe
   });
 }
 
-/** 「1〜5 位」「3 位」のように書く */
-export function formatRankRange(range: Pick<NumberRank, "from" | "to">): string {
-  return range.from === range.to ? `${range.from} 位` : `${range.from}〜${range.to} 位`;
+/** 順位の単位（合言葉は正解した順なので「番目」） */
+export function rankUnit(format: string): string {
+  return format === "keyword" ? "番目" : "位";
 }
 
-/** 参加者が答える形式か（クイズ・数値予想・投票） */
+/** 「1〜5 位」「3 位」のように書く */
+export function formatRankRange(range: Pick<NumberRank, "from" | "to">, unit = "位"): string {
+  return range.from === range.to ? `${range.from} ${unit}` : `${range.from}〜${range.to} ${unit}`;
+}
+
+/** 参加者が答える形式か（結果入力のほか全部） */
 export function hasGameAnswers(game: { format: string }): boolean {
-  return game.format === "quiz" || game.format === "number" || game.format === "vote";
+  return game.format !== "result";
+}
+
+/** 順位の範囲で点数を決める形式か（数値予想・投票・合言葉） */
+export function hasGameRanks(game: { format: string }): boolean {
+  return game.format === "number" || game.format === "vote" || game.format === "keyword";
+}
+
+/**
+ * 合言葉を比べる形にする。全角・半角、大文字・小文字、カタカナ・ひらがな、空白の違いをなくす
+ * （「パーティー」「ぱーてぃー」「ﾊﾟｰﾃｨｰ」は同じ）
+ */
+export function normalizeKeyword(input: string): string {
+  return input
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[\u30a1-\u30f6]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));
 }
 
 /**
  * ゲームを確定できない理由（入るポイントが決まらない）。確定できるなら undefined。
- * 枠の無い結果入力、正解の数か点数の範囲が無い数値予想、点数の範囲が無い投票は確定できない
+ * 枠の無い結果入力、正解の数か点数の範囲が無い数値予想、点数の範囲が無い投票・合言葉は確定できない
  */
 export function gameConfirmProblem(game: {
   format: string;
@@ -82,7 +104,7 @@ export function gameConfirmProblem(game: {
 }): string | undefined {
   if (game.format === "result" && game.slots.length === 0) return "枠を追加してから確定してください";
   if (game.format === "number" && game.correctNumber === undefined) return "正解の数を入れてから確定してください";
-  if ((game.format === "number" || game.format === "vote") && game.ranks.length === 0) {
+  if (hasGameRanks(game) && game.ranks.length === 0) {
     return "点数の範囲を追加してから確定してください";
   }
   return undefined;

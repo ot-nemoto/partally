@@ -446,13 +446,13 @@ describe("DynamoRepository", () => {
       });
       await repo.updateGame("G1", changes, "t3");
       expect(ddb.commandCalls(UpdateCommand)[1]!.args[0].input.ConditionExpression).toBe("attribute_exists(PK)");
-      // 画像・正解の数が無ければ消し、あれば付ける（0 も正解の数として付ける）
+      // 画像・正解の数・合言葉が無ければ消し、あれば付ける（0 も正解の数として付ける）
       expect(ddb.commandCalls(UpdateCommand)[1]!.args[0].input.UpdateExpression).toMatch(
-        / REMOVE imageId, correctNumber$/,
+        / REMOVE imageId, correctNumber, keyword$/,
       );
       await repo.updateGame("G1", { ...changes, imageId: "IMG1", correctNumber: 0 }, "t3");
       expect(ddb.commandCalls(UpdateCommand)[2]!.args[0].input).toMatchObject({
-        UpdateExpression: expect.stringMatching(/, imageId = :imageId, correctNumber = :correctNumber$/),
+        UpdateExpression: expect.stringMatching(/, imageId = :imageId, correctNumber = :correctNumber REMOVE keyword$/),
         ExpressionAttributeValues: { ":imageId": "IMG1", ":correctNumber": 0, ":ranks": [], ":voterPoints": 0 },
       });
 
