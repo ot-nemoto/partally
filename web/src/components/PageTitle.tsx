@@ -4,7 +4,7 @@ import { useHeightVar } from "../hooks/useHeightVar";
 /**
  * 管理画面の見出しの行。英字の装飾タイトルに日本語の補足を小さく添え、children（保存ボタンなど）を右に並べる。
  * 行はスクロールしても固定したヘッダーのすぐ下に残す。高さは --admin-title-height として、その下に固定する行が使う。
- * 英字の書体（Righteous）は管理画面の共通レイアウト（AdminLayout）で読み込む
+ * 英字の書体（Righteous）は管理画面の共通レイアウト（AdminLayout）と、参加者の共通レイアウト（ログイン前の画面）で読み込む
  */
 export function PageTitle(props: { en: string; ja: string; className?: string; children?: ReactNode }) {
   // 1 画面に見出しの行は 1 つなので、ページ全体の変数に高さを書く

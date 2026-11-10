@@ -1,3 +1,5 @@
+// ログイン前の画面のタイトルに、管理画面の見出しと同じ英字の書体を使う
+import "@fontsource/righteous/latin-400.css";
 import type { CurrentGameDto, CurrentGameResponse, MeResponse, Rules, UserDto } from "@partally/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useOutletContext } from "react-router-dom";
@@ -114,8 +116,10 @@ export function ParticipantLayout() {
   if (state.kind === "guest") {
     return (
       <main className="page">
-        <section className="card">
-          <h1>partally</h1>
+        <section className="card guest-card">
+          <h1 className="guest-title gradient-title" lang="en">
+            partally
+          </h1>
           <p>配布された QR コードをスマホのカメラで読み込んでください。</p>
         </section>
       </main>
