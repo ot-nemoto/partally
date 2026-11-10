@@ -1,4 +1,5 @@
 export * from "./epithet.js";
+export * from "./game-banner.js";
 export * from "./number-game.js";
 export * from "./prizes.js";
 export * from "./schedule.js";

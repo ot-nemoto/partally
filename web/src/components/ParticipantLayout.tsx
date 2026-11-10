@@ -1,12 +1,18 @@
 // ログイン前の画面のタイトルに、管理画面の見出しと同じ英字の書体を使う
 import "@fontsource/righteous/latin-400.css";
-import type { CurrentGameDto, CurrentGameResponse, MeResponse, Rules, UserDto } from "@partally/shared";
+import {
+  type CurrentGameDto,
+  type CurrentGameResponse,
+  gameBannerText,
+  type MeResponse,
+  type Rules,
+  type UserDto,
+} from "@partally/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useOutletContext } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../api";
 import { useAutoRefresh } from "../hooks/useAutoRefresh";
 import { ReloadProvider } from "../hooks/useReload";
-import { gameBannerText } from "./GameView";
 
 /** 開催・確定にすぐ気づけるよう、表示中はこの間隔で開催中のゲームを確認する（文字だけの小さな通信） */
 const GAME_REFRESH_MS = 5_000;
@@ -127,13 +133,15 @@ export function ParticipantLayout() {
     );
   }
 
+  const banner = game && location.pathname !== "/game" ? gameBannerText(game) : undefined;
+
   return (
     <div className="participant">
       <main className="page">
-        {game && location.pathname !== "/game" && (
+        {banner && (
           <Link to="/game" className="quiz-banner">
-            <strong>{gameBannerText(game).title}</strong>
-            <span className="quiz-banner-sub">{gameBannerText(game).note}</span>
+            <strong>{banner.title}</strong>
+            <span className="quiz-banner-sub">{banner.note}</span>
           </Link>
         )}
         <ReloadProvider value={reloadCount}>

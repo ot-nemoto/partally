@@ -194,38 +194,6 @@ export function GameView(props: {
   );
 }
 
-/** 開催中のゲームのお知らせの見出しと案内（答えたかどうかで変える） */
-export function gameBannerText(game: CurrentGameDto): { title: string; note: string } {
-  const title =
-    game.format === "vote"
-      ? "投票受付中"
-      : game.format === "keyword"
-        ? "合言葉を受付中"
-        : game.format === "lottery"
-          ? "抽選の参加受付中"
-          : game.format === "result"
-            ? "ゲーム開催中"
-            : "問題が出ています";
-  return { title, note: `${game.name}・${bannerNote(game)}` };
-}
-
-function bannerNote(game: CurrentGameDto): string {
-  switch (game.format) {
-    case "quiz":
-      return game.myChoiceId ? "回答済み（締め切りまで選び直せます）" : "タップして回答する";
-    case "number":
-      return game.myValue !== undefined ? "回答済み（締め切りまで答え直せます）" : "タップして数を予想する";
-    case "keyword":
-      return game.myKeywordCorrect ? "正解しました" : "タップして合言葉を入れる";
-    case "lottery":
-      return game.myEntry ? "参加済み（締め切られると抽選します）" : "タップして参加する";
-    case "vote":
-      return game.myTargetUserId ? "投票済み（締め切りまで選び直せます）" : "タップして投票する";
-    default:
-      return "タップして見る";
-  }
-}
-
 /** 順位の範囲ごとの点数（数値予想・投票） */
 function RankPoints(props: { ranks: CurrentGameDto["ranks"]; note: string; unit?: string }) {
   return (

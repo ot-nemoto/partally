@@ -23,6 +23,7 @@ import {
   type GameResponse,
   type GameStatus,
   type GamesResponse,
+  gameBannerText,
   gameConfirmProblem,
   hasGameAnswers,
   hasGameRanks,
@@ -38,7 +39,7 @@ import {
 } from "@partally/shared";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../../api";
-import { type GameAnswerBody, GameView, gameBannerText } from "../../components/GameView";
+import { type GameAnswerBody, GameView } from "../../components/GameView";
 import { Modal } from "../../components/Modal";
 import { NumberField } from "../../components/NumberField";
 import { PageTitle } from "../../components/PageTitle";

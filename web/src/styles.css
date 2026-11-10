@@ -1714,6 +1714,14 @@ textarea {
   outline-offset: 2px;
 }
 
+/* :has() が使えないブラウザでは、パネルの中にフォーカスがあるときに枠を出す（キーボードで選ぶ位置が分かるように） */
+@supports not selector(:has(*)) {
+  .game-format-panel:focus-within {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
 .game-format-icon {
   font-size: 1.75rem;
   line-height: 1.2;
