@@ -502,7 +502,7 @@ describe("DynamoRepository", () => {
       await expect(repo.changeGameStatus("G1", "draft", "open", "x")).rejects.toBeInstanceOf(NotFoundError);
     });
 
-    it("開催中から変えるときは、そのゲームの印を消す。確定は confirmedAt を付け、確定から戻すと消す", async () => {
+    it("開催中から変えるときは、そのゲームの印を消す。確定は confirmedAt（抽選は順番も）を付け、確定から戻すと消す", async () => {
       ddb.on(TransactWriteCommand).resolves({});
       ddb.on(UpdateCommand).resolves({});
       ddb.on(GetCommand).resolves({ Item: gameItem("confirmed") });
@@ -518,10 +518,17 @@ describe("DynamoRepository", () => {
       // 開催中を通らない変更は、ゲームのアイテムだけ
       await repo.changeGameStatus("G1", "confirmed", "draft", "t2");
       expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input).toMatchObject({
-        UpdateExpression: "SET #status = :to, updatedAt = :at REMOVE confirmedAt",
+        UpdateExpression: "SET #status = :to, updatedAt = :at REMOVE confirmedAt, drawOrder",
         ExpressionAttributeValues: { ":to": "draft", ":from": "confirmed" },
       });
       expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(1);
+
+      // 抽選は、確定するときに順番も保存する
+      await repo.changeGameStatus("G1", "draft", "confirmed", "t3", ["u2", "u1"]);
+      expect(ddb.commandCalls(UpdateCommand)[1]!.args[0].input).toMatchObject({
+        UpdateExpression: "SET #status = :to, updatedAt = :at, confirmedAt = :at, drawOrder = :drawOrder",
+        ExpressionAttributeValues: { ":drawOrder": ["u2", "u1"] },
+      });
     });
 
     it("答えはユーザの下に保存する（ゲームを含むトランザクションにはしない）", async () => {

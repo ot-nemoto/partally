@@ -752,18 +752,26 @@ export class DynamoRepository implements Repository {
     }
   }
 
-  async changeGameStatus(gameId: string, from: GameStatus, to: GameStatus, at: string) {
+  async changeGameStatus(gameId: string, from: GameStatus, to: GameStatus, at: string, drawOrder?: string[]) {
     if (from === to) throw new InvalidStateError();
     const set = ["#status = :to", "updatedAt = :at"];
     if (to === "open") set.push("openedAt = :at");
     if (to === "confirmed") set.push("confirmedAt = :at");
+    const withDraw = to === "confirmed" && drawOrder !== undefined;
+    if (withDraw) set.push("drawOrder = :drawOrder");
     const update = {
       TableName: this.tableName,
       Key: keys.game(gameId),
-      UpdateExpression: `SET ${set.join(", ")}${from === "confirmed" ? " REMOVE confirmedAt" : ""}`,
+      // 確定から戻すときは、確定した時刻と抽選の順番を消す
+      UpdateExpression: `SET ${set.join(", ")}${from === "confirmed" ? " REMOVE confirmedAt, drawOrder" : ""}`,
       ConditionExpression: "#status = :from",
       ExpressionAttributeNames: { "#status": "status" },
-      ExpressionAttributeValues: { ":to": to, ":from": from, ":at": at },
+      ExpressionAttributeValues: {
+        ":to": to,
+        ":from": from,
+        ":at": at,
+        ...(withDraw ? { ":drawOrder": drawOrder } : {}),
+      },
     };
     try {
       if (to === "open") {
@@ -1054,6 +1062,7 @@ function toGameRecord(item: Record<string, unknown>): GameRecord {
     correctNumber: item.correctNumber === undefined ? undefined : Number(item.correctNumber),
     voterPoints: Number(item.voterPoints ?? 0),
     keyword: item.keyword as string | undefined,
+    drawOrder: item.drawOrder as string[] | undefined,
     slots: ((item.slots ?? []) as Record<string, unknown>[]).map((s) => ({
       slotId: s.slotId as string,
       name: s.name as string,
@@ -1075,6 +1084,7 @@ function toGameAnswerRecord(item: Record<string, unknown>): GameAnswerRecord {
     value: item.value === undefined ? undefined : Number(item.value),
     targetUserId: item.targetUserId as string | undefined,
     text: item.text as string | undefined,
+    entry: item.entry === true ? true : undefined,
     answeredAt: item.answeredAt as string,
   };
 }

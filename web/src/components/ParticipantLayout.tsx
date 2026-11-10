@@ -162,6 +162,7 @@ export function ParticipantLayout() {
 function bannerTitle(game: CurrentGameDto): string {
   if (game.format === "vote") return "投票受付中";
   if (game.format === "keyword") return "合言葉を受付中";
+  if (game.format === "lottery") return "抽選の参加受付中";
   return game.format === "result" ? "ゲーム開催中" : "問題が出ています";
 }
 
@@ -174,6 +175,8 @@ function bannerNote(game: CurrentGameDto): string {
       return game.myValue !== undefined ? "回答済み（締め切りまで答え直せます）" : "タップして数を予想する";
     case "keyword":
       return game.myKeywordCorrect ? "正解しました" : "タップして合言葉を入れる";
+    case "lottery":
+      return game.myEntry ? "参加済み（締め切られると抽選します）" : "タップして参加する";
     case "vote":
       return game.myTargetUserId ? "投票済み（締め切りまで選び直せます）" : "タップして投票する";
     default:

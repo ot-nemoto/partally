@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatRankRange, normalizeKeyword, rankNumberAnswers, tallyVotes } from "./number-game.js";
+import { formatRankRange, normalizeKeyword, rankNumberAnswers, shuffle, tallyVotes } from "./number-game.js";
 
 describe("数値予想の順位", () => {
   const ranks = [
@@ -65,5 +65,27 @@ describe("合言葉の比べ方", () => {
     for (const s of ["パーティー2026", "ﾊﾟｰﾃｨｰ ２０２６", " ぱーてぃー　2026 "]) expect(normalizeKeyword(s)).toBe(base);
     expect(normalizeKeyword("ABC")).toBe(normalizeKeyword("ａｂｃ"));
     expect(normalizeKeyword("ぱーてぃ")).not.toBe(base);
+  });
+});
+
+describe("抽選の順番", () => {
+  it("渡した乱数で並べ替え、元の配列は変えない", () => {
+    const items = ["a", "b", "c", "d"];
+    // 常に 0 を返すと、後ろから順に先頭と入れ替わる
+    expect(shuffle(items, () => 0)).toEqual(["b", "c", "d", "a"]);
+    // 常に最大を返すと、そのまま
+    expect(shuffle(items, (max) => max - 1)).toEqual(items);
+    expect(items).toEqual(["a", "b", "c", "d"]);
+    expect(shuffle([], () => 0)).toEqual([]);
+  });
+
+  it("すべての並びが同じくらい出る", () => {
+    const counts = new Map<string, number>();
+    for (let n = 0; n < 6000; n++) {
+      const key = shuffle(["a", "b", "c"], (max) => Math.floor(Math.random() * max)).join("");
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    expect(counts.size).toBe(6);
+    for (const c of counts.values()) expect(c).toBeGreaterThan(800);
   });
 });

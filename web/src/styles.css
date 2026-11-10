@@ -1831,6 +1831,12 @@ table.game-number-answers td.game-voters {
   text-align: center;
 }
 
+.game-lottery-entry {
+  width: 100%;
+  min-height: 3.5rem;
+  font-size: 1.25rem;
+}
+
 .game-keyword-result.wrong {
   color: var(--danger);
   font-weight: 600;

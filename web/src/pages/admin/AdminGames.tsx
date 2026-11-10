@@ -218,7 +218,7 @@ export function AdminGames() {
             <span className={`status status-${g.status}`}>{STATUS_LABEL[g.status]}</span>
             {g.status === "open" && hasGameAnswers(g) && (
               <span className="muted small">
-                {g.format === "keyword" ? "正解" : "回答"} {g.answerCount} 人
+                {g.format === "keyword" ? "正解" : g.format === "lottery" ? "参加" : "回答"} {g.answerCount} 人
               </span>
             )}
             {g.confirmedAt && <span className="muted small">{formatTime(g.confirmedAt)} に確定</span>}
@@ -394,6 +394,8 @@ function confirmNote(g: GameDto): string {
       return `確定すると投票の受付が終わり、得票の順位で選ばれた人（投票 ${g.answerCount} 人）にポイントが入ります。`;
     case "keyword":
       return `確定すると受付が終わり、正解した順で点数（正解 ${g.answerCount} 人）がポイントに入ります。`;
+    case "lottery":
+      return `確定すると受付が終わり、参加した ${g.answerCount} 人から抽選して、当たった人にポイントが入ります。`;
     default:
       return g.slots.some((s) => s.userIds.length > 0)
         ? "確定すると、選んだ人にポイントが入ります。"
@@ -538,6 +540,14 @@ const FORMAT_TEXT: Record<
     description: "例: 会場のどこかに合言葉が隠れています。見つけたら入れてください",
     imageLabel: "画像（任意）",
     note: "正解した順に番号を付け、番号が入る範囲の点数が入ります（どの範囲にも入らない番号は 0 点）。全角・半角、大文字・小文字、カタカナ・ひらがな、空白の違いは同じ言葉として扱います。合言葉は参加者には見せません。",
+  },
+  lottery: {
+    about: "参加者が「参加する」を押し、確定したときにアプリが無作為に決めた順番で点数が入ります",
+    name: "例: ラッキー賞",
+    descriptionLabel: "説明（任意）",
+    description: "例: 参加ボタンを押した人の中から、抽選で 5 名にポイントをプレゼント",
+    imageLabel: "画像（任意）",
+    note: "確定したときに、参加した人の順番を無作為に決めて保存し、順番が入る範囲の点数が入ります（どの範囲にも入らない人は 0 点）。確定した後に範囲や点数を直しても、順番は変わりません。確定を取り消してもう一度確定すると、引き直します。",
   },
   result: {
     about: "じゃんけん大会などの結果で、枠（優勝など）ごとに人を選んで点数を付けます",
@@ -1016,6 +1026,7 @@ function GameAnswersDialog(props: { game: GameDto; onClose: () => void }) {
         {data?.game.format === "number" && <NumberAnswers game={data.game} answers={data.answers} />}
         {data?.game.format === "vote" && <VoteAnswers game={data.game} answers={data.answers} />}
         {data?.game.format === "keyword" && <KeywordAnswers game={data.game} answers={data.answers} />}
+        {data?.game.format === "lottery" && <LotteryAnswers game={data.game} answers={data.answers} />}
         {data?.game.choices.map((ch) => {
           const names = data.answers.filter((a) => a.choiceId === ch.choiceId);
           return (
@@ -1109,6 +1120,57 @@ function NumberAnswers(props: { game: GameDto; answers: GameAnswersResponse["ans
           ))}
         </tbody>
       </table>
+    </>
+  );
+}
+
+/** 抽選で、確定する前は参加した人、確定した後は引いた順番と点数 */
+function LotteryAnswers(props: { game: GameDto; answers: GameAnswersResponse["answers"] }) {
+  const { game } = props;
+  const names = new Map(props.answers.map((a) => [a.userId, a.displayName ?? "（不明なユーザ）"]));
+  if (!game.drawOrder) {
+    return (
+      <>
+        <p className="small">参加 {props.answers.length} 人（確定したときに抽選します）</p>
+        <p className="small">
+          {props.answers.map((a) => names.get(a.userId)).join("、") || "まだ参加した人がいません。"}
+        </p>
+      </>
+    );
+  }
+  const winners = game.drawOrder.flatMap((userId, i) => {
+    const range = game.ranks.find((r) => r.from <= i + 1 && i + 1 <= r.to);
+    return range ? [{ userId, order: i + 1, range }] : [];
+  });
+  return (
+    <>
+      <p className="small">
+        参加 {game.drawOrder.length} 人・当選 {winners.length} 人
+      </p>
+      {winners.length === 0 ? (
+        <p className="muted small">当選した人はいません。</p>
+      ) : (
+        <table className="game-number-answers">
+          <thead>
+            <tr>
+              <th>順番</th>
+              <th>名前</th>
+              <th>当選</th>
+              <th>点数</th>
+            </tr>
+          </thead>
+          <tbody>
+            {winners.map((w) => (
+              <tr key={w.userId}>
+                <td className="num">{w.order}</td>
+                <td>{names.get(w.userId) ?? "（不明なユーザ）"}</td>
+                <td>{formatRankRange(w.range, "等")}</td>
+                <td className="num">{w.range.points} 点</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </>
   );
 }

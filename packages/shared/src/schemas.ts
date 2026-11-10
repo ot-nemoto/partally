@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { EPITHET_MAX_LENGTH } from "./epithet.js";
-import { normalizeKeyword } from "./number-game.js";
+import { hasGameRanks, normalizeKeyword } from "./number-game.js";
 import type { TieBreakKey } from "./types.js";
 
 export const NAME_MAX_LENGTH = 20;
@@ -198,9 +198,10 @@ export const GAME_RANK_MAX = 1000;
  * ゲームの形式。quiz: 参加者が選択肢から選ぶ / result: 幹事が枠（優勝など）ごとに人を選ぶ /
  * number: 参加者が数を答え、正解に近い順の順位で点数が入る（数値予想・ニアピン） /
  * vote: 参加者が参加者全員から 1 人に投票し、得票の順位で選ばれた人に点数が入る /
- * keyword: 参加者が合言葉を入れ、正解した順（先着順）の順位で点数が入る
+ * keyword: 参加者が合言葉を入れ、正解した順（先着順）の順位で点数が入る /
+ * lottery: 参加者が「参加する」を押し、確定したときに無作為に決めた順番で点数が入る
  */
-export const GAME_FORMATS = ["quiz", "result", "number", "vote", "keyword"] as const;
+export const GAME_FORMATS = ["quiz", "result", "number", "vote", "keyword", "lottery"] as const;
 
 /** 形式の名前（管理画面に出す） */
 export const GAME_FORMAT_LABEL: Record<(typeof GAME_FORMATS)[number], string> = {
@@ -209,6 +210,7 @@ export const GAME_FORMAT_LABEL: Record<(typeof GAME_FORMATS)[number], string> = 
   number: "数値予想",
   vote: "投票",
   keyword: "合言葉",
+  lottery: "抽選",
 };
 
 /** 合言葉の長さの上限 */
@@ -234,6 +236,7 @@ const oneLine = (max: number) =>
  * - number: 点数の範囲（順位の始まりと終わり・点数。0〜20 個、重ねない）と、正解の数（確定までに入れる）を決める。choices・slots は送らない
  * - vote: 得票の順位の範囲ごとの点数（number と同じ形）と、投票した人の点数を決める。choices・slots は送らない
  * - keyword: 合言葉と、正解した順の範囲ごとの点数（number と同じ形）を決める。choices・slots は送らない
+ * - lottery: 引いた順番の範囲ごとの点数（number と同じ形）を決める。choices・slots は送らない
  * choiceId・slotId は既存の選択肢・枠を直すときに指定する。新しいものには付けない
  */
 export const gameRequestSchema = z
@@ -306,8 +309,8 @@ export const gameRequestSchema = z
     message: "枠を付けられるのは結果入力だけです",
     path: ["slots"],
   })
-  .refine((v) => v.format === "number" || v.format === "vote" || v.format === "keyword" || !v.ranks?.length, {
-    message: "点数の範囲を付けられるのは数値予想・投票・合言葉だけです",
+  .refine((v) => hasGameRanks(v) || !v.ranks?.length, {
+    message: "点数の範囲を付けられるのは数値予想・投票・合言葉・抽選だけです",
     path: ["ranks"],
   })
   .refine((v) => v.format === "number" || v.correctNumber === undefined, {
@@ -363,14 +366,16 @@ export const gameRequestSchema = z
 
 export type GameRequest = z.infer<typeof gameRequestSchema>;
 
-/** ゲームへの答え。クイズは選んだ選択肢、数値予想は数（0〜100 の整数）、投票は選んだ人、合言葉は言葉。どれか 1 つ */
+/** ゲームへの答え。クイズは選んだ選択肢、数値予想は数（0〜100 の整数）、投票は選んだ人、合言葉は言葉、抽選は参加。どれか 1 つ */
 export const gameAnswerRequestSchema = z
   .object({
     choiceId: idSchema.optional(),
     value: gameNumber.optional(),
     targetUserId: idSchema.optional(),
     text: keywordText.optional(),
+    /** 抽選に参加する */
+    entry: z.literal(true).optional(),
   })
-  .refine((v) => [v.choiceId, v.value, v.targetUserId, v.text].filter((x) => x !== undefined).length === 1, {
-    message: "選択肢・数・選んだ人・言葉のどれか 1 つを送ってください",
+  .refine((v) => [v.choiceId, v.value, v.targetUserId, v.text, v.entry].filter((x) => x !== undefined).length === 1, {
+    message: "選択肢・数・選んだ人・言葉・参加のどれか 1 つを送ってください",
   });
