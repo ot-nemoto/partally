@@ -213,7 +213,8 @@ function RankPoints(props: { ranks: CurrentGameDto["ranks"]; note: string }) {
 const fold = (s: string) => s.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
 
 /**
- * 投票。選べる人（自分と、紐づけを解除した人を除く全員）は、開いたときに 1 回だけ読む。
+ * 投票。選べる人（自分と、紐づけを解除した人を除く全員）は、開いたときと、アプリに戻ったときに読む
+ * （5 秒ごとの確認には含めない。途中で参加した人も、戻ったときか「一覧を読み直す」で出る）。
  * 名前・二つ名で絞り込み、押すとその人に投票する（確定されるまで選び直せる）
  */
 function VoteSection(props: {
@@ -227,10 +228,12 @@ function VoteSection(props: {
   const [candidates, setCandidates] = useState<GameCandidateDto[]>();
   const [loadError, setLoadError] = useState<string>();
   const [query, setQuery] = useState("");
+  const [loadCount, setLoadCount] = useState(0);
+  const reload = useCallback(() => setLoadCount((n) => n + 1), []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: loadCount は読み直しの合図
   useEffect(() => {
     let active = true;
-    setCandidates(undefined);
     setLoadError(undefined);
     api<GameCandidatesResponse>("GET", `/game/${game.gameId}/candidates`)
       .then((res) => active && setCandidates(res.candidates))
@@ -242,7 +245,18 @@ function VoteSection(props: {
     return () => {
       active = false;
     };
-  }, [game.gameId, onClosed]);
+  }, [game.gameId, onClosed, loadCount]);
+
+  // 別のゲームに変わったら、前のゲームの一覧は出さない
+  // biome-ignore lint/correctness/useExhaustiveDependencies: gameId が変わったときだけ消す
+  useEffect(() => setCandidates(undefined), [game.gameId]);
+
+  // 別のアプリから戻ったら読み直す（途中で参加した人を出す）
+  useEffect(() => {
+    const onVisible = () => document.visibilityState === "visible" && reload();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [reload]);
 
   const mine = candidates?.find((c) => c.userId === game.myTargetUserId);
   const q = fold(query);
@@ -254,8 +268,15 @@ function VoteSection(props: {
         <p className="small" aria-live="polite">
           {game.myTargetUserId ? (
             <>
-              あなたの投票: <strong className="game-vote-mine">{mine?.displayName ?? "…"}</strong>
-              <span className="muted">（締め切りまでは選び直せます）</span>
+              あなたの投票:{" "}
+              <strong className="game-vote-mine">
+                {mine?.displayName ?? (candidates ? "（今は選べない人）" : "…")}
+              </strong>
+              <span className="muted">
+                {mine || !candidates
+                  ? "（締め切りまでは選び直せます）"
+                  : "（投票した人が参加をやめました。票はそのまま数えます。選び直すこともできます）"}
+              </span>
             </>
           ) : (
             <span className="muted">投票する人を 1 人選んでください。</span>
@@ -273,6 +294,14 @@ function VoteSection(props: {
         {loadError && <p className="error">{loadError}</p>}
         {!candidates && !loadError && <p className="muted">読み込み中…</p>}
         {shown && shown.length === 0 && <p className="muted small">見つかりません。</p>}
+        {candidates && (
+          <p className="small">
+            <button type="button" className="link" onClick={reload}>
+              一覧を読み直す
+            </button>
+            <span className="muted">（後から参加した人を出す）</span>
+          </p>
+        )}
         <div className="quiz-choices game-vote-list">
           {shown?.map((c) => {
             const selected = game.myTargetUserId === c.userId;

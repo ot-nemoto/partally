@@ -417,7 +417,7 @@ sequenceDiagram
 | GET | `/api/prizes` | 景品の一覧（名前・数量・渡す順位・画像の署名付き URL）。`prizesVisible` がオフなら 404 |
 | GET | `/api/schedule` | スケジュール（開始時刻の早い順）とイベントの日付。`scheduleVisible` がオフなら 404 |
 | PUT | `/api/game/{gameId}/answer` | ゲームに答える。クイズは `{choiceId}`、数値予想は `{value}`（0〜100 の整数）、投票は `{targetUserId}`。答え直しは上書き。開催中でなければ 409 `game_closed`、形式に合わない答え・結果入力のゲーム・自分や登録されていない人や紐づけを解除した人への投票は 400 |
-| GET | `/api/game/{gameId}/candidates` | 投票で選べる人 `{userId, displayName}` の一覧（自分と紐づけを解除した人を除き、名前の順）。ゲームの画面を開いたときに 1 回だけ呼ぶ（5 秒ごとの確認には含めない）。投票でなければ 400、開催中でなければ 409 `game_closed` |
+| GET | `/api/game/{gameId}/candidates` | 投票で選べる人 `{userId, displayName}` の一覧（自分と紐づけを解除した人を除き、名前の順）。ゲームの画面を開いたとき・アプリに戻ったとき・「一覧を読み直す」で呼ぶ（5 秒ごとの確認には含めない）。投票でなければ 400、開催中でなければ 409 `game_closed` |
 | POST | `/api/photos/upload-url` | アップロード用署名付き POST を発行 |
 | GET | `/api/photos` | 公開済み写真一覧（アップロード者の表示名・お気に入り数・自分が選んでいるか付き） |
 | PUT | `/api/photos/{photoId}/favorite` | お気に入りに選ぶ（選択済みなら何もしない）。受付終了は 409 `favorites_disabled`、上限超過は 409 `favorite_limit`、自分の写真・未公開は 409 `invalid_state` |
