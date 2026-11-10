@@ -1,6 +1,13 @@
 // ログイン前の画面のタイトルに、管理画面の見出しと同じ英字の書体を使う
 import "@fontsource/righteous/latin-400.css";
-import type { CurrentGameDto, CurrentGameResponse, MeResponse, Rules, UserDto } from "@partally/shared";
+import {
+  type CurrentGameDto,
+  type CurrentGameResponse,
+  gameBannerText,
+  type MeResponse,
+  type Rules,
+  type UserDto,
+} from "@partally/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useOutletContext } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../api";
@@ -126,13 +133,15 @@ export function ParticipantLayout() {
     );
   }
 
+  const banner = game && location.pathname !== "/game" ? gameBannerText(game) : undefined;
+
   return (
     <div className="participant">
       <main className="page">
-        {game && location.pathname !== "/game" && (
+        {banner && (
           <Link to="/game" className="quiz-banner">
-            <strong>{bannerTitle(game)}</strong>
-            <span className="quiz-banner-sub">{`${game.name}・${bannerNote(game)}`}</span>
+            <strong>{banner.title}</strong>
+            <span className="quiz-banner-sub">{banner.note}</span>
           </Link>
         )}
         <ReloadProvider value={reloadCount}>
@@ -160,30 +169,4 @@ export function ParticipantLayout() {
       </nav>
     </div>
   );
-}
-
-/** 開催中のゲームのお知らせの見出し */
-function bannerTitle(game: CurrentGameDto): string {
-  if (game.format === "vote") return "投票受付中";
-  if (game.format === "keyword") return "合言葉を受付中";
-  if (game.format === "lottery") return "抽選の参加受付中";
-  return game.format === "result" ? "ゲーム開催中" : "問題が出ています";
-}
-
-/** お知らせの案内（答えたかどうかで変える） */
-function bannerNote(game: CurrentGameDto): string {
-  switch (game.format) {
-    case "quiz":
-      return game.myChoiceId ? "回答済み（締め切りまで選び直せます）" : "タップして回答する";
-    case "number":
-      return game.myValue !== undefined ? "回答済み（締め切りまで答え直せます）" : "タップして数を予想する";
-    case "keyword":
-      return game.myKeywordCorrect ? "正解しました" : "タップして合言葉を入れる";
-    case "lottery":
-      return game.myEntry ? "参加済み（締め切られると抽選します）" : "タップして参加する";
-    case "vote":
-      return game.myTargetUserId ? "投票済み（締め切りまで選び直せます）" : "タップして投票する";
-    default:
-      return "タップして見る";
-  }
 }

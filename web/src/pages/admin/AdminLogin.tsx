@@ -1,3 +1,5 @@
+// タイトルに管理画面の見出しと同じ英字の書体を使う（ログイン前は管理画面の共通レイアウトを通らないため、ここでも読み込む）
+import "@fontsource/righteous/latin-400.css";
 import { type FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../../api";
@@ -24,8 +26,16 @@ export function AdminLogin() {
 
   return (
     <main className="page">
-      <form className="card" onSubmit={onSubmit}>
-        <h1>管理者ログイン</h1>
+      <form className="card admin-login" onSubmit={onSubmit} aria-label="管理者ログイン">
+        <h1 className="guest-title admin-login-title">
+          <span className="gradient-title" lang="en">
+            partally
+          </span>
+          <span className="admin-login-sub gradient-title" lang="en">
+            admin
+          </span>
+        </h1>
+        <p className="muted small admin-login-note">管理者のパスワードを入れてください。</p>
         <label className="field">
           <span>パスワード</span>
           <input

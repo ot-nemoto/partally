@@ -1,4 +1,5 @@
 import {
+  type CurrentGameDto,
   formatRankRange,
   GAME_CHOICE_IMAGE_MAX_EDGE,
   GAME_CHOICE_TEXT_MAX_LENGTH,
@@ -15,12 +16,14 @@ import {
   GAME_RANKS_MAX,
   GAME_SLOT_NAME_MAX_LENGTH,
   GAME_SLOTS_MAX,
+  type GameAnswerResponse,
   type GameAnswersResponse,
   type GameDto,
   type GameFormat,
   type GameResponse,
   type GameStatus,
   type GamesResponse,
+  gameBannerText,
   gameConfirmProblem,
   hasGameAnswers,
   hasGameRanks,
@@ -36,6 +39,7 @@ import {
 } from "@partally/shared";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../../api";
+import { type GameAnswerBody, GameView } from "../../components/GameView";
 import { Modal } from "../../components/Modal";
 import { NumberField } from "../../components/NumberField";
 import { PageTitle } from "../../components/PageTitle";
@@ -85,6 +89,7 @@ export function AdminGames() {
   /** 人を選んでいる枠。ゲームは開くたびに今の一覧から引く（古い内容で上書きしないように） */
   const [picking, setPicking] = useState<{ gameId: string; slotId: string }>();
   const [answers, setAnswers] = useState<GameDto>();
+  const [previewing, setPreviewing] = useState<GameDto>();
   const [busy, setBusy] = useState(false);
   const { shown, toggle, reveal } = useShownStatuses("partally.admin.gameStatuses", STATUSES);
   /** この画面で削除したゲーム（一覧の読み直しが削除の反映より先に返っても、出し直さない） */
@@ -221,7 +226,10 @@ export function AdminGames() {
         <article key={g.gameId} className={`card game-card game-${g.status}`}>
           <header className="quiz-card-header">
             <span className="muted small">第 {number} ゲーム</span>
-            <span className="game-format small">{GAME_FORMAT_LABEL[g.format]}</span>
+            <span className="game-format small">
+              <span aria-hidden="true">{FORMAT_ICON[g.format]} </span>
+              {GAME_FORMAT_LABEL[g.format]}
+            </span>
             <span className={`status status-${g.status}`}>{STATUS_LABEL[g.status]}</span>
             {g.status === "open" && hasGameAnswers(g) && (
               <span className="muted small">
@@ -339,6 +347,9 @@ export function AdminGames() {
                 確定を取り消す
               </button>
             )}
+            <button type="button" onClick={() => setPreviewing(g)}>
+              プレビュー
+            </button>
             {hasGameAnswers(g) && g.answerCount > 0 && (
               <button type="button" onClick={() => setAnswers(g)}>
                 回答者を見る
@@ -386,6 +397,13 @@ export function AdminGames() {
         />
       )}
       {answers && <GameAnswersDialog game={answers} onClose={() => setAnswers(undefined)} />}
+      {previewing && (
+        <GamePreviewDialog
+          game={previewing}
+          members={members.map((m) => m.user)}
+          onClose={() => setPreviewing(undefined)}
+        />
+      )}
     </section>
   );
 }
@@ -511,12 +529,34 @@ async function imageIdOf(image: ImageDraft): Promise<string | undefined> {
 
 const SLOT_PLACEHOLDERS = ["例: 優勝", "例: 準優勝", "例: ベスト 4"];
 
-/** 形式ごとの、作る画面の案内 */
+/** 形式を選ぶパネルの並び（参加者が答える形式を先に、結果入力を最後に） */
+const FORMAT_ORDER: GameFormat[] = [...GAME_FORMATS].sort((a, b) => Number(a === "result") - Number(b === "result"));
+
+/** 形式のアイコン（形式を選ぶパネルとカードに出す） */
+const FORMAT_ICON: Record<GameFormat, string> = {
+  quiz: "❓",
+  number: "🔢",
+  vote: "🗳️",
+  keyword: "🔑",
+  lottery: "🎲",
+  result: "🏆",
+};
+
+/** 形式ごとの、作る画面の案内（summary は形式を選ぶパネルの一言） */
 const FORMAT_TEXT: Record<
   GameFormat,
-  { about: string; name: string; descriptionLabel: string; description: string; imageLabel: string; note: string }
+  {
+    summary: string;
+    about: string;
+    name: string;
+    descriptionLabel: string;
+    description: string;
+    imageLabel: string;
+    note: string;
+  }
 > = {
   quiz: {
+    summary: "選択肢から選ぶ",
     about: "参加者がスマホで選択肢から選び、選んだ答えの点数が入ります",
     name: "例: 第 1 問",
     descriptionLabel: "問題文",
@@ -525,6 +565,7 @@ const FORMAT_TEXT: Record<
     note: "正解は 10 点、惜しい答えは 5 点のように、選択肢ごとに点数を決められます。参加者には点数は見せません。",
   },
   number: {
+    summary: "数を予想する",
     about: `参加者が数（${GAME_NUMBER_MIN}〜${GAME_NUMBER_MAX}）を予想し、正解に近い順の順位で点数が入ります`,
     name: "例: 瓶の中の飴の数",
     descriptionLabel: "問題文",
@@ -533,6 +574,7 @@ const FORMAT_TEXT: Record<
     note: "正解に近い順に順位を付け、順位が入る範囲の点数が入ります（同じだけ離れた人は同じ順位。どの範囲にも入らない順位は 0 点）。順位の範囲は参加者にも見せ、正解の数は見せません。",
   },
   vote: {
+    summary: "1 人に投票する",
     about: "参加者が全員の中から 1 人に投票し、票の多い順の順位で選ばれた人に点数が入ります",
     name: "例: 今日の MVP",
     descriptionLabel: "説明（任意）",
@@ -541,6 +583,7 @@ const FORMAT_TEXT: Record<
     note: "票の多い順に順位を付け、選ばれた人に順位が入る範囲の点数が入ります（同じ票数は同じ順位。0 票の人とどの範囲にも入らない順位は 0 点）。自分と、紐づけを解除した人には投票できません。誰が誰に投票したかは参加者には見せません。",
   },
   keyword: {
+    summary: "見つけた言葉を入れる",
     about: "会場で見つけた合言葉を参加者が入れ、正解した順（先着順）で点数が入ります",
     name: "例: 宝探し",
     descriptionLabel: "説明（任意）",
@@ -549,6 +592,7 @@ const FORMAT_TEXT: Record<
     note: "正解した順に番号を付け、番号が入る範囲の点数が入ります（どの範囲にも入らない番号は 0 点）。全角・半角、大文字・小文字、カタカナ・ひらがな、空白の違いは同じ言葉として扱います。合言葉は参加者には見せません。",
   },
   lottery: {
+    summary: "参加して抽選",
     about: "参加者が「参加する」を押し、確定したときにアプリが無作為に決めた順番で点数が入ります",
     name: "例: ラッキー賞",
     descriptionLabel: "説明（任意）",
@@ -557,6 +601,7 @@ const FORMAT_TEXT: Record<
     note: "確定したときに、参加した人の順番を無作為に決めて保存し、順番が入る範囲の点数が入ります（どの範囲にも入らない人は 0 点）。確定した後に範囲や点数を直しても、順番は変わりません。確定を取り消してもう一度確定すると、引き直します。",
   },
   result: {
+    summary: "幹事が結果を入れる",
     about: "じゃんけん大会などの結果で、枠（優勝など）ごとに人を選んで点数を付けます",
     name: "例: じゃんけん大会",
     descriptionLabel: "説明（任意）",
@@ -706,15 +751,19 @@ function GameFormDialog(props: {
         ) : (
           <fieldset className="game-format-choice">
             <legend>形式</legend>
-            {GAME_FORMATS.map((f) => (
-              <label key={f}>
-                <input type="radio" name="format" checked={format === f} onChange={() => setFormat(f)} />
-                <span className="game-format-text">
+            <div className="game-format-panels">
+              {FORMAT_ORDER.map((f) => (
+                <label key={f} className={format === f ? "game-format-panel selected" : "game-format-panel"}>
+                  <input type="radio" name="format" checked={format === f} onChange={() => setFormat(f)} />
+                  <span className="game-format-icon" aria-hidden="true">
+                    {FORMAT_ICON[f]}
+                  </span>
                   <strong>{GAME_FORMAT_LABEL[f]}</strong>
-                  <span className="muted small">{FORMAT_TEXT[f].about}</span>
-                </span>
-              </label>
-            ))}
+                  <span className="muted small">{FORMAT_TEXT[f].summary}</span>
+                </label>
+              ))}
+            </div>
+            <p className="small game-format-about">{FORMAT_TEXT[format].about}</p>
           </fieldset>
         )}
         <label className="field">
@@ -1128,6 +1177,105 @@ function NumberAnswers(props: { game: GameDto; answers: GameAnswersResponse["ans
         </tbody>
       </table>
     </>
+  );
+}
+
+/** 参加者の画面で見せる形（参加者に返す内容と同じく、点数・正解・合言葉は含めない） */
+function toPreviewGame(game: GameDto): CurrentGameDto {
+  return {
+    gameId: game.gameId,
+    format: game.format,
+    name: game.name,
+    description: game.description,
+    imageUrl: game.imageUrl,
+    slots: game.slots.map(({ name, points }) => ({ name, points })),
+    choices: game.choices.map(({ choiceId, text, imageUrl }) => ({ choiceId, text, imageUrl })),
+    ranks: game.ranks,
+    voterPoints: game.voterPoints,
+    myKeywordCorrect: game.format === "keyword" ? false : undefined,
+    myEntry: game.format === "lottery" ? false : undefined,
+  };
+}
+
+/**
+ * 参加者の画面のプレビュー。スマホの大きさの枠に、お知らせとゲームの画面を出す（参加者の画面と同じ部品）。
+ * 答えはこの画面の中だけで試せて、保存しない。投票の候補は登録済みの参加者から出す
+ */
+function GamePreviewDialog(props: { game: GameDto; members: UserDto[]; onClose: () => void }) {
+  const { game } = props;
+  const [current, setCurrent] = useState(() => toPreviewGame(game));
+  /** 「答える前に戻す」で入力中の内容も消すよう、画面を作り直す印 */
+  const [resetKey, setResetKey] = useState(0);
+  const banner = gameBannerText(current);
+  const candidates = useMemo(
+    () =>
+      props.members
+        .filter((u) => u.status === "active")
+        .map((u) => ({ userId: u.userId, displayName: u.displayName }))
+        .sort((a, b) => a.displayName.localeCompare(b.displayName, "ja")),
+    [props.members],
+  );
+  const loadCandidates = useCallback(async () => candidates, [candidates]);
+  const noop = useCallback(() => {}, []);
+
+  // 送らずに、参加者の画面が答えた後どう変わるかだけ見せる
+  async function onAnswer(body: GameAnswerBody): Promise<GameAnswerResponse> {
+    const correct = "text" in body ? normalizeKeyword(body.text) === normalizeKeyword(game.keyword ?? "") : undefined;
+    const next: CurrentGameDto =
+      "choiceId" in body
+        ? { ...current, myChoiceId: body.choiceId }
+        : "value" in body
+          ? { ...current, myValue: body.value }
+          : "targetUserId" in body
+            ? { ...current, myTargetUserId: body.targetUserId }
+            : "entry" in body
+              ? { ...current, myEntry: true }
+              : { ...current, myKeywordCorrect: current.myKeywordCorrect || correct };
+    setCurrent(next);
+    return { game: next, correct };
+  }
+
+  return (
+    <Modal className="dialog game-preview-dialog" label="プレビュー" onClose={props.onClose}>
+      <div className="card">
+        <h2>プレビュー</h2>
+        <p className="muted small">
+          開催したときの参加者のスマホの画面です。答えはここで試せますが、保存はしません。
+          {game.status === "draft" && "下書きのうちは、参加者には見えません。"}
+        </p>
+        <div className="game-preview-phone">
+          <div className="participant game-preview-screen">
+            <main className="page">
+              <div className="quiz-banner" aria-hidden="true">
+                <strong>{banner.title}</strong>
+                <span className="quiz-banner-sub">{banner.note}</span>
+              </div>
+              <GameView
+                key={resetKey}
+                game={current}
+                onAnswer={onAnswer}
+                loadCandidates={loadCandidates}
+                onClosed={noop}
+              />
+            </main>
+          </div>
+        </div>
+        <div className="buttons">
+          <button
+            type="button"
+            onClick={() => {
+              setCurrent(toPreviewGame(game));
+              setResetKey((k) => k + 1);
+            }}
+          >
+            答える前に戻す
+          </button>
+          <button type="button" onClick={props.onClose}>
+            閉じる
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
