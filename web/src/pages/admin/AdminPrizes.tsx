@@ -4,7 +4,6 @@ import {
   PRIZE_NAME_MAX_LENGTH,
   PRIZE_QUANTITY_MAX,
   type PrizeDto,
-  type PrizeImageUploadResponse,
   type PrizeResponse,
   type PrizesResponse,
   parsePositions,
@@ -18,7 +17,8 @@ import { PageTitle } from "../../components/PageTitle";
 import { PrizeChips, PrizeImage } from "../../components/PrizeChips";
 import { useOnReload } from "../../hooks/useReload";
 import { processImage } from "../../photos/process";
-import { PrizeTransferButtons, upload } from "./PrizeTransfer";
+import { PrizeTransferButtons } from "./PrizeTransfer";
+import { uploadPrizeImage } from "./prizeImage";
 
 /**
  * 景品の登録と、順位（上から何番目の人か）への割り当て。1 つの景品は数量の分だけ順位に割り当てられ、
@@ -201,11 +201,7 @@ function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved
     setError(undefined);
     try {
       let imageId = image === null ? undefined : prize?.imageId;
-      if (image) {
-        const res = await api<PrizeImageUploadResponse>("POST", "/admin/prizes/image-upload");
-        await upload(res.upload, image.blob);
-        imageId = res.imageId;
-      }
+      if (image) imageId = await uploadPrizeImage(image.blob);
       const body = { name, quantity, positions, imageId };
       if (prize) await api<PrizeResponse>("PUT", `/admin/prizes/${prize.prizeId}`, body);
       else await api<PrizeResponse>("POST", "/admin/prizes", body);

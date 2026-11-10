@@ -1,16 +1,16 @@
 import {
   formatPositions,
   PRIZE_IMAGE_MAX_EDGE,
-  type PresignedPost,
   type PrizeDto,
-  type PrizeImageUploadResponse,
   type PrizeResponse,
+  type PrizesResponse,
 } from "@partally/shared";
 import type { PrizeArchiveItem } from "@partally/shared/prize-archive";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../../api";
 import { Modal } from "../../components/Modal";
 import { processImage } from "../../photos/process";
+import { uploadPrizeImage } from "./prizeImage";
 
 /** ZIP のライブラリは使うときだけ読み込む（管理画面のほかのページを重くしない） */
 const loadArchive = () => import("@partally/shared/prize-archive");
@@ -30,13 +30,17 @@ export function PrizeTransferButtons(props: { prizes: PrizeDto[] | undefined; on
     if (!prizes || prizes.length === 0) return;
     setExporting(true);
     try {
-      const { buildPrizeArchive } = await loadArchive();
+      const [{ buildPrizeArchive }, latest] = await Promise.all([
+        loadArchive(),
+        // 画像の署名付き URL には期限があるので、開いたままの一覧ではなく今の一覧から取る
+        api<PrizesResponse>("GET", "/admin/prizes"),
+      ]);
       const items = await Promise.all(
-        prizes.map(async (p) => ({
+        latest.prizes.map(async (p) => ({
           name: p.name,
           quantity: p.quantity,
           positions: p.positions,
-          image: p.imageUrl ? await fetchBytes(p.imageUrl) : undefined,
+          image: p.imageUrl ? await fetchImage(p.imageUrl, p.name) : undefined,
         })),
       );
       const now = new Date();
@@ -112,17 +116,15 @@ function ImportDialog(props: {
   const [running, setRunning] = useState(false);
   const [finished, setFinished] = useState(false);
 
-  // 画像のプレビュー用 URL。閉じるときに解放する
-  const urls = useMemo(
-    () => items.map((p) => (p.image ? URL.createObjectURL(new Blob([p.image as BlobPart])) : undefined)),
-    [items],
-  );
-  useEffect(
-    () => () => {
-      for (const u of urls) if (u) URL.revokeObjectURL(u);
-    },
-    [urls],
-  );
+  // 画像のプレビュー用 URL。作った effect の片付けで解放する（作り直しても、表示中の URL を解放しないように）
+  const [urls, setUrls] = useState<(string | undefined)[]>([]);
+  useEffect(() => {
+    const created = items.map((p) => (p.image ? URL.createObjectURL(imageFile(p.image)) : undefined));
+    setUrls(created);
+    return () => {
+      for (const u of created) if (u) URL.revokeObjectURL(u);
+    };
+  }, [items]);
 
   /**
    * 1 件ずつ登録する。置き換えのときは、すべて登録できてから今の景品を消す
@@ -143,10 +145,8 @@ function ImportDialog(props: {
         setProgress(`取り込み中… ${done + 1} / ${items.length}`);
         let imageId: string | undefined;
         if (item.image) {
-          const jpeg = await processImage(new File([item.image as BlobPart], "prize"), PRIZE_IMAGE_MAX_EDGE);
-          const res = await api<PrizeImageUploadResponse>("POST", "/admin/prizes/image-upload");
-          await upload(res.upload, jpeg);
-          imageId = res.imageId;
+          const jpeg = await processImage(imageFile(item.image), PRIZE_IMAGE_MAX_EDGE);
+          imageId = await uploadPrizeImage(jpeg);
         }
         await api<PrizeResponse>("POST", "/admin/prizes", {
           name: item.name,
@@ -250,10 +250,31 @@ function ImportDialog(props: {
   );
 }
 
-async function fetchBytes(url: string): Promise<Uint8Array> {
+async function fetchImage(url: string, name: string): Promise<Uint8Array> {
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`画像を取得できませんでした（${res.status}）`);
+  if (!res.ok) throw new Error(`「${name}」の画像を取得できませんでした（${res.status}）`);
   return new Uint8Array(await res.arrayBuffer());
+}
+
+/**
+ * ZIP の中の画像をファイルにする。種類は先頭のバイトで見分ける（拡張子が違っていても読めるように。
+ * HEIC はブラウザによっては変換が要るので、種類を付けて processImage に知らせる）
+ */
+function imageFile(bytes: Uint8Array): File {
+  const ascii = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to));
+  const type =
+    bytes[0] === 0xff && bytes[1] === 0xd8
+      ? "image/jpeg"
+      : ascii(1, 4) === "PNG"
+        ? "image/png"
+        : ascii(0, 3) === "GIF"
+          ? "image/gif"
+          : ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP"
+            ? "image/webp"
+            : ascii(4, 8) === "ftyp" && /^(heic|heix|hevc|mif1|msf1)$/.test(ascii(8, 12))
+              ? "image/heic"
+              : "";
+  return new File([bytes as BlobPart], "prize", { type });
 }
 
 function download(blob: Blob, filename: string) {
@@ -270,12 +291,4 @@ function download(blob: Blob, filename: string) {
 function dateStamp(d: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
-}
-
-export async function upload(target: PresignedPost, blob: Blob) {
-  const form = new FormData();
-  for (const [k, v] of Object.entries(target.fields)) form.append(k, v);
-  form.append("file", blob, "prize.jpg");
-  const res = await fetch(target.url, { method: "POST", body: form });
-  if (!res.ok) throw new Error(`画像のアップロードに失敗しました（${res.status}）`);
 }
