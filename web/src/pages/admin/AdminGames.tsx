@@ -68,6 +68,8 @@ function gameBody(game: GameDto) {
     choices: game.choices.map(({ choiceId, text, points, imageId }) => ({ choiceId, text, points, imageId })),
     ranks: game.ranks.map(({ from, to, points }) => ({ from, to, points })),
     correctNumber: game.correctNumber,
+    voterPoints: game.format === "vote" ? game.voterPoints : undefined,
+    keyword: game.keyword,
   };
 }
 
@@ -503,13 +505,14 @@ const SLOT_PLACEHOLDERS = ["例: 優勝", "例: 準優勝", "例: ベスト 4"];
 /** 形式ごとの、作る画面の案内 */
 const FORMAT_TEXT: Record<
   GameFormat,
-  { about: string; name: string; descriptionLabel: string; description: string; note: string }
+  { about: string; name: string; descriptionLabel: string; description: string; imageLabel: string; note: string }
 > = {
   quiz: {
     about: "参加者がスマホで選択肢から選び、選んだ答えの点数が入ります",
     name: "例: 第 1 問",
     descriptionLabel: "問題文",
     description: "例: 幹事の出身地は？",
+    imageLabel: "問題の画像（任意）",
     note: "正解は 10 点、惜しい答えは 5 点のように、選択肢ごとに点数を決められます。参加者には点数は見せません。",
   },
   number: {
@@ -517,6 +520,7 @@ const FORMAT_TEXT: Record<
     name: "例: 瓶の中の飴の数",
     descriptionLabel: "問題文",
     description: "例: 瓶の中に飴は何個入っている？",
+    imageLabel: "問題の画像（任意）",
     note: "正解に近い順に順位を付け、順位が入る範囲の点数が入ります（同じだけ離れた人は同じ順位。どの範囲にも入らない順位は 0 点）。順位の範囲は参加者にも見せ、正解の数は見せません。",
   },
   vote: {
@@ -524,6 +528,7 @@ const FORMAT_TEXT: Record<
     name: "例: 今日の MVP",
     descriptionLabel: "説明（任意）",
     description: "例: 今日いちばん盛り上げた人に投票してください",
+    imageLabel: "画像（任意）",
     note: "票の多い順に順位を付け、選ばれた人に順位が入る範囲の点数が入ります（同じ票数は同じ順位。0 票の人とどの範囲にも入らない順位は 0 点）。自分と、紐づけを解除した人には投票できません。誰が誰に投票したかは参加者には見せません。",
   },
   keyword: {
@@ -531,6 +536,7 @@ const FORMAT_TEXT: Record<
     name: "例: 宝探し",
     descriptionLabel: "説明（任意）",
     description: "例: 会場のどこかに合言葉が隠れています。見つけたら入れてください",
+    imageLabel: "画像（任意）",
     note: "正解した順に番号を付け、番号が入る範囲の点数が入ります（どの範囲にも入らない番号は 0 点）。全角・半角、大文字・小文字、カタカナ・ひらがな、空白の違いは同じ言葉として扱います。合言葉は参加者には見せません。",
   },
   result: {
@@ -538,6 +544,7 @@ const FORMAT_TEXT: Record<
     name: "例: じゃんけん大会",
     descriptionLabel: "説明（任意）",
     description: "例: 負けた人は座ってください。最後まで残った人が優勝です",
+    imageLabel: "画像（任意）",
     note: "枠は後から追加することもできます（枠が無いゲームは確定できません）。人は、保存した後に枠ごとの「人を選ぶ」で選びます。枠を削除すると、その枠で選んだ人も外れます。",
   },
 };
@@ -715,13 +722,7 @@ function GameFormDialog(props: {
           />
           <span className="muted small">参加者のゲームの画面に出ます。</span>
         </label>
-        <ImageField
-          label={text.descriptionLabel === "問題文" ? "問題の画像（任意）" : "画像（任意）"}
-          image={image}
-          onChange={setImage}
-          onPicked={track}
-          disabled={saving}
-        />
+        <ImageField label={text.imageLabel} image={image} onChange={setImage} onPicked={track} disabled={saving} />
         {ranked && (
           <>
             {numberGame && (

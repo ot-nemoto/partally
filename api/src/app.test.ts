@@ -1278,34 +1278,43 @@ describe("API", () => {
       // 正解した順は時刻で決まるので、1 秒ずつ進める
       let t = Date.now();
       vi.useFakeTimers({ toFake: ["Date"] });
-      const tick = () => {
-        t += 1000;
-        vi.setSystemTime(t);
-      };
-      // 表記の揺れは同じ言葉として扱う。正解の順: B, A, D, C（E は不正解のまま）
-      tick();
-      expect((await send(people[1]!, "ﾊﾟｰﾃｨｰ")).body).toMatchObject({ correct: true, game: { myKeywordCorrect: true } });
-      tick();
-      await send(people[0]!, "ぱーてぃー");
-      tick();
-      await send(people[3]!, "パー ティー");
-      tick();
-      await send(people[2]!, "パーティー");
-      await send(people[4]!, "違う");
-      // 正解した後に送っても、最初に正解した時刻のまま
-      tick();
-      expect((await send(people[1]!, "パーティー")).body.correct).toBe(true);
-      expect((await send(people[1]!, "違う")).body).toMatchObject({ correct: false, game: { myKeywordCorrect: true } });
-      expect((await people[1]!.request("GET", "/api/game/current")).body.game.myKeywordCorrect).toBe(true);
-      expect((await me(people[1]!.request)).gamePoints).toBe(0);
+      try {
+        const tick = () => {
+          t += 1000;
+          vi.setSystemTime(t);
+        };
+        // 表記の揺れは同じ言葉として扱う。正解の順: B, A, D, C（E は不正解のまま）
+        tick();
+        expect((await send(people[1]!, "ﾊﾟｰﾃｨｰ")).body).toMatchObject({
+          correct: true,
+          game: { myKeywordCorrect: true },
+        });
+        tick();
+        await send(people[0]!, "ぱーてぃー");
+        tick();
+        await send(people[3]!, "パー ティー");
+        tick();
+        await send(people[2]!, "パーティー");
+        await send(people[4]!, "違う");
+        // 正解した後に送っても、最初に正解した時刻のまま
+        tick();
+        expect((await send(people[1]!, "パーティー")).body.correct).toBe(true);
+        expect((await send(people[1]!, "違う")).body).toMatchObject({
+          correct: false,
+          game: { myKeywordCorrect: true },
+        });
+        expect((await people[1]!.request("GET", "/api/game/current")).body.game.myKeywordCorrect).toBe(true);
+        expect((await me(people[1]!.request)).gamePoints).toBe(0);
 
-      const answers = (await admin("GET", `/api/admin/games/${game.gameId}/answers`)).body.answers;
-      expect(answers).toHaveLength(4);
-      expect(answers[0]).toMatchObject({ userId: people[1]!.userId, text: "ﾊﾟｰﾃｨｰ" });
+        const answers = (await admin("GET", `/api/admin/games/${game.gameId}/answers`)).body.answers;
+        expect(answers).toHaveLength(4);
+        expect(answers[0]).toMatchObject({ userId: people[1]!.userId, text: "ﾊﾟｰﾃｨｰ" });
 
-      tick();
-      expect((await admin("POST", `/api/admin/games/${game.gameId}/confirm`)).status).toBe(200);
-      vi.useRealTimers();
+        tick();
+        expect((await admin("POST", `/api/admin/games/${game.gameId}/confirm`)).status).toBe(200);
+      } finally {
+        vi.useRealTimers();
+      }
       const pts = await Promise.all(people.map(async (p) => (await me(p.request)).gamePoints));
       expect(pts).toEqual([5, 20, 0, 5, 0]);
       expect((await me(people[1]!.request)).gameAwards).toEqual([

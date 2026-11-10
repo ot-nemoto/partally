@@ -371,8 +371,8 @@ function KeywordSection(props: {
     if (!text.trim()) return;
     const res = await props.onSend(text);
     if (res?.correct === undefined) return;
+    // 不正解でも入れた言葉は残す（打ち間違いを直して送り直せるように）
     setResult(res.correct);
-    if (!res.correct) setText("");
   }
 
   return (
