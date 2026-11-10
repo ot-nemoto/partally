@@ -120,6 +120,8 @@ export interface GameRecord {
   voterPoints: number;
   /** 合言葉（ほかの形式では無い） */
   keyword?: string;
+  /** 抽選で、確定したときに決めた順番（userId の並び）。確定を取り消すと消える */
+  drawOrder?: string[];
   createdAt: string;
   updatedAt: string;
   /** 最後に開催した時刻 */
@@ -146,6 +148,8 @@ export interface GameAnswerRecord {
   targetUserId?: string;
   /** 合言葉で正解した言葉（正解したときだけ保存する） */
   text?: string;
+  /** 抽選に参加した */
+  entry?: boolean;
   answeredAt: string;
 }
 
@@ -363,7 +367,14 @@ export interface Repository {
    * 確定（confirmed）にすると confirmedAt を付け、確定から戻すと消す。開催すると openedAt を付ける。
    * @throws NotFoundError / InvalidStateError 今の状態が from でない / GameAlreadyOpenError 別のゲームが開催中
    */
-  changeGameStatus(gameId: string, from: GameStatus, to: GameStatus, at: string): Promise<GameRecord>;
+  changeGameStatus(
+    gameId: string,
+    from: GameStatus,
+    to: GameStatus,
+    at: string,
+    /** 確定するときに保存する抽選の順番（確定から戻すと消える） */
+    drawOrder?: string[],
+  ): Promise<GameRecord>;
   /** 開催中のゲームの ID */
   getOpenGameId(): Promise<string | undefined>;
   /** ゲームと、その答えを削除する。@throws NotFoundError / InvalidStateError 開催中 */

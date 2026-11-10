@@ -297,7 +297,7 @@ export class MemoryRepository implements Repository {
     return clone(game);
   }
 
-  async changeGameStatus(gameId: string, from: GameStatus, to: GameStatus, at: string) {
+  async changeGameStatus(gameId: string, from: GameStatus, to: GameStatus, at: string, drawOrder?: string[]) {
     const game = this.games.get(gameId);
     if (!game) throw new NotFoundError();
     if (game.status !== from || from === to) throw new InvalidStateError();
@@ -307,8 +307,14 @@ export class MemoryRepository implements Repository {
       game.openedAt = at;
     }
     if (from === "open") this.openGameId = undefined;
-    if (to === "confirmed") game.confirmedAt = at;
-    if (from === "confirmed") delete game.confirmedAt;
+    if (to === "confirmed") {
+      game.confirmedAt = at;
+      if (drawOrder) game.drawOrder = [...drawOrder];
+    }
+    if (from === "confirmed") {
+      delete game.confirmedAt;
+      delete game.drawOrder;
+    }
     game.status = to;
     game.updatedAt = at;
     return clone(game);

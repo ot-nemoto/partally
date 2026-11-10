@@ -330,6 +330,8 @@ export interface GameDto {
   voterPoints: number;
   /** 合言葉（管理画面だけ） */
   keyword?: string;
+  /** 抽選で、確定したときに決めた順番（userId の並び。確定するまでは無い） */
+  drawOrder?: string[];
   /** クイズ・数値予想・投票で答えた人数 */
   answerCount: number;
   createdAt: string;
@@ -367,6 +369,8 @@ export interface CurrentGameDto {
   myTargetUserId?: string;
   /** 合言葉で、自分が正解したか（合言葉そのものは返さない） */
   myKeywordCorrect?: boolean;
+  /** 抽選で、自分が参加したか */
+  myEntry?: boolean;
 }
 
 /** 投票で選べる人 */
@@ -409,6 +413,8 @@ export interface GameAnswerDto {
   targetDisplayName?: string;
   /** 合言葉で正解した言葉（正解したときだけ保存する） */
   text?: string;
+  /** 抽選に参加した */
+  entry?: boolean;
   answeredAt: string;
 }
 
@@ -421,7 +427,7 @@ export interface GameAnswersResponse {
 /** 参加者に見せる、自分に点数が入ったゲーム（結果入力なら入った枠、クイズなら選んだ答え） */
 export interface GameAwardDto {
   gameName: string;
-  /** 結果入力なら枠の名前、クイズなら選んだ選択肢、数値予想なら順位と答えた数（例: 3 位（予想 42））、投票なら順位と票数（例: 1 位（5 票））か「投票」、合言葉なら正解した順（例: 3 番目に正解） */
+  /** 結果入力なら枠の名前、クイズなら選んだ選択肢、数値予想なら順位と答えた数（例: 3 位（予想 42））、投票なら順位と票数（例: 1 位（5 票））か「投票」、合言葉なら正解した順（例: 3 番目に正解）、抽選なら当たった範囲（例: 2〜5 等に当選） */
   slotName: string;
   points: number;
 }

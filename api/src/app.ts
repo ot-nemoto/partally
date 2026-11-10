@@ -4,6 +4,7 @@ import {
   adminLoginRequestSchema,
   type CurrentGameDto,
   formatDisplayName,
+  formatRankRange,
   type GameAwardDto,
   type GameDto,
   type GameRequest,
@@ -33,6 +34,7 @@ import {
   type ScheduleItemDto,
   type Settings,
   scheduleItemRequestSchema,
+  shuffle,
   type TokenDto,
   tallyVotes,
   type UserDto,
@@ -432,7 +434,7 @@ export function createApp(deps: AppDeps) {
     if (!body.ok) return body.response;
     const game = await repo.getGame(c.req.param("gameId") ?? "");
     if (!game) return fail(c, 404, "not_found");
-    const { choiceId, value, targetUserId, text } = body.data;
+    const { choiceId, value, targetUserId, text, entry } = body.data;
     const userId = c.get("user").userId;
     // クイズは選択肢、数値予想は数、投票は人で答える（形式に合わない答えや、結果入力への答えは受け付けない）
     const fits =
@@ -442,7 +444,9 @@ export function createApp(deps: AppDeps) {
           ? value !== undefined
           : game.format === "vote"
             ? targetUserId !== undefined
-            : game.format === "keyword" && text !== undefined;
+            : game.format === "keyword"
+              ? text !== undefined
+              : game.format === "lottery" && entry !== undefined;
     if (!fits) return fail(c, 400, "bad_request", "このゲームには、その形では答えられません");
     if (game.status !== "open") return fail(c, 409, "game_closed");
     if (choiceId !== undefined && !game.choices.some((ch) => ch.choiceId === choiceId)) {
@@ -469,6 +473,7 @@ export function createApp(deps: AppDeps) {
       value,
       targetUserId,
       text,
+      entry,
       answeredAt: now().toISOString(),
     };
     await repo.putGameAnswer(answer);
@@ -874,6 +879,7 @@ export function createApp(deps: AppDeps) {
             targetUserId: a.targetUserId,
             targetDisplayName: nameOf(a.targetUserId),
             text: a.text,
+            entry: a.entry,
             answeredAt: a.answeredAt,
           };
         }),
@@ -1026,9 +1032,24 @@ export function createApp(deps: AppDeps) {
   });
 
   /** 状態を変える。from は今の状態の前提（違えば 409） */
+  /**
+   * 抽選の順番を決める。確定までに参加した人のうち、紐づけを解除した人（会場を離れた人）は除く。
+   * 乱数の前に userId で並べ、同じ乱数なら同じ結果になるようにする
+   */
+  const drawLottery = async (game: GameRecord, at: string) => {
+    const entrants = (await repo.listGameAnswersByGame(game.gameId))
+      .filter((a) => a.entry && a.answeredAt <= at)
+      .map((a) => a.userId);
+    const active = (await repo.getUsers(entrants)).filter((u) => u.status === "active").map((u) => u.userId);
+    return shuffle(active.sort(), rand);
+  };
+
   const changeGameStatus = async (c: Context, game: GameRecord, to: GameRecord["status"], message: string) => {
     try {
-      const updated = await repo.changeGameStatus(game.gameId, game.status, to, now().toISOString());
+      const at = now().toISOString();
+      // 抽選は確定するときに、確定までに参加した人の順番を無作為に決めて保存する（確定し直すと引き直す）
+      const drawOrder = to === "confirmed" && game.format === "lottery" ? await drawLottery(game, at) : undefined;
+      const updated = await repo.changeGameStatus(game.gameId, game.status, to, at, drawOrder);
       const answers = hasGameAnswers(updated) ? await repo.listGameAnswersByGame(updated.gameId) : [];
       return c.json({ game: toGameDto(updated, answers, imageUrlOf) });
     } catch (e) {
@@ -1144,7 +1165,8 @@ interface GameAward extends GameAwardDto {
  * 確定したゲームで、誰に何点入ったか（確定した順）。下書き・開催中のゲームは数えない
  * （クイズを選び直して、点数の変化から正解が分からないように）。
  * 結果入力は枠に入った人に枠の点数、クイズは選んだ選択肢の点数、数値予想は正解に近い順の順位が入る範囲の点数、
- * 投票は得票の順位が入る範囲の点数（選ばれた人）と、投票した人の点数、合言葉は正解した順が入る範囲の点数。確定の直前に受け付けて確定の後に保存された答え
+ * 投票は得票の順位が入る範囲の点数（選ばれた人）と、投票した人の点数、合言葉は正解した順が入る範囲の点数、
+ * 抽選は確定したときに決めた順番が入る範囲の点数。確定の直前に受け付けて確定の後に保存された答え
  * （answeredAt > confirmedAt）は数えない
  */
 function gameAwards(entries: GameWithAnswers[]): GameAward[] {
@@ -1217,6 +1239,19 @@ function gameAwards(entries: GameWithAnswers[]): GameAward[] {
           gameName: game.name,
           slotName: `${i + 1} 番目に正解`,
           points: range?.points ?? 0,
+        });
+      });
+    } else if (game.format === "lottery") {
+      // 確定したときに決めた順番で、範囲に入った人に点数を入れる
+      (game.drawOrder ?? []).forEach((userId, i) => {
+        const range = game.ranks.find((r) => r.from <= i + 1 && i + 1 <= r.to);
+        if (!range) return;
+        awards.push({
+          userId,
+          at,
+          gameName: game.name,
+          slotName: `${formatRankRange(range, "等")}に当選`,
+          points: range.points,
         });
       });
     }
@@ -1466,6 +1501,7 @@ function toGameDto(game: GameRecord, answers: GameAnswerRecord[], imageUrlOf: Im
     correctNumber: game.correctNumber,
     voterPoints: game.voterPoints,
     keyword: game.keyword,
+    drawOrder: game.drawOrder,
     answerCount: answers.length,
     createdAt: game.createdAt,
     openedAt: game.openedAt,
@@ -1477,7 +1513,7 @@ function toGameDto(game: GameRecord, answers: GameAnswerRecord[], imageUrlOf: Im
 /** 参加者に返す開催中のゲーム。誰がどの枠に入ったかと、クイズの選択肢の点数（正解が分かる）は含めない */
 function toCurrentGameDto(
   game: GameRecord,
-  answer: Pick<GameAnswerRecord, "choiceId" | "value" | "targetUserId" | "text"> | undefined,
+  answer: Pick<GameAnswerRecord, "choiceId" | "value" | "targetUserId" | "text" | "entry"> | undefined,
   imageUrlOf: ImageUrlOf,
 ): CurrentGameDto {
   return {
@@ -1496,6 +1532,7 @@ function toCurrentGameDto(
     myTargetUserId: answer?.targetUserId,
     // 合言葉そのものは返さず、正解したかだけ返す
     myKeywordCorrect: game.format === "keyword" ? isKeywordCorrect(game, answer?.text) : undefined,
+    myEntry: game.format === "lottery" ? answer?.entry === true : undefined,
   };
 }
 

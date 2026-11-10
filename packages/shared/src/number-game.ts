@@ -60,9 +60,9 @@ export function tallyVotes(targetUserIds: string[], ranks: NumberRank[]): VoteRe
   });
 }
 
-/** 順位の単位（合言葉は正解した順なので「番目」） */
+/** 順位の単位（合言葉は正解した順なので「番目」、抽選は「等」） */
 export function rankUnit(format: string): string {
-  return format === "keyword" ? "番目" : "位";
+  return format === "keyword" ? "番目" : format === "lottery" ? "等" : "位";
 }
 
 /** 「1〜5 位」「3 位」のように書く */
@@ -75,9 +75,9 @@ export function hasGameAnswers(game: { format: string }): boolean {
   return game.format !== "result";
 }
 
-/** 順位の範囲で点数を決める形式か（数値予想・投票・合言葉） */
+/** 順位の範囲で点数を決める形式か（数値予想・投票・合言葉・抽選） */
 export function hasGameRanks(game: { format: string }): boolean {
-  return game.format === "number" || game.format === "vote" || game.format === "keyword";
+  return ["number", "vote", "keyword", "lottery"].includes(game.format);
 }
 
 /**
@@ -94,7 +94,7 @@ export function normalizeKeyword(input: string): string {
 
 /**
  * ゲームを確定できない理由（入るポイントが決まらない）。確定できるなら undefined。
- * 枠の無い結果入力、正解の数か点数の範囲が無い数値予想、点数の範囲が無い投票・合言葉は確定できない
+ * 枠の無い結果入力、正解の数か点数の範囲が無い数値予想、点数の範囲が無い投票・合言葉・抽選は確定できない
  */
 export function gameConfirmProblem(game: {
   format: string;
@@ -108,4 +108,17 @@ export function gameConfirmProblem(game: {
     return "点数の範囲を追加してから確定してください";
   }
   return undefined;
+}
+
+/**
+ * 抽選の順番を決める（Fisher–Yates）。randomInt(n) は 0 以上 n 未満の整数を返す。
+ * 渡した配列は変えない
+ */
+export function shuffle<T>(items: readonly T[], randomInt: (max: number) => number): T[] {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [result[i], result[j]] = [result[j]!, result[i]!];
+  }
+  return result;
 }

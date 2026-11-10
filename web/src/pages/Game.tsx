@@ -50,7 +50,7 @@ export function Game() {
   }, [gameId]);
 
   async function answer(
-    body: { choiceId: string } | { value: number } | { targetUserId: string } | { text: string },
+    body: { choiceId: string } | { value: number } | { targetUserId: string } | { text: string } | { entry: true },
     key: string,
   ): Promise<GameAnswerResponse | undefined> {
     if (!game) return;
@@ -122,6 +122,35 @@ export function Game() {
           <p className="muted small">
             {game.myChoiceId ? "回答しました。締め切りまでは選び直せます。" : "選択肢を 1 つ選んでください。"}
           </p>
+        </>
+      ) : game.format === "lottery" ? (
+        <>
+          <section className="card game-lottery">
+            {game.myEntry ? (
+              <>
+                <p className="game-keyword-result correct">参加しました</p>
+                <p className="muted small">締め切られると抽選し、当たった人にポイントが入ります。</p>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="primary game-lottery-entry"
+                  disabled={sending !== undefined}
+                  onClick={() => answer({ entry: true }, "entry")}
+                >
+                  参加する
+                </button>
+                <p className="muted small">押すと抽選に参加します。締め切られると抽選します。</p>
+              </>
+            )}
+            {error && <p className="error">{error}</p>}
+          </section>
+          <RankPoints
+            ranks={game.ranks}
+            unit="等"
+            note="締め切られたときに、参加した人の中から無作為に順番を決めます。"
+          />
         </>
       ) : game.format === "keyword" ? (
         <KeywordSection
