@@ -6,6 +6,7 @@ import { Link, NavLink, Outlet, useLocation, useOutletContext } from "react-rout
 import { ApiError, api, errorMessage } from "../api";
 import { useAutoRefresh } from "../hooks/useAutoRefresh";
 import { ReloadProvider } from "../hooks/useReload";
+import { gameBannerText } from "./GameView";
 
 /** 開催・確定にすぐ気づけるよう、表示中はこの間隔で開催中のゲームを確認する（文字だけの小さな通信） */
 const GAME_REFRESH_MS = 5_000;
@@ -131,8 +132,8 @@ export function ParticipantLayout() {
       <main className="page">
         {game && location.pathname !== "/game" && (
           <Link to="/game" className="quiz-banner">
-            <strong>{bannerTitle(game)}</strong>
-            <span className="quiz-banner-sub">{`${game.name}・${bannerNote(game)}`}</span>
+            <strong>{gameBannerText(game).title}</strong>
+            <span className="quiz-banner-sub">{gameBannerText(game).note}</span>
           </Link>
         )}
         <ReloadProvider value={reloadCount}>
@@ -160,30 +161,4 @@ export function ParticipantLayout() {
       </nav>
     </div>
   );
-}
-
-/** 開催中のゲームのお知らせの見出し */
-function bannerTitle(game: CurrentGameDto): string {
-  if (game.format === "vote") return "投票受付中";
-  if (game.format === "keyword") return "合言葉を受付中";
-  if (game.format === "lottery") return "抽選の参加受付中";
-  return game.format === "result" ? "ゲーム開催中" : "問題が出ています";
-}
-
-/** お知らせの案内（答えたかどうかで変える） */
-function bannerNote(game: CurrentGameDto): string {
-  switch (game.format) {
-    case "quiz":
-      return game.myChoiceId ? "回答済み（締め切りまで選び直せます）" : "タップして回答する";
-    case "number":
-      return game.myValue !== undefined ? "回答済み（締め切りまで答え直せます）" : "タップして数を予想する";
-    case "keyword":
-      return game.myKeywordCorrect ? "正解しました" : "タップして合言葉を入れる";
-    case "lottery":
-      return game.myEntry ? "参加済み（締め切られると抽選します）" : "タップして参加する";
-    case "vote":
-      return game.myTargetUserId ? "投票済み（締め切りまで選び直せます）" : "タップして投票する";
-    default:
-      return "タップして見る";
-  }
 }
