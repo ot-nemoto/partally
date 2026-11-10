@@ -1,4 +1,4 @@
-/** 数値予想の点数の範囲（from 位〜to 位に points） */
+/** 数値予想・投票の点数の範囲（from 位〜to 位に points） */
 export interface NumberRank {
   from: number;
   to: number;
@@ -34,19 +34,45 @@ export function rankNumberAnswers(values: number[], correct: number, ranks: Numb
   });
 }
 
+/** 投票で選ばれた人ごとの票数・順位・点数 */
+export interface VoteResult {
+  userId: string;
+  votes: number;
+  /** 順位。票の多い順で、同じ票数は同じ順位（1, 1, 3…） */
+  rank: number;
+  /** その順位が入る範囲の点数（どの範囲にも入らなければ 0） */
+  points: number;
+}
+
+/**
+ * 投票を数える。票を集めた人（0 票の人は含めない）を票の多い順に、順位と点数を付けて返す。
+ * 順位は「自分より票の多い人の数 + 1」。同じ票数の人は userId の順に並べる
+ */
+export function tallyVotes(targetUserIds: string[], ranks: NumberRank[]): VoteResult[] {
+  const counts = new Map<string, number>();
+  for (const id of targetUserIds) counts.set(id, (counts.get(id) ?? 0) + 1);
+  const sorted = [...counts].sort(([a, x], [b, y]) => y - x || a.localeCompare(b));
+  let rank = 0;
+  return sorted.map(([userId, votes], i) => {
+    if (i === 0 || sorted[i - 1]![1] !== votes) rank = i + 1;
+    const range = ranks.find((r) => r.from <= rank && rank <= r.to);
+    return { userId, votes, rank, points: range?.points ?? 0 };
+  });
+}
+
 /** 「1〜5 位」「3 位」のように書く */
 export function formatRankRange(range: Pick<NumberRank, "from" | "to">): string {
   return range.from === range.to ? `${range.from} 位` : `${range.from}〜${range.to} 位`;
 }
 
-/** 参加者が答える形式か（クイズ・数値予想） */
+/** 参加者が答える形式か（クイズ・数値予想・投票） */
 export function hasGameAnswers(game: { format: string }): boolean {
-  return game.format === "quiz" || game.format === "number";
+  return game.format === "quiz" || game.format === "number" || game.format === "vote";
 }
 
 /**
  * ゲームを確定できない理由（入るポイントが決まらない）。確定できるなら undefined。
- * 枠の無い結果入力と、正解の数か点数の範囲が無い数値予想は確定できない
+ * 枠の無い結果入力、正解の数か点数の範囲が無い数値予想、点数の範囲が無い投票は確定できない
  */
 export function gameConfirmProblem(game: {
   format: string;
@@ -56,6 +82,8 @@ export function gameConfirmProblem(game: {
 }): string | undefined {
   if (game.format === "result" && game.slots.length === 0) return "枠を追加してから確定してください";
   if (game.format === "number" && game.correctNumber === undefined) return "正解の数を入れてから確定してください";
-  if (game.format === "number" && game.ranks.length === 0) return "点数の範囲を追加してから確定してください";
+  if ((game.format === "number" || game.format === "vote") && game.ranks.length === 0) {
+    return "点数の範囲を追加してから確定してください";
+  }
   return undefined;
 }

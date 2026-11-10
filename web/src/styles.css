@@ -1809,6 +1809,20 @@ table.game-number-answers td.num {
   text-align: right;
 }
 
+table.game-number-answers td.game-voters {
+  min-width: 10rem;
+  white-space: normal;
+}
+
+.game-vote-search {
+  width: 100%;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.game-vote-mine {
+  margin-right: 0.25rem;
+}
+
 .member-picker h2 .small {
   font-weight: normal;
 }

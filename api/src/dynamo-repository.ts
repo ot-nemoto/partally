@@ -701,7 +701,10 @@ export class DynamoRepository implements Repository {
 
   async updateGame(
     gameId: string,
-    changes: Pick<GameRecord, "name" | "description" | "imageId" | "slots" | "choices" | "ranks" | "correctNumber">,
+    changes: Pick<
+      GameRecord,
+      "name" | "description" | "imageId" | "slots" | "choices" | "ranks" | "correctNumber" | "voterPoints"
+    >,
     updatedAt: string,
     expectedUpdatedAt?: string,
   ) {
@@ -712,6 +715,7 @@ export class DynamoRepository implements Repository {
       "slots = :slots",
       "choices = :choices",
       "ranks = :ranks",
+      "voterPoints = :voterPoints",
       "updatedAt = :updatedAt",
     ];
     const remove: string[] = [];
@@ -735,6 +739,7 @@ export class DynamoRepository implements Repository {
             ":choices": changes.choices,
             ":updatedAt": updatedAt,
             ":ranks": changes.ranks,
+            ":voterPoints": changes.voterPoints,
             ...(changes.imageId ? { ":imageId": changes.imageId } : {}),
             ...(changes.correctNumber !== undefined ? { ":correctNumber": changes.correctNumber } : {}),
             ...(check ? { ":expected": expectedUpdatedAt } : {}),
@@ -1051,6 +1056,7 @@ function toGameRecord(item: Record<string, unknown>): GameRecord {
       points: Number(r.points ?? 0),
     })),
     correctNumber: item.correctNumber === undefined ? undefined : Number(item.correctNumber),
+    voterPoints: Number(item.voterPoints ?? 0),
     slots: ((item.slots ?? []) as Record<string, unknown>[]).map((s) => ({
       slotId: s.slotId as string,
       name: s.name as string,
@@ -1070,6 +1076,7 @@ function toGameAnswerRecord(item: Record<string, unknown>): GameAnswerRecord {
     userId: item.userId as string,
     choiceId: item.choiceId as string | undefined,
     value: item.value === undefined ? undefined : Number(item.value),
+    targetUserId: item.targetUserId as string | undefined,
     answeredAt: item.answeredAt as string,
   };
 }

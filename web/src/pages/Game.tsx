@@ -1,5 +1,13 @@
-import { type CurrentGameResponse, formatRankRange, GAME_NUMBER_MAX, GAME_NUMBER_MIN } from "@partally/shared";
-import { useEffect, useRef, useState } from "react";
+import {
+  type CurrentGameDto,
+  type CurrentGameResponse,
+  formatRankRange,
+  GAME_NUMBER_MAX,
+  GAME_NUMBER_MIN,
+  type GameCandidateDto,
+  type GameCandidatesResponse,
+} from "@partally/shared";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../api";
 import { NumberField } from "../components/NumberField";
@@ -7,7 +15,8 @@ import { useParticipant } from "../components/ParticipantLayout";
 
 /**
  * 開催中のゲーム。クイズ形式は選択肢から選んで答え（確定されるまで選び直せる）、
- * 数値予想は数を入れて答え（確定されるまで答え直せる）、結果入力形式は説明と、枠ごとの点数を見せる
+ * 数値予想は数を入れて答え（確定されるまで答え直せる）、投票は参加者から 1 人を選ぶ（確定されるまで選び直せる）、
+ * 結果入力形式は説明と、枠ごとの点数を見せる
  */
 export function Game() {
   const { game, setGame, reloadUser } = useParticipant();
@@ -18,6 +27,8 @@ export function Game() {
   const [ended, setEnded] = useState(false);
   /** 数値予想で入れている数（空欄は NaN） */
   const [value, setValue] = useState(Number.NaN);
+  // 投票の候補を読み直さないよう、同じ関数を渡し続ける
+  const closeGame = useCallback(() => setGame(null), [setGame]);
 
   useEffect(() => {
     if (game) {
@@ -37,7 +48,7 @@ export function Game() {
     setValue(myValue ?? Number.NaN);
   }, [gameId]);
 
-  async function answer(body: { choiceId: string } | { value: number }, key: string) {
+  async function answer(body: { choiceId: string } | { value: number } | { targetUserId: string }, key: string) {
     if (!game) return;
     setSending(key);
     setError(undefined);
@@ -107,6 +118,14 @@ export function Game() {
             {game.myChoiceId ? "回答しました。締め切りまでは選び直せます。" : "選択肢を 1 つ選んでください。"}
           </p>
         </>
+      ) : game.format === "vote" ? (
+        <VoteSection
+          game={game}
+          sending={sending}
+          error={error}
+          onVote={(userId) => answer({ targetUserId: userId }, userId)}
+          onClosed={closeGame}
+        />
       ) : game.format === "number" ? (
         <>
           <form
@@ -142,23 +161,10 @@ export function Game() {
               )}
             </p>
           </form>
-          <section className="card">
-            {game.ranks.length > 0 ? (
-              <ul className="game-points">
-                {game.ranks.map((r) => (
-                  <li key={r.from}>
-                    <span>{formatRankRange(r)}</span>
-                    <span className="game-award-points">{r.points} 点</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="muted small">点数はこれから決まります。</p>
-            )}
-            <p className="muted small">
-              正解に近い順に順位が付き（同じだけ離れた人は同じ順位）、順位に応じた点数が入ります。
-            </p>
-          </section>
+          <RankPoints
+            ranks={game.ranks}
+            note="正解に近い順に順位が付き（同じだけ離れた人は同じ順位）、順位に応じた点数が入ります。"
+          />
         </>
       ) : (
         <section className="card">
@@ -178,6 +184,124 @@ export function Game() {
           <p className="muted small">結果が決まると、入った枠の点数がポイントに入ります。</p>
         </section>
       )}
+    </>
+  );
+}
+
+/** 順位の範囲ごとの点数（数値予想・投票） */
+function RankPoints(props: { ranks: CurrentGameDto["ranks"]; note: string }) {
+  return (
+    <section className="card">
+      {props.ranks.length > 0 ? (
+        <ul className="game-points">
+          {props.ranks.map((r) => (
+            <li key={r.from}>
+              <span>{formatRankRange(r)}</span>
+              <span className="game-award-points">{r.points} 点</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted small">点数はこれから決まります。</p>
+      )}
+      <p className="muted small">{props.note}</p>
+    </section>
+  );
+}
+
+/** 絞り込み用に、全角・半角や大文字・小文字の違いをなくす */
+const fold = (s: string) => s.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+
+/**
+ * 投票。選べる人（自分と、紐づけを解除した人を除く全員）は、開いたときに 1 回だけ読む。
+ * 名前・二つ名で絞り込み、押すとその人に投票する（確定されるまで選び直せる）
+ */
+function VoteSection(props: {
+  game: CurrentGameDto;
+  sending?: string;
+  error?: string;
+  onVote: (userId: string) => void;
+  onClosed: () => void;
+}) {
+  const { game, onClosed } = props;
+  const [candidates, setCandidates] = useState<GameCandidateDto[]>();
+  const [loadError, setLoadError] = useState<string>();
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setCandidates(undefined);
+    setLoadError(undefined);
+    api<GameCandidatesResponse>("GET", `/game/${game.gameId}/candidates`)
+      .then((res) => active && setCandidates(res.candidates))
+      .catch((e) => {
+        if (!active) return;
+        if (e instanceof ApiError && e.code === "game_closed") onClosed();
+        else setLoadError(errorMessage(e));
+      });
+    return () => {
+      active = false;
+    };
+  }, [game.gameId, onClosed]);
+
+  const mine = candidates?.find((c) => c.userId === game.myTargetUserId);
+  const q = fold(query);
+  const shown = candidates?.filter((c) => fold(c.displayName).includes(q));
+
+  return (
+    <>
+      <section className="card">
+        <p className="small" aria-live="polite">
+          {game.myTargetUserId ? (
+            <>
+              あなたの投票: <strong className="game-vote-mine">{mine?.displayName ?? "…"}</strong>
+              <span className="muted">（締め切りまでは選び直せます）</span>
+            </>
+          ) : (
+            <span className="muted">投票する人を 1 人選んでください。</span>
+          )}
+        </p>
+        <input
+          type="search"
+          className="game-vote-search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="名前・二つ名で探す"
+          aria-label="名前・二つ名で探す"
+        />
+        {props.error && <p className="error">{props.error}</p>}
+        {loadError && <p className="error">{loadError}</p>}
+        {!candidates && !loadError && <p className="muted">読み込み中…</p>}
+        {shown && shown.length === 0 && <p className="muted small">見つかりません。</p>}
+        <div className="quiz-choices game-vote-list">
+          {shown?.map((c) => {
+            const selected = game.myTargetUserId === c.userId;
+            return (
+              <button
+                key={c.userId}
+                type="button"
+                className={selected ? "quiz-choice selected" : "quiz-choice"}
+                aria-pressed={selected}
+                disabled={props.sending !== undefined}
+                onClick={() => props.onVote(c.userId)}
+              >
+                <span className="quiz-choice-text">
+                  <span className="quiz-check" aria-hidden="true">
+                    {selected ? "✓" : ""}
+                  </span>
+                  <span>{c.displayName}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+      <RankPoints
+        ranks={game.ranks}
+        note={`票の多い順に順位が付き（同じ票数は同じ順位）、選ばれた人に順位に応じた点数が入ります。${
+          game.voterPoints > 0 ? `投票した人にも ${game.voterPoints} 点入ります。` : ""
+        }誰が誰に投票したかは、ほかの参加者には見えません。`}
+      />
     </>
   );
 }

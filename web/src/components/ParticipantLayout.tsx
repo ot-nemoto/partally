@@ -127,18 +127,8 @@ export function ParticipantLayout() {
       <main className="page">
         {game && location.pathname !== "/game" && (
           <Link to="/game" className="quiz-banner">
-            <strong>{game.format === "result" ? "ゲーム開催中" : "問題が出ています"}</strong>
-            <span className="quiz-banner-sub">
-              {game.format === "quiz"
-                ? game.myChoiceId
-                  ? `${game.name}・回答済み（締め切りまで選び直せます）`
-                  : `${game.name}・タップして回答する`
-                : game.format === "number"
-                  ? game.myValue !== undefined
-                    ? `${game.name}・回答済み（締め切りまで答え直せます）`
-                    : `${game.name}・タップして数を予想する`
-                  : `${game.name}・タップして見る`}
-            </span>
+            <strong>{bannerTitle(game)}</strong>
+            <span className="quiz-banner-sub">{`${game.name}・${bannerNote(game)}`}</span>
           </Link>
         )}
         <ReloadProvider value={reloadCount}>
@@ -166,4 +156,24 @@ export function ParticipantLayout() {
       </nav>
     </div>
   );
+}
+
+/** 開催中のゲームのお知らせの見出し */
+function bannerTitle(game: CurrentGameDto): string {
+  if (game.format === "vote") return "投票受付中";
+  return game.format === "result" ? "ゲーム開催中" : "問題が出ています";
+}
+
+/** お知らせの案内（答えたかどうかで変える） */
+function bannerNote(game: CurrentGameDto): string {
+  switch (game.format) {
+    case "quiz":
+      return game.myChoiceId ? "回答済み（締め切りまで選び直せます）" : "タップして回答する";
+    case "number":
+      return game.myValue !== undefined ? "回答済み（締め切りまで答え直せます）" : "タップして数を予想する";
+    case "vote":
+      return game.myTargetUserId ? "投票済み（締め切りまで選び直せます）" : "タップして投票する";
+    default:
+      return "タップして見る";
+  }
 }

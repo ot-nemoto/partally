@@ -322,11 +322,13 @@ export interface GameDto {
   slots: GameSlotDto[];
   /** クイズ形式の選択肢（ほかの形式では空） */
   choices: GameChoiceDto[];
-  /** 数値予想の点数の範囲（ほかの形式では空） */
+  /** 数値予想・投票の点数の範囲（ほかの形式では空） */
   ranks: GameRankDto[];
   /** 数値予想の正解の数。まだ決めていなければ無い */
   correctNumber?: number;
-  /** クイズ・数値予想で答えた人数 */
+  /** 投票で、投票した人に入る点数（0 なら入らない） */
+  voterPoints: number;
+  /** クイズ・数値予想・投票で答えた人数 */
   answerCount: number;
   createdAt: string;
   /** 最後に開催した時刻 */
@@ -351,12 +353,27 @@ export interface CurrentGameDto {
   slots: { name: string; points: number }[];
   /** クイズ形式の選択肢（画像があれば、その URL） */
   choices: { choiceId: string; text: string; imageUrl?: string }[];
-  /** 数値予想の点数の範囲（正解の数は返さない） */
+  /** 数値予想・投票の点数の範囲（数値予想の正解の数は返さない） */
   ranks: GameRankDto[];
+  /** 投票で、投票した人に入る点数 */
+  voterPoints: number;
   /** クイズ形式で自分が選んでいる選択肢 */
   myChoiceId?: string;
   /** 数値予想で自分が答えている数 */
   myValue?: number;
+  /** 投票で自分が選んでいる人（表示名は候補の一覧から引く） */
+  myTargetUserId?: string;
+}
+
+/** 投票で選べる人 */
+export interface GameCandidateDto {
+  userId: string;
+  displayName: string;
+}
+
+/** 投票で選べる人の一覧（自分と、紐づけを解除した人は含めない） */
+export interface GameCandidatesResponse {
+  candidates: GameCandidateDto[];
 }
 
 export interface CurrentGameResponse {
@@ -378,10 +395,13 @@ export interface GameAnswerDto {
   choiceId?: string;
   /** 数値予想で答えた数 */
   value?: number;
+  /** 投票で選んだ人と、その表示名 */
+  targetUserId?: string;
+  targetDisplayName?: string;
   answeredAt: string;
 }
 
-/** クイズ・数値予想のゲームと、答えた人の一覧（管理画面） */
+/** クイズ・数値予想・投票のゲームと、答えた人の一覧（管理画面） */
 export interface GameAnswersResponse {
   game: GameDto;
   answers: GameAnswerDto[];
@@ -390,7 +410,7 @@ export interface GameAnswersResponse {
 /** 参加者に見せる、自分に点数が入ったゲーム（結果入力なら入った枠、クイズなら選んだ答え） */
 export interface GameAwardDto {
   gameName: string;
-  /** 結果入力なら枠の名前、クイズなら選んだ選択肢、数値予想なら順位と答えた数（例: 3 位（予想 42）） */
+  /** 結果入力なら枠の名前、クイズなら選んだ選択肢、数値予想なら順位と答えた数（例: 3 位（予想 42））、投票なら順位と票数（例: 1 位（5 票））か「投票」 */
   slotName: string;
   points: number;
 }
