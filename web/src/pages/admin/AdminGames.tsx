@@ -163,7 +163,14 @@ export function AdminGames() {
     return post(g, "stop");
   };
   const unconfirmGame = (g: GameDto) => {
-    if (!confirm(`「${g.name}」の確定を取り消して下書きに戻します。入ったポイントも消えます。よろしいですか？`)) return;
+    const redraw =
+      g.format === "lottery"
+        ? "\n抽選の結果も消え、もう一度確定すると引き直しになります（発表した後は取り消さないでください）。"
+        : "";
+    if (
+      !confirm(`「${g.name}」の確定を取り消して下書きに戻します。入ったポイントも消えます。${redraw}\nよろしいですか？`)
+    )
+      return;
     return post(g, "unconfirm");
   };
   const remove = (g: GameDto) => {
@@ -486,12 +493,12 @@ function nextRank(ranks: RankDraft[]): RankDraft {
 }
 
 /** 点数の範囲の誤り（空欄・逆転・重なり）。無ければ undefined */
-function rankProblem(ranks: RankDraft[]): string | undefined {
+function rankProblem(ranks: RankDraft[], unit: string): string | undefined {
   if (ranks.some((r) => [r.from, r.to, r.points].some(Number.isNaN))) return "空欄の項目がある範囲があります。";
-  if (ranks.some((r) => r.from < 1)) return "順位は 1 位からです。";
+  if (ranks.some((r) => r.from < 1)) return `1 ${unit}からです。`;
   if (ranks.some((r) => r.from > r.to)) return "「から」が「まで」より大きい範囲があります。";
   const sorted = [...ranks].sort((a, b) => a.from - b.from);
-  if (sorted.some((r, i) => i > 0 && sorted[i - 1]!.to >= r.from)) return "順位が重なっている範囲があります。";
+  if (sorted.some((r, i) => i > 0 && sorted[i - 1]!.to >= r.from)) return "重なっている範囲があります。";
   return undefined;
 }
 
@@ -684,7 +691,7 @@ function GameFormDialog(props: {
   }
 
   const incomplete = ranked ? voteGame && Number.isNaN(voterPoints) : rows.some((r) => Number.isNaN(r.points));
-  const rankError = ranked ? rankProblem(ranks) : undefined;
+  const rankError = ranked ? rankProblem(ranks, unit) : undefined;
   const title = game ? "ゲームの編集" : "ゲームを作る";
   const label = quiz ? "選択肢" : "枠";
 

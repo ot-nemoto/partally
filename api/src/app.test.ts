@@ -1266,12 +1266,13 @@ describe("API", () => {
       });
       expect((await people[0]!.request("PUT", `/api/game/${game.gameId}/answer`, { entry: false })).status).toBe(400);
       expect((await people[0]!.request("PUT", `/api/game/${game.gameId}/answer`, { text: "x" })).status).toBe(400);
-      // A〜D が参加（A は 2 回押す）。E は参加しない
+      // A〜D と E が参加（A は 2 回押す）。E は確定の前に紐づけを解除される（抽選に含めない）
       expect((await enter(people[0]!)).body.game.myEntry).toBe(true);
       await enter(people[0]!);
-      for (const p of people.slice(1, 4)) await enter(p);
+      for (const p of people.slice(1)) await enter(p);
       expect((await people[0]!.request("GET", "/api/game/current")).body.game.myEntry).toBe(true);
-      expect((await admin("GET", "/api/admin/games")).body.games[0].answerCount).toBe(4);
+      expect((await admin("GET", "/api/admin/games")).body.games[0].answerCount).toBe(5);
+      expect((await admin("POST", `/api/admin/users/${people[4]!.userId}/unbind`)).status).toBe(200);
 
       // 乱数を常に 0 にすると、参加者（userId 順の A, B, C, D）は B, C, D, A の順になる
       epithetSeq = [0, 0, 0, 0];
@@ -1279,8 +1280,14 @@ describe("API", () => {
       expect(confirmed.status).toBe(200);
       const [a, b, c, d, e] = people.map((p) => p.userId);
       expect(confirmed.body.game.drawOrder).toEqual([b, c, d, a]);
-      // B は 1 等 30 点、C・D は 2〜3 等 10 点、A は外れ、E は参加していない
-      const pts = async () => Promise.all(people.map(async (p) => (await me(p.request)).gamePoints));
+      // B は 1 等 30 点、C・D は 2〜3 等 10 点、A は外れ、E は抽選に含めない
+      // E は紐づけを解除したので、点数は管理画面で見る
+      const pts = async () => {
+        const byId = new Map(
+          (await admin("GET", "/api/admin/users")).body.users.map((u: any) => [u.userId, u.gamePoints]),
+        );
+        return people.map((p) => byId.get(p.userId));
+      };
       expect(await pts()).toEqual([0, 30, 10, 10, 0]);
       expect((await me(people[2]!.request)).gameAwards).toEqual([
         expect.objectContaining({ gameName: "ラッキー賞", slotName: "2〜3 等に当選", points: 10 }),

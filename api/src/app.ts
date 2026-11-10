@@ -1032,20 +1032,23 @@ export function createApp(deps: AppDeps) {
   });
 
   /** 状態を変える。from は今の状態の前提（違えば 409） */
+  /**
+   * 抽選の順番を決める。確定までに参加した人のうち、紐づけを解除した人（会場を離れた人）は除く。
+   * 乱数の前に userId で並べ、同じ乱数なら同じ結果になるようにする
+   */
+  const drawLottery = async (game: GameRecord, at: string) => {
+    const entrants = (await repo.listGameAnswersByGame(game.gameId))
+      .filter((a) => a.entry && a.answeredAt <= at)
+      .map((a) => a.userId);
+    const active = (await repo.getUsers(entrants)).filter((u) => u.status === "active").map((u) => u.userId);
+    return shuffle(active.sort(), rand);
+  };
+
   const changeGameStatus = async (c: Context, game: GameRecord, to: GameRecord["status"], message: string) => {
     try {
       const at = now().toISOString();
       // 抽選は確定するときに、確定までに参加した人の順番を無作為に決めて保存する（確定し直すと引き直す）
-      const drawOrder =
-        to === "confirmed" && game.format === "lottery"
-          ? shuffle(
-              (await repo.listGameAnswersByGame(game.gameId))
-                .filter((a) => a.entry && a.answeredAt <= at)
-                .map((a) => a.userId)
-                .sort(),
-              rand,
-            )
-          : undefined;
+      const drawOrder = to === "confirmed" && game.format === "lottery" ? await drawLottery(game, at) : undefined;
       const updated = await repo.changeGameStatus(game.gameId, game.status, to, at, drawOrder);
       const answers = hasGameAnswers(updated) ? await repo.listGameAnswersByGame(updated.gameId) : [];
       return c.json({ game: toGameDto(updated, answers, imageUrlOf) });

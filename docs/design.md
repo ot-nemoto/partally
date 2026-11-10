@@ -217,7 +217,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `correctNumber` | number? | 数値予想の正解の数（0〜100 の整数）。確定までに入れる（無いと確定できない） |
 | `voterPoints` | number | 投票で、投票した人に入る点数（0〜100。0 なら入らない）。ほかの形式では 0（無いアイテムは 0 として読む） |
 | `keyword` | string? | 合言葉（前後の空白を除いて 1〜50 文字）。合言葉の形式では必須、ほかの形式では無い。参加者には返さない |
-| `drawOrder` | list? | 抽選で、確定したときに無作為に決めた参加者の順番（userId の配列。Fisher–Yates、乱数は `crypto.randomInt`）。確定を取り消すと消え、もう一度確定すると引き直す |
+| `drawOrder` | list? | 抽選で、確定したときに無作為に決めた参加者の順番（userId の配列。紐づけを解除した人は除く。Fisher–Yates、乱数は `crypto.randomInt`）。確定を取り消すと消え、もう一度確定すると引き直す |
 | `openedAt` | string? | 最後に開催した時刻 |
 | `confirmedAt` | string? | 確定した時刻。確定を取り消すと消える |
 | `createdAt` / `updatedAt` | string | `updatedAt` は名前・説明・選択肢・枠・人・状態を変えるたびに進む。更新の版の確かめに使う |
