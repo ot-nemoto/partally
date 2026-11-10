@@ -37,7 +37,8 @@ export function App() {
       <Route path="/admin/login" element={<AdminLogin />} />
       <Route path="/admin/tokens/print" element={<AdminTokensPrint />} />
       <Route path="/admin" element={<AdminLayout />}>
-        <Route index element={<AdminUsers />} />
+        {/* User 画面のヘッダーのリンク（/admin/users）が選択状態になるよう、URL を移す */}
+        <Route index element={<Navigate to="users" replace />} />
         <Route path="users" element={<AdminUsers />} />
         <Route path="ranking" element={<AdminRanking />} />
         <Route path="trend" element={<AdminTrend />} />
