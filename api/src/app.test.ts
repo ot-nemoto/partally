@@ -4,7 +4,7 @@ import { ingestUpload } from "./ingest.js";
 import { MemoryRepository } from "./memory-repository.js";
 import { MemoryPhotoStorage } from "./memory-storage.js";
 import { photoKey, prizeImageKey } from "./photo-storage.js";
-import { DEFAULT_SETTINGS, type UserRecord } from "./repository.js";
+import { DEFAULT_SETTINGS, InvalidStateError, type UserRecord } from "./repository.js";
 import type { UrlSigner } from "./url-signer.js";
 
 const ADMIN_PASSWORD = "secret-password";
@@ -1060,6 +1060,22 @@ describe("API", () => {
       });
       expect(stale.status).toBe(409);
       expect(served(q3)).toBe(false);
+
+      // 画像を移した後に保存が失敗したら（同時の変更で版の条件に合わないなど）、移した画像を消す
+      const q4 = await uploadImage(admin);
+      const spy = vi.spyOn(repo, "updateGame").mockRejectedValueOnce(new InvalidStateError());
+      const failed = await admin("PUT", `/api/admin/games/${game.gameId}`, {
+        format: "quiz",
+        name: "この人は誰？",
+        imageId: q4,
+        choices: [
+          { choiceId: ch1.choiceId, text: "A", points: 10 },
+          { choiceId: ch2.choiceId, text: "B", points: 0, imageId: c2 },
+        ],
+      });
+      spy.mockRestore();
+      expect(failed.status).toBe(409);
+      expect([served(q4), served(q2), served(c2)]).toEqual([false, true, true]);
 
       // 削除すると画像も消す
       await admin("POST", `/api/admin/games/${game.gameId}/stop`);

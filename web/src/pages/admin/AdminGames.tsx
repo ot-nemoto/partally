@@ -1,4 +1,5 @@
 import {
+  GAME_CHOICE_IMAGE_MAX_EDGE,
   GAME_CHOICE_TEXT_MAX_LENGTH,
   GAME_CHOICES_MAX,
   GAME_CHOICES_MIN,
@@ -672,6 +673,7 @@ function ImageField(props: {
   /** 新しく作った表示用 URL（呼び出し側が閉じるときに解放する） */
   onPicked: (url: string) => void;
   disabled?: boolean;
+  /** 選択肢の画像（小さく出し、縮小も小さめにする） */
   small?: boolean;
 }) {
   const { image } = props;
@@ -684,7 +686,7 @@ function ImageField(props: {
     setProcessing(true);
     setError(undefined);
     try {
-      const blob = await processImage(file, PRIZE_IMAGE_MAX_EDGE);
+      const blob = await processImage(file, props.small ? GAME_CHOICE_IMAGE_MAX_EDGE : PRIZE_IMAGE_MAX_EDGE);
       const url = URL.createObjectURL(blob);
       props.onPicked(url);
       props.onChange({ blob, url });

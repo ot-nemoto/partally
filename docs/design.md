@@ -61,7 +61,7 @@ flowchart LR
 | `/api/*` | API Gateway (HTTP API) | キャッシュ無効。Cookie・クエリ・必要ヘッダを転送 |
 | `/photos/approved/*` | photos バケット (OAC) | **署名付き Cookie または URL** 必須（公開済み写真） |
 | `/photos/pending/*` | photos バケット (OAC) | **署名付き URL** 必須（検閲待ち。管理者・本人のみ） |
-| `/prizes/*` | photos バケット (OAC) | **署名付き URL** 必須（景品の画像。管理者と、景品を見せる設定のときの参加者） |
+| `/prizes/*` | photos バケット (OAC) | **署名付き URL** 必須（景品の画像とゲームの画像（問題・選択肢）。管理者と、景品を見せる設定・開催中のゲームの参加者） |
 | `/*`（デフォルト） | web バケット (OAC) | CloudFront Function で拡張子のないパスを `/index.html` に書き換え（SPA ルーティング） |
 
 - S3 バケットはどちらも非公開（Block Public Access 有効）とし、CloudFront の OAC 経由でのみ読み取る。
@@ -522,7 +522,7 @@ sequenceDiagram
 - すべてのリソースに `Project=partally` タグを付与し、コストを分離する。
 - 事前に数名でリハーサルし、会場の通信状況を確認する。QR は予備を印刷しておく。
 - API Gateway のステージ全体にスロットリング（例: 50 rps / バースト 100）を設定する。
-- **本番データの初期化**: GitHub Actions の Reset ワークフロー（手動実行、`production` Environment、確認欄に `初期化`）から初期化 Lambda（`partally-reset`）を呼び、テーブルの全アイテム（景品を含む）と写真バケットの全オブジェクト（景品の画像を含む）を消して `/photos/*`・`/prizes/*` を無効化する。管理画面からは実行できない（管理者パスワードを知っているだけでは消せないようにするため）。Lambda も決まった合言葉付きの呼び出しでなければ何もしない。手順は [初期設定・デプロイ手順](setup.md#本番データの初期化)。
+- **本番データの初期化**: GitHub Actions の Reset ワークフロー（手動実行、`production` Environment、確認欄に `初期化`）から初期化 Lambda（`partally-reset`）を呼び、テーブルの全アイテム（景品を含む）と写真バケットの全オブジェクト（景品・ゲームの画像を含む）を消して `/photos/*`・`/prizes/*` を無効化する。管理画面からは実行できない（管理者パスワードを知っているだけでは消せないようにするため）。Lambda も決まった合言葉付きの呼び出しでなければ何もしない。手順は [初期設定・デプロイ手順](setup.md#本番データの初期化)。
 
 ---
 

@@ -116,6 +116,8 @@ export const PRIZE_QUANTITY_MAX = 100;
 export const PRIZE_POSITION_MAX = 1000;
 export const PRIZE_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 export const PRIZE_IMAGE_MAX_EDGE = 1200;
+/** クイズの選択肢の画像の長辺（参加者の画面では小さく並べるので、問題の画像より小さくする） */
+export const GAME_CHOICE_IMAGE_MAX_EDGE = 600;
 
 /** サーバが発行する ID（ULID）。画像の ID など、クライアントから受け取るときに形だけ確かめる */
 const idSchema = z.string().regex(/^[0-9A-Za-z]{1,40}$/);
