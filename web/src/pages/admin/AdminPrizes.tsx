@@ -3,9 +3,7 @@ import {
   PRIZE_IMAGE_MAX_EDGE,
   PRIZE_NAME_MAX_LENGTH,
   PRIZE_QUANTITY_MAX,
-  type PresignedPost,
   type PrizeDto,
-  type PrizeImageUploadResponse,
   type PrizeResponse,
   type PrizesResponse,
   parsePositions,
@@ -19,6 +17,8 @@ import { PageTitle } from "../../components/PageTitle";
 import { PrizeChips, PrizeImage } from "../../components/PrizeChips";
 import { useOnReload } from "../../hooks/useReload";
 import { processImage } from "../../photos/process";
+import { PrizeTransferButtons } from "./PrizeTransfer";
+import { uploadPrizeImage } from "./prizeImage";
 
 /**
  * 景品の登録と、順位（上から何番目の人か）への割り当て。1 つの景品は数量の分だけ順位に割り当てられ、
@@ -62,9 +62,12 @@ export function AdminPrizes() {
   return (
     <section className="admin-prizes">
       <PageTitle en="Prize" ja="景品">
-        <button type="button" className="primary" onClick={() => setEditing("new")}>
-          景品を登録
-        </button>
+        <div className="title-actions">
+          <PrizeTransferButtons prizes={prizes} onImported={() => void load()} />
+          <button type="button" className="primary" onClick={() => setEditing("new")}>
+            景品を登録
+          </button>
+        </div>
       </PageTitle>
       <p className="muted small">
         景品は、ランキングの上から何番目の人に渡すかで割り当てます（同じポイントのときは設定の「同じポイントのときの順位」に従います。紐づけを解除した人は数えません）。
@@ -198,11 +201,7 @@ function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved
     setError(undefined);
     try {
       let imageId = image === null ? undefined : prize?.imageId;
-      if (image) {
-        const res = await api<PrizeImageUploadResponse>("POST", "/admin/prizes/image-upload");
-        await upload(res.upload, image.blob);
-        imageId = res.imageId;
-      }
+      if (image) imageId = await uploadPrizeImage(image.blob);
       const body = { name, quantity, positions, imageId };
       if (prize) await api<PrizeResponse>("PUT", `/admin/prizes/${prize.prizeId}`, body);
       else await api<PrizeResponse>("POST", "/admin/prizes", body);
@@ -293,12 +292,4 @@ function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved
       </form>
     </Modal>
   );
-}
-
-async function upload(target: PresignedPost, blob: Blob) {
-  const form = new FormData();
-  for (const [k, v] of Object.entries(target.fields)) form.append(k, v);
-  form.append("file", blob, "prize.jpg");
-  const res = await fetch(target.url, { method: "POST", body: form });
-  if (!res.ok) throw new Error(`画像のアップロードに失敗しました（${res.status}）`);
 }
