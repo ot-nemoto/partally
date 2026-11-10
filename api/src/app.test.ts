@@ -1326,6 +1326,18 @@ describe("API", () => {
       });
       expect((await me(people[5]!.request)).gamePoints).toBe(10);
       expect((await me(people[0]!.request)).gamePoints).toBe(0);
+
+      // 確定したまま正解の数や点数の範囲を外すと、入ったポイントが黙って消えるので受け付けない
+      const latest = (await admin("GET", "/api/admin/games")).body.games.find((g: any) => g.gameId === game.gameId);
+      const base = { format: "number", name: game.name, baseUpdatedAt: latest.updatedAt };
+      expect((await admin("PUT", `/api/admin/games/${game.gameId}`, { ...base, ranks })).status).toBe(409);
+      expect((await admin("PUT", `/api/admin/games/${game.gameId}`, { ...base, correctNumber: 100 })).status).toBe(409);
+      expect((await me(people[5]!.request)).gamePoints).toBe(10);
+      // ランキングにも入る（全員の答えから順位を付ける）
+      const ranking = (await admin("GET", "/api/admin/ranking")).body.ranking;
+      const pointsByName = Object.fromEntries(ranking.map((e: any) => [e.name, e.points]));
+      // 正解 100 との差: F 0, G 30, C 50, D 55, E 60, B 70, A 100 → 1〜2 位 10 点、3〜5 位 3 点
+      expect(pointsByName).toEqual({ A: 0, B: 0, C: 3, D: 3, E: 3, F: 10, G: 10 });
     });
 
     it("点数の範囲が無いと確定できず、範囲の重なりや逆転は受け付けない", async () => {

@@ -1773,6 +1773,24 @@ textarea {
   grid-template-columns: 1fr 1fr 1fr auto;
 }
 
+.game-form-rank-title {
+  grid-column: 1 / -1;
+  font-weight: 600;
+}
+
+/* スマホの幅では、削除ボタンを次の行に回して入力欄を広く取る */
+@media (max-width: 480px) {
+  .game-form-rank {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .game-form-rank .game-form-slot-actions {
+    grid-column: 1 / -1;
+    margin-top: 0;
+    justify-content: flex-end;
+  }
+}
+
 .game-number-form {
   display: grid;
   gap: 0.5rem;

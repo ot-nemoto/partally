@@ -20,6 +20,8 @@ import {
   type GameResponse,
   type GameStatus,
   type GamesResponse,
+  gameConfirmProblem,
+  hasGameAnswers,
   POINTS_MAX,
   PRIZE_IMAGE_MAX_EDGE,
   rankNumberAnswers,
@@ -62,17 +64,6 @@ function gameBody(game: GameDto) {
     ranks: game.ranks.map(({ from, to, points }) => ({ from, to, points })),
     correctNumber: game.correctNumber,
   };
-}
-
-/** 参加者が答える形式（クイズ・数値予想） */
-const hasAnswers = (game: Pick<GameDto, "format">) => game.format === "quiz" || game.format === "number";
-
-/** 確定できない理由（入るポイントが決まらない）。確定できるなら undefined */
-function confirmBlocker(game: GameDto): string | undefined {
-  if (game.format === "result" && game.slots.length === 0) return "枠を追加すると確定できます";
-  if (game.format === "number" && game.correctNumber === undefined) return "「編集」で正解の数を入れると確定できます";
-  if (game.format === "number" && game.ranks.length === 0) return "「編集」で点数の範囲を追加すると確定できます";
-  return undefined;
 }
 
 /**
@@ -167,7 +158,7 @@ export function AdminGames() {
   const stopGame = (g: GameDto) => {
     if (
       !confirm(
-        `「${g.name}」の開催をやめて下書きに戻します。${hasAnswers(g) ? "答えは残ります。" : ""}よろしいですか？`,
+        `「${g.name}」の開催をやめて下書きに戻します。${hasGameAnswers(g) ? "答えは残ります。" : ""}よろしいですか？`,
       )
     )
       return;
@@ -227,7 +218,7 @@ export function AdminGames() {
             <span className="muted small">第 {number} ゲーム</span>
             <span className="game-format small">{GAME_FORMAT_LABEL[g.format]}</span>
             <span className={`status status-${g.status}`}>{STATUS_LABEL[g.status]}</span>
-            {g.status === "open" && hasAnswers(g) && <span className="muted small">回答 {g.answerCount} 人</span>}
+            {g.status === "open" && hasGameAnswers(g) && <span className="muted small">回答 {g.answerCount} 人</span>}
             {g.confirmedAt && <span className="muted small">{formatTime(g.confirmedAt)} に確定</span>}
           </header>
           <h2 className="game-name">{g.name}</h2>
@@ -311,8 +302,8 @@ export function AdminGames() {
                 type="button"
                 className={g.status === "open" ? "primary" : undefined}
                 onClick={() => confirmGame(g)}
-                disabled={busy || confirmBlocker(g) !== undefined}
-                title={confirmBlocker(g)}
+                disabled={busy || gameConfirmProblem(g) !== undefined}
+                title={gameConfirmProblem(g)}
               >
                 確定
               </button>
@@ -327,7 +318,7 @@ export function AdminGames() {
                 確定を取り消す
               </button>
             )}
-            {hasAnswers(g) && g.answerCount > 0 && (
+            {hasGameAnswers(g) && g.answerCount > 0 && (
               <button type="button" onClick={() => setAnswers(g)}>
                 回答者を見る
               </button>
@@ -529,6 +520,8 @@ function GameFormDialog(props: {
   const [saving, setSaving] = useState(false);
   const quiz = format === "quiz";
   const numberGame = format === "number";
+  // 確定した数値予想は、正解の数と点数の範囲を外せない（入ったポイントが消えないように）
+  const lockAnswer = numberGame && game?.status === "confirmed";
   const rows = quiz ? choices : slots;
   const setRows = quiz ? setChoices : setSlots;
   // 答えと食い違わないよう、クイズの選択肢を増やす・減らすのは、まだ答えが無い下書きの間だけ
@@ -662,19 +655,20 @@ function GameFormDialog(props: {
         {numberGame && (
           <>
             <NumberField
-              label="正解の数（任意・確定までに入れる）"
+              label={lockAnswer ? "正解の数" : "正解の数（任意・確定までに入れる）"}
               value={correctNumber}
               min={GAME_NUMBER_MIN}
               max={GAME_NUMBER_MAX}
               onChange={setCorrectNumber}
-              optional
+              optional={!lockAnswer}
             />
             <fieldset className="game-form-slots">
               <legend>順位と点数</legend>
               {ranks.map((r, i) => (
                 <div key={r.key} className="game-form-slot game-form-rank">
+                  <span className="game-form-rank-title small">範囲 {i + 1}</span>
                   <NumberField
-                    label={`範囲 ${i + 1}: 何位から`}
+                    label="何位から"
                     value={r.from}
                     min={1}
                     max={GAME_RANK_MAX}
@@ -698,6 +692,7 @@ function GameFormDialog(props: {
                       type="button"
                       className="link"
                       onClick={() => setRanks((prev) => prev.filter((x) => x.key !== r.key))}
+                      disabled={lockAnswer && ranks.length <= 1}
                       aria-label={`範囲 ${i + 1} を削除`}
                     >
                       削除
