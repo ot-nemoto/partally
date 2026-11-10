@@ -32,6 +32,7 @@ import {
   type Settings,
   scheduleItemRequestSchema,
   type TokenDto,
+  tallyVotes,
   type UserDto,
   updateSettingsRequestSchema,
   updateUserRequestSchema,
@@ -232,14 +233,18 @@ export function createApp(deps: AppDeps) {
 
   /**
    * 1 人分のゲームの点数。クイズ形式は自分の答えだけを読む。
-   * 数値予想は順位が他の人の答えで決まるので、自分が答えた確定済みのものだけ全員の答えを読む
+   * 数値予想は順位が他の人の答えで決まるので、自分が答えた確定済みのものだけ全員の答えを読む。
+   * 投票は自分が投票していなくても選ばれていることがあるので、確定済みのものは全員の票を読む
    */
   const scoresOf = async (userId: string): Promise<GameStats> => {
     const [games, mine] = await Promise.all([repo.listGames(), repo.listGameAnswersByUser(userId)]);
     const answered = new Set(mine.map((a) => a.gameId));
+    const needsAll = (game: GameRecord) =>
+      game.status === "confirmed" &&
+      (game.format === "vote" || (game.format === "number" && answered.has(game.gameId)));
     const entries = await Promise.all(
       withAnswers(games, mine).map(async (entry) =>
-        entry.game.format === "number" && entry.game.status === "confirmed" && answered.has(entry.game.gameId)
+        needsAll(entry.game)
           ? { game: entry.game, answers: await repo.listGameAnswersByGame(entry.game.gameId) }
           : entry,
       ),
@@ -247,7 +252,7 @@ export function createApp(deps: AppDeps) {
     return gameStatsByUser(entries).get(userId) ?? NO_GAME_STATS;
   };
 
-  /** 全ゲームと、クイズ・数値予想の答え（ゲームは数十程度の想定なので、ゲームごとに並行して読む） */
+  /** 全ゲームと、クイズ・数値予想・投票の答え（ゲームは数十程度の想定なので、ゲームごとに並行して読む） */
   const gamesWithAnswers = async (): Promise<GameWithAnswers[]> => {
     const games = await repo.listGames();
     const answers = await Promise.all(
@@ -424,25 +429,50 @@ export function createApp(deps: AppDeps) {
     if (!body.ok) return body.response;
     const game = await repo.getGame(c.req.param("gameId") ?? "");
     if (!game) return fail(c, 404, "not_found");
-    const { choiceId, value } = body.data;
-    // クイズは選択肢、数値予想は数で答える（形式に合わない答えや、結果入力への答えは受け付けない）
-    if (!(game.format === "quiz" ? choiceId !== undefined : game.format === "number" && value !== undefined)) {
-      return fail(c, 400, "bad_request", "このゲームには、その形では答えられません");
-    }
+    const { choiceId, value, targetUserId } = body.data;
+    const userId = c.get("user").userId;
+    // クイズは選択肢、数値予想は数、投票は人で答える（形式に合わない答えや、結果入力への答えは受け付けない）
+    const fits =
+      game.format === "quiz"
+        ? choiceId !== undefined
+        : game.format === "number"
+          ? value !== undefined
+          : game.format === "vote" && targetUserId !== undefined;
+    if (!fits) return fail(c, 400, "bad_request", "このゲームには、その形では答えられません");
     if (game.status !== "open") return fail(c, 409, "game_closed");
     if (choiceId !== undefined && !game.choices.some((ch) => ch.choiceId === choiceId)) {
       return fail(c, 400, "bad_request", "選択肢がありません");
     }
+    if (targetUserId !== undefined) {
+      if (targetUserId === userId) return fail(c, 400, "bad_request", "自分には投票できません");
+      const target = await repo.getUser(targetUserId);
+      if (target?.status !== "active") return fail(c, 400, "bad_request", "その人には投票できません");
+    }
     // 時刻は開催中を確かめた後に付ける。この後に確定されて保存が遅れた答えは、点数の計算で除かれる
     const answer = {
       gameId: game.gameId,
-      userId: c.get("user").userId,
+      userId,
       choiceId,
       value,
+      targetUserId,
       answeredAt: now().toISOString(),
     };
     await repo.putGameAnswer(answer);
     return c.json({ game: toCurrentGameDto(game, answer, imageUrlOf) });
+  });
+
+  // 投票で選べる人（自分と、紐づけを解除した人を除く）。ゲームの画面を開いたときに 1 回だけ読む
+  app.get("/game/:gameId/candidates", requireUser, async (c) => {
+    const game = await repo.getGame(c.req.param("gameId") ?? "");
+    if (!game) return fail(c, 404, "not_found");
+    if (game.format !== "vote") return fail(c, 400, "bad_request", "投票のゲームではありません");
+    if (game.status !== "open") return fail(c, 409, "game_closed");
+    const me = c.get("user").userId;
+    const candidates = (await repo.listUsers())
+      .filter((u) => u.status === "active" && u.userId !== me)
+      .sort((a, b) => a.name.localeCompare(b.name, "ja") || a.createdAt.localeCompare(b.createdAt))
+      .map((u) => ({ userId: u.userId, displayName: formatDisplayName(u.epithet, u.name) }));
+    return c.json({ candidates });
   });
 
   app.post("/photos/upload-url", requireUser, async (c) => {
@@ -808,18 +838,24 @@ export function createApp(deps: AppDeps) {
     const game = await repo.getGame(c.req.param("gameId"));
     if (!game) return fail(c, 404, "not_found");
     const answers = await repo.listGameAnswersByGame(game.gameId);
-    const users = new Map((await repo.getUsers(answers.map((a) => a.userId))).map((u) => [u.userId, u]));
+    const ids = new Set(answers.flatMap((a) => (a.targetUserId ? [a.userId, a.targetUserId] : [a.userId])));
+    const users = new Map((await repo.getUsers([...ids])).map((u) => [u.userId, u]));
+    const nameOf = (userId: string | undefined) => {
+      const user = userId === undefined ? undefined : users.get(userId);
+      return user ? formatDisplayName(user.epithet, user.name) : undefined;
+    };
     return c.json({
       game: toGameDto(game, answers, imageUrlOf),
       answers: answers
         .sort((a, b) => a.answeredAt.localeCompare(b.answeredAt))
         .map((a) => {
-          const user = users.get(a.userId);
           return {
             userId: a.userId,
-            displayName: user ? formatDisplayName(user.epithet, user.name) : undefined,
+            displayName: nameOf(a.userId),
             choiceId: a.choiceId,
             value: a.value,
+            targetUserId: a.targetUserId,
+            targetDisplayName: nameOf(a.targetUserId),
             answeredAt: a.answeredAt,
           };
         }),
@@ -886,6 +922,7 @@ export function createApp(deps: AppDeps) {
       choices,
       ranks: sortRanks(body.data.ranks ?? []),
       correctNumber: body.data.correctNumber,
+      voterPoints: body.data.voterPoints ?? 0,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -922,11 +959,16 @@ export function createApp(deps: AppDeps) {
     if (structureChanged && (game.status !== "draft" || answers.length > 0)) {
       return fail(c, 409, "invalid_state", "答えがある・開催した後のクイズは、選択肢を増やしたり減らしたりできません");
     }
-    // 確定した数値予想から正解の数や点数の範囲を外すと、入ったポイントが黙って消えるので受け付けない
+    // 確定した数値予想・投票から正解の数や点数の範囲を外すと、入ったポイントが黙って消えるので受け付けない
     if (
-      game.format === "number" &&
       game.status === "confirmed" &&
-      (body.data.correctNumber === undefined || !body.data.ranks?.length)
+      (game.format === "number" || game.format === "vote") &&
+      gameConfirmProblem({
+        format: game.format,
+        slots: [],
+        ranks: body.data.ranks ?? [],
+        correctNumber: body.data.correctNumber,
+      })
     ) {
       return fail(
         c,
@@ -943,6 +985,7 @@ export function createApp(deps: AppDeps) {
       choices,
       ranks: sortRanks(body.data.ranks ?? []),
       correctNumber: body.data.correctNumber,
+      voterPoints: body.data.voterPoints ?? 0,
     };
     const before = gameImageIds(game);
     const after = gameImageIds(changes);
@@ -1080,7 +1123,8 @@ interface GameAward extends GameAwardDto {
 /**
  * 確定したゲームで、誰に何点入ったか（確定した順）。下書き・開催中のゲームは数えない
  * （クイズを選び直して、点数の変化から正解が分からないように）。
- * 結果入力は枠に入った人に枠の点数、クイズは選んだ選択肢の点数、数値予想は正解に近い順の順位が入る範囲の点数。確定の直前に受け付けて確定の後に保存された答え
+ * 結果入力は枠に入った人に枠の点数、クイズは選んだ選択肢の点数、数値予想は正解に近い順の順位が入る範囲の点数、
+ * 投票は得票の順位が入る範囲の点数（選ばれた人）と、投票した人の点数。確定の直前に受け付けて確定の後に保存された答え
  * （answeredAt > confirmedAt）は数えない
  */
 function gameAwards(entries: GameWithAnswers[]): GameAward[] {
@@ -1125,6 +1169,21 @@ function gameAwards(entries: GameWithAnswers[]): GameAward[] {
           points,
         });
       });
+    } else if (game.format === "vote") {
+      const counted = answers.filter(
+        (a): a is GameAnswerRecord & { targetUserId: string } => a.targetUserId !== undefined && a.answeredAt <= at,
+      );
+      for (const { userId, votes, rank, points } of tallyVotes(
+        counted.map((a) => a.targetUserId),
+        game.ranks,
+      )) {
+        awards.push({ userId, at, gameName: game.name, slotName: `${rank} 位（${votes} 票）`, points });
+      }
+      if (game.voterPoints > 0) {
+        for (const answer of counted) {
+          awards.push({ userId: answer.userId, at, gameName: game.name, slotName: "投票", points: game.voterPoints });
+        }
+      }
     }
   }
   return awards;
@@ -1365,6 +1424,7 @@ function toGameDto(game: GameRecord, answers: GameAnswerRecord[], imageUrlOf: Im
     })),
     ranks: game.ranks.map((r) => ({ ...r })),
     correctNumber: game.correctNumber,
+    voterPoints: game.voterPoints,
     answerCount: answers.length,
     createdAt: game.createdAt,
     openedAt: game.openedAt,
@@ -1376,7 +1436,7 @@ function toGameDto(game: GameRecord, answers: GameAnswerRecord[], imageUrlOf: Im
 /** 参加者に返す開催中のゲーム。誰がどの枠に入ったかと、クイズの選択肢の点数（正解が分かる）は含めない */
 function toCurrentGameDto(
   game: GameRecord,
-  answer: Pick<GameAnswerRecord, "choiceId" | "value"> | undefined,
+  answer: Pick<GameAnswerRecord, "choiceId" | "value" | "targetUserId"> | undefined,
   imageUrlOf: ImageUrlOf,
 ): CurrentGameDto {
   return {
@@ -1390,7 +1450,9 @@ function toCurrentGameDto(
     // 正解の数は返さない
     ranks: game.ranks.map((r) => ({ ...r })),
     myChoiceId: answer?.choiceId,
+    voterPoints: game.voterPoints,
     myValue: answer?.value,
+    myTargetUserId: answer?.targetUserId,
   };
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatRankRange, rankNumberAnswers } from "./number-game.js";
+import { formatRankRange, rankNumberAnswers, tallyVotes } from "./number-game.js";
 
 describe("数値予想の順位", () => {
   const ranks = [
@@ -35,5 +35,26 @@ describe("数値予想の順位", () => {
   it("範囲の書き方", () => {
     expect(formatRankRange({ from: 1, to: 5 })).toBe("1〜5 位");
     expect(formatRankRange({ from: 3, to: 3 })).toBe("3 位");
+  });
+});
+
+describe("投票の集計", () => {
+  it("票の多い順に順位を付け、同じ票数は同じ順位（次は人数分飛ばす）にして、範囲の点数を付ける", () => {
+    const ranks = [
+      { from: 1, to: 1, points: 30 },
+      { from: 2, to: 3, points: 10 },
+    ];
+    // a 3 票、b・c 2 票、d 1 票
+    const result = tallyVotes(["a", "b", "a", "c", "d", "b", "a", "c"], ranks);
+    expect(result).toEqual([
+      { userId: "a", votes: 3, rank: 1, points: 30 },
+      { userId: "b", votes: 2, rank: 2, points: 10 },
+      { userId: "c", votes: 2, rank: 2, points: 10 },
+      { userId: "d", votes: 1, rank: 4, points: 0 },
+    ]);
+  });
+
+  it("票が無ければ空", () => {
+    expect(tallyVotes([], [{ from: 1, to: 1, points: 1 }])).toEqual([]);
   });
 });

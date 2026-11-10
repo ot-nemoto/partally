@@ -430,11 +430,12 @@ describe("DynamoRepository", () => {
       slots: [{ slotId: "S1", name: "優勝", points: 30, userIds: ["U1"] }],
       choices: [],
       ranks: [],
+      voterPoints: 0,
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:01:00.000Z",
     };
     const gameItem = (status: string) => ({ PK: "GAME#G1", SK: "META", ...game, status });
-    const changes = { name: "大会", description: "", slots: game.slots, choices: [], ranks: [] };
+    const changes = { name: "大会", description: "", slots: game.slots, choices: [], ranks: [], voterPoints: 0 };
 
     it("版を渡すと、保存済みの updatedAt が同じときだけ更新する。違えば InvalidStateError、無ければ NotFoundError", async () => {
       ddb.on(UpdateCommand).resolves({ Attributes: { ...gameItem("draft"), updatedAt: "t2" } });
@@ -452,7 +453,7 @@ describe("DynamoRepository", () => {
       await repo.updateGame("G1", { ...changes, imageId: "IMG1", correctNumber: 0 }, "t3");
       expect(ddb.commandCalls(UpdateCommand)[2]!.args[0].input).toMatchObject({
         UpdateExpression: expect.stringMatching(/, imageId = :imageId, correctNumber = :correctNumber$/),
-        ExpressionAttributeValues: { ":imageId": "IMG1", ":correctNumber": 0, ":ranks": [] },
+        ExpressionAttributeValues: { ":imageId": "IMG1", ":correctNumber": 0, ":ranks": [], ":voterPoints": 0 },
       });
 
       const failed = new ConditionalCheckFailedException({ message: "failed", $metadata: {} });
