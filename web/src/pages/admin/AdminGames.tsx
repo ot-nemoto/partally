@@ -497,7 +497,6 @@ function GameFormDialog(props: {
             maxLength={GAME_DESCRIPTION_MAX_LENGTH}
             rows={3}
             placeholder={quiz ? "例: 幹事の出身地は？" : "例: 負けた人は座ってください。最後まで残った人が優勝です"}
-            required={quiz}
           />
           <span className="muted small">参加者のゲームの画面に出ます。</span>
         </label>
