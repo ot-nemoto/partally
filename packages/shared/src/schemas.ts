@@ -220,6 +220,7 @@ export type ScheduleItemRequest = z.infer<typeof scheduleItemRequestSchema>;
 export const GAME_NAME_MAX_LENGTH = 50;
 export const GAME_SLOT_NAME_MAX_LENGTH = 30;
 export const GAME_SLOTS_MAX = 20;
+export const GAME_DESCRIPTION_MAX_LENGTH = 500;
 /** 1 つのゲームで選べる人数の上限（参加者は 80 名程度の想定） */
 export const GAME_MEMBERS_MAX = 1000;
 
@@ -230,6 +231,12 @@ export const GAME_MEMBERS_MAX = 1000;
 export const gameRequestSchema = z
   .object({
     name: normalized(GAME_NAME_MAX_LENGTH),
+    /** 説明は書いたとおりに残す（前後の空白だけ除く）。省くと空 */
+    description: z
+      .string()
+      .transform((s) => s.trim())
+      .pipe(z.string().max(GAME_DESCRIPTION_MAX_LENGTH))
+      .optional(),
     slots: z
       .array(
         z.object({

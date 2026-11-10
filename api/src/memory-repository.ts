@@ -4,6 +4,7 @@ import {
   EpithetTakenError,
   FavoriteLimitError,
   formatLabel,
+  GameAlreadyOpenError,
   type GameRecord,
   InvalidStateError,
   NotFoundError,
@@ -36,6 +37,7 @@ export class MemoryRepository implements Repository {
   private prizes = new Map<string, PrizeRecord>();
   private scheduleItems = new Map<string, ScheduleItemRecord>();
   private games = new Map<string, GameRecord>();
+  private openGameId: string | undefined;
   private settings: Settings = { ...DEFAULT_SETTINGS };
   private labelCounter = 0;
 
@@ -366,7 +368,7 @@ export class MemoryRepository implements Repository {
 
   async updateGame(
     gameId: string,
-    changes: Pick<GameRecord, "name" | "slots">,
+    changes: Pick<GameRecord, "name" | "description" | "slots">,
     updatedAt: string,
     expectedUpdatedAt?: string,
   ) {
@@ -377,19 +379,32 @@ export class MemoryRepository implements Repository {
     return clone(game);
   }
 
-  async setGameStatus(gameId: string, status: GameStatus, at: string) {
+  async changeGameStatus(gameId: string, from: GameStatus, to: GameStatus, at: string) {
     const game = this.games.get(gameId);
     if (!game) throw new NotFoundError();
-    if (game.status === status) throw new InvalidStateError();
-    game.status = status;
+    if (game.status !== from || from === to) throw new InvalidStateError();
+    if (to === "open" && this.openGameId !== undefined) throw new GameAlreadyOpenError();
+    if (to === "open") {
+      this.openGameId = gameId;
+      game.openedAt = at;
+    }
+    if (from === "open") this.openGameId = undefined;
+    if (to === "confirmed") game.confirmedAt = at;
+    if (from === "confirmed") delete game.confirmedAt;
+    game.status = to;
     game.updatedAt = at;
-    if (status === "confirmed") game.confirmedAt = at;
-    else delete game.confirmedAt;
     return clone(game);
   }
 
+  async getOpenGameId() {
+    return this.openGameId;
+  }
+
   async deleteGame(gameId: string) {
-    if (!this.games.delete(gameId)) throw new NotFoundError();
+    const game = this.games.get(gameId);
+    if (!game) throw new NotFoundError();
+    if (game.status === "open") throw new InvalidStateError();
+    this.games.delete(gameId);
   }
 
   async getSettings() {

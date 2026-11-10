@@ -112,10 +112,13 @@ export interface GameSlot {
 export interface GameRecord {
   gameId: string;
   name: string;
+  description: string;
   status: GameStatus;
   slots: GameSlot[];
   createdAt: string;
   updatedAt: string;
+  /** 最後に開催した時刻 */
+  openedAt?: string;
   /** 確定した時刻。確定を取り消すと消える */
   confirmedAt?: string;
 }
@@ -183,6 +186,14 @@ export class FavoriteLimitError extends Error {
   constructor() {
     super("favorite limit reached");
     this.name = "FavoriteLimitError";
+  }
+}
+
+/** 別のゲームが開催中 */
+export class GameAlreadyOpenError extends Error {
+  constructor() {
+    super("another game is open");
+    this.name = "GameAlreadyOpenError";
   }
 }
 
@@ -374,21 +385,24 @@ export interface Repository {
   /** 作成順（古い順）で返す */
   listGames(): Promise<GameRecord[]>;
   /**
-   * 名前と枠を差し替える（確定済みでも直せる）。expectedUpdatedAt を渡すと、保存済みの updatedAt がそれと同じときだけ差し替える。
+   * 名前・説明と枠を差し替える（開催中・確定済みでも直せる）。expectedUpdatedAt を渡すと、保存済みの updatedAt がそれと同じときだけ差し替える。
    * @throws NotFoundError / InvalidStateError ほかで直されていた
    */
   updateGame(
     gameId: string,
-    changes: Pick<GameRecord, "name" | "slots">,
+    changes: Pick<GameRecord, "name" | "description" | "slots">,
     updatedAt: string,
     expectedUpdatedAt?: string,
   ): Promise<GameRecord>;
   /**
-   * draft → confirmed（confirmedAt を付ける）、または confirmed → draft（confirmedAt を消す）。
-   * @throws NotFoundError / InvalidStateError 今の状態が前提と合わない
+   * 状態を from から to に変える。開催中（open）は同時に 1 つだけで、開催中の印を一緒に作る・消す。
+   * 確定（confirmed）にすると confirmedAt を付け、確定から戻すと消す。開催すると openedAt を付ける。
+   * @throws NotFoundError / InvalidStateError 今の状態が from でない / GameAlreadyOpenError 別のゲームが開催中
    */
-  setGameStatus(gameId: string, status: GameStatus, at: string): Promise<GameRecord>;
-  /** @throws NotFoundError */
+  changeGameStatus(gameId: string, from: GameStatus, to: GameStatus, at: string): Promise<GameRecord>;
+  /** 開催中のゲームの ID */
+  getOpenGameId(): Promise<string | undefined>;
+  /** @throws NotFoundError / InvalidStateError 開催中 */
   deleteGame(gameId: string): Promise<void>;
 
   // ---- 設定 ----

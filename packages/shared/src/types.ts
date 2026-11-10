@@ -330,8 +330,11 @@ export interface ScheduleItemResponse {
   item: ScheduleItemDto;
 }
 
-/** draft: 下書き（ポイントは入らない） / confirmed: 確定（確定した時刻でポイントが入る） */
-export type GameStatus = "draft" | "confirmed";
+/**
+ * draft: 下書き（ポイントは入らない） / open: 開催中（参加者に知らせる。同時に 1 つだけ。ポイントはまだ入らない） /
+ * confirmed: 確定（確定した時刻でポイントが入る）
+ */
+export type GameStatus = "draft" | "open" | "confirmed";
 
 /** ゲームの枠。userIds の人に points が入る */
 export interface GameSlotDto {
@@ -344,13 +347,29 @@ export interface GameSlotDto {
 export interface GameDto {
   gameId: string;
   name: string;
+  /** 説明（ルールなど。改行可、空でもよい） */
+  description: string;
   status: GameStatus;
   slots: GameSlotDto[];
   createdAt: string;
+  /** 最後に開催した時刻 */
+  openedAt?: string;
   /** 最後に変えた時刻（名前・枠・人・状態）。更新のときに baseUpdatedAt として送り返す */
   updatedAt: string;
   /** 確定した時刻（推移ではこの時刻にポイントが入る）。下書きには無い */
   confirmedAt?: string;
+}
+
+/** 参加者に見せる開催中のゲーム。誰がどの枠に入ったかは含めない */
+export interface CurrentGameDto {
+  gameId: string;
+  name: string;
+  description: string;
+  slots: { name: string; points: number }[];
+}
+
+export interface CurrentGameResponse {
+  game: CurrentGameDto | null;
 }
 
 export interface GamesResponse {
