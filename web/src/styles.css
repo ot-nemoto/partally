@@ -1768,6 +1768,29 @@ textarea {
   margin: 0;
 }
 
+/* 数値予想の点数の範囲（何位から・何位まで・点数・削除） */
+.game-form-rank {
+  grid-template-columns: 1fr 1fr 1fr auto;
+}
+
+.game-number-form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.game-number-mine {
+  font-size: 1.25rem;
+  margin-right: 0.25rem;
+}
+
+table.game-number-answers {
+  margin: 0.5rem 0 1rem;
+}
+
+table.game-number-answers td.num {
+  text-align: right;
+}
+
 .member-picker h2 .small {
   font-weight: normal;
 }

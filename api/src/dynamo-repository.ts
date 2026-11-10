@@ -701,19 +701,31 @@ export class DynamoRepository implements Repository {
 
   async updateGame(
     gameId: string,
-    changes: Pick<GameRecord, "name" | "description" | "imageId" | "slots" | "choices">,
+    changes: Pick<GameRecord, "name" | "description" | "imageId" | "slots" | "choices" | "ranks" | "correctNumber">,
     updatedAt: string,
     expectedUpdatedAt?: string,
   ) {
     const check = expectedUpdatedAt !== undefined;
-    const set =
-      "SET #name = :name, description = :description, slots = :slots, choices = :choices, updatedAt = :updatedAt";
+    const set = [
+      "#name = :name",
+      "description = :description",
+      "slots = :slots",
+      "choices = :choices",
+      "ranks = :ranks",
+      "updatedAt = :updatedAt",
+    ];
+    const remove: string[] = [];
+    // 画像と正解の数は、無ければ項目ごと消す
+    if (changes.imageId) set.push("imageId = :imageId");
+    else remove.push("imageId");
+    if (changes.correctNumber !== undefined) set.push("correctNumber = :correctNumber");
+    else remove.push("correctNumber");
     try {
       const { Attributes } = await this.client.send(
         new UpdateCommand({
           TableName: this.tableName,
           Key: keys.game(gameId),
-          UpdateExpression: changes.imageId ? `${set}, imageId = :imageId` : `${set} REMOVE imageId`,
+          UpdateExpression: `SET ${set.join(", ")}${remove.length ? ` REMOVE ${remove.join(", ")}` : ""}`,
           ConditionExpression: check ? "attribute_exists(PK) AND updatedAt = :expected" : "attribute_exists(PK)",
           ExpressionAttributeNames: { "#name": "name" },
           ExpressionAttributeValues: {
@@ -722,7 +734,9 @@ export class DynamoRepository implements Repository {
             ":slots": changes.slots,
             ":choices": changes.choices,
             ":updatedAt": updatedAt,
+            ":ranks": changes.ranks,
             ...(changes.imageId ? { ":imageId": changes.imageId } : {}),
+            ...(changes.correctNumber !== undefined ? { ":correctNumber": changes.correctNumber } : {}),
             ...(check ? { ":expected": expectedUpdatedAt } : {}),
           },
           ReturnValues: "ALL_NEW",
@@ -1031,6 +1045,12 @@ function toGameRecord(item: Record<string, unknown>): GameRecord {
       points: Number(c.points ?? 0),
       imageId: c.imageId as string | undefined,
     })),
+    ranks: ((item.ranks ?? []) as Record<string, unknown>[]).map((r) => ({
+      from: Number(r.from),
+      to: Number(r.to),
+      points: Number(r.points ?? 0),
+    })),
+    correctNumber: item.correctNumber === undefined ? undefined : Number(item.correctNumber),
     slots: ((item.slots ?? []) as Record<string, unknown>[]).map((s) => ({
       slotId: s.slotId as string,
       name: s.name as string,
@@ -1048,7 +1068,8 @@ function toGameAnswerRecord(item: Record<string, unknown>): GameAnswerRecord {
   return {
     gameId: item.gameId as string,
     userId: item.userId as string,
-    choiceId: item.choiceId as string,
+    choiceId: item.choiceId as string | undefined,
+    value: item.value === undefined ? undefined : Number(item.value),
     answeredAt: item.answeredAt as string,
   };
 }

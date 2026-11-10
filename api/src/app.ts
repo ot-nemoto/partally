@@ -24,6 +24,7 @@ import {
   type RankingResponse,
   type Rules,
   randomEpithet,
+  rankNumberAnswers,
   registerRequestSchema,
   type ScheduleItemDto,
   type Settings,
@@ -46,6 +47,7 @@ import {
   GameAlreadyOpenError,
   type GameAnswerRecord,
   type GameChoice,
+  type GameRank,
   type GameRecord,
   type GameSlot,
   InvalidStateError,
@@ -226,17 +228,28 @@ export function createApp(deps: AppDeps) {
   const uploadersOf = async (photos: PhotoRecord[]) =>
     new Map((await repo.getUsers(photos.map((p) => p.uploaderId))).map((u) => [u.userId, u]));
 
-  /** 1 人分のゲームの点数（クイズ形式は自分の答えだけを読む） */
+  /**
+   * 1 人分のゲームの点数。クイズ形式は自分の答えだけを読む。
+   * 数値予想は順位が他の人の答えで決まるので、自分が答えた確定済みのものだけ全員の答えを読む
+   */
   const scoresOf = async (userId: string): Promise<GameStats> => {
-    const [games, answers] = await Promise.all([repo.listGames(), repo.listGameAnswersByUser(userId)]);
-    return gameStatsByUser(withAnswers(games, answers)).get(userId) ?? NO_GAME_STATS;
+    const [games, mine] = await Promise.all([repo.listGames(), repo.listGameAnswersByUser(userId)]);
+    const answered = new Set(mine.map((a) => a.gameId));
+    const entries = await Promise.all(
+      withAnswers(games, mine).map(async (entry) =>
+        entry.game.format === "number" && entry.game.status === "confirmed" && answered.has(entry.game.gameId)
+          ? { game: entry.game, answers: await repo.listGameAnswersByGame(entry.game.gameId) }
+          : entry,
+      ),
+    );
+    return gameStatsByUser(entries).get(userId) ?? NO_GAME_STATS;
   };
 
-  /** 全ゲームと、クイズ形式の答え（ゲームは数十程度の想定なので、ゲームごとに並行して読む） */
+  /** 全ゲームと、クイズ・数値予想の答え（ゲームは数十程度の想定なので、ゲームごとに並行して読む） */
   const gamesWithAnswers = async (): Promise<GameWithAnswers[]> => {
     const games = await repo.listGames();
     const answers = await Promise.all(
-      games.map((g) => (g.format === "quiz" ? repo.listGameAnswersByGame(g.gameId) : Promise.resolve([]))),
+      games.map((g) => (hasAnswers(g) ? repo.listGameAnswersByGame(g.gameId) : Promise.resolve([]))),
     );
     return games.map((game, i) => ({ game, answers: answers[i]! }));
   };
@@ -400,8 +413,8 @@ export function createApp(deps: AppDeps) {
     const gameId = await repo.getOpenGameId();
     const game = gameId ? await repo.getGame(gameId) : undefined;
     if (game?.status !== "open") return c.json({ game: null });
-    const answer = game.format === "quiz" ? await repo.getGameAnswer(c.get("user").userId, game.gameId) : undefined;
-    return c.json({ game: toCurrentGameDto(game, answer?.choiceId, imageUrlOf) });
+    const answer = hasAnswers(game) ? await repo.getGameAnswer(c.get("user").userId, game.gameId) : undefined;
+    return c.json({ game: toCurrentGameDto(game, answer, imageUrlOf) });
   });
 
   app.put("/game/:gameId/answer", requireUser, async (c) => {
@@ -409,18 +422,25 @@ export function createApp(deps: AppDeps) {
     if (!body.ok) return body.response;
     const game = await repo.getGame(c.req.param("gameId") ?? "");
     if (!game) return fail(c, 404, "not_found");
-    if (game.format !== "quiz") return fail(c, 400, "bad_request", "このゲームには答えられません");
+    const { choiceId, value } = body.data;
+    // クイズは選択肢、数値予想は数で答える（形式に合わない答えや、結果入力への答えは受け付けない）
+    if (!(game.format === "quiz" ? choiceId !== undefined : game.format === "number" && value !== undefined)) {
+      return fail(c, 400, "bad_request", "このゲームには、その形では答えられません");
+    }
     if (game.status !== "open") return fail(c, 409, "game_closed");
-    const { choiceId } = body.data;
-    if (!game.choices.some((ch) => ch.choiceId === choiceId)) return fail(c, 400, "bad_request", "選択肢がありません");
+    if (choiceId !== undefined && !game.choices.some((ch) => ch.choiceId === choiceId)) {
+      return fail(c, 400, "bad_request", "選択肢がありません");
+    }
     // 時刻は開催中を確かめた後に付ける。この後に確定されて保存が遅れた答えは、点数の計算で除かれる
-    await repo.putGameAnswer({
+    const answer = {
       gameId: game.gameId,
       userId: c.get("user").userId,
       choiceId,
+      value,
       answeredAt: now().toISOString(),
-    });
-    return c.json({ game: toCurrentGameDto(game, choiceId, imageUrlOf) });
+    };
+    await repo.putGameAnswer(answer);
+    return c.json({ game: toCurrentGameDto(game, answer, imageUrlOf) });
   });
 
   app.post("/photos/upload-url", requireUser, async (c) => {
@@ -797,6 +817,7 @@ export function createApp(deps: AppDeps) {
             userId: a.userId,
             displayName: user ? formatDisplayName(user.epithet, user.name) : undefined,
             choiceId: a.choiceId,
+            value: a.value,
             answeredAt: a.answeredAt,
           };
         }),
@@ -861,6 +882,8 @@ export function createApp(deps: AppDeps) {
       status: "draft",
       slots,
       choices,
+      ranks: sortRanks(body.data.ranks ?? []),
+      correctNumber: body.data.correctNumber,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -893,7 +916,7 @@ export function createApp(deps: AppDeps) {
     const sentIds = new Set((body.data.choices ?? []).flatMap((ch) => (ch.choiceId ? [ch.choiceId] : [])));
     const structureChanged =
       choices.length !== game.choices.length || game.choices.some((ch) => !sentIds.has(ch.choiceId));
-    const answers = game.format === "quiz" ? await repo.listGameAnswersByGame(game.gameId) : [];
+    const answers = hasAnswers(game) ? await repo.listGameAnswersByGame(game.gameId) : [];
     if (structureChanged && (game.status !== "draft" || answers.length > 0)) {
       return fail(c, 409, "invalid_state", "答えがある・開催した後のクイズは、選択肢を増やしたり減らしたりできません");
     }
@@ -903,6 +926,8 @@ export function createApp(deps: AppDeps) {
       imageId: body.data.imageId,
       slots,
       choices,
+      ranks: sortRanks(body.data.ranks ?? []),
+      correctNumber: body.data.correctNumber,
     };
     const before = gameImageIds(game);
     const after = gameImageIds(changes);
@@ -926,7 +951,7 @@ export function createApp(deps: AppDeps) {
   const changeGameStatus = async (c: Context, game: GameRecord, to: GameRecord["status"], message: string) => {
     try {
       const updated = await repo.changeGameStatus(game.gameId, game.status, to, now().toISOString());
-      const answers = updated.format === "quiz" ? await repo.listGameAnswersByGame(updated.gameId) : [];
+      const answers = hasAnswers(updated) ? await repo.listGameAnswersByGame(updated.gameId) : [];
       return c.json({ game: toGameDto(updated, answers, imageUrlOf) });
     } catch (e) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
@@ -957,12 +982,10 @@ export function createApp(deps: AppDeps) {
 
   app.post("/admin/games/:gameId/open", gameAction("open", ["draft"], "開催できるのは下書きのゲームだけです"));
   app.post("/admin/games/:gameId/stop", gameAction("draft", ["open"], "開催中のゲームではありません"));
-  // 結果入力は枠が無いと入るポイントが無いので、確定させない
+  // 入るポイントが決まらないゲーム（枠の無い結果入力、正解の数か点数の範囲が無い数値予想）は確定させない
   app.post(
     "/admin/games/:gameId/confirm",
-    gameAction("confirmed", ["draft", "open"], "既に確定しています", (game) =>
-      game.format === "result" && game.slots.length === 0 ? "枠を追加してから確定してください" : undefined,
-    ),
+    gameAction("confirmed", ["draft", "open"], "既に確定しています", confirmProblem),
   );
   app.post("/admin/games/:gameId/unconfirm", gameAction("draft", ["confirmed"], "確定していません"));
 
@@ -1042,7 +1065,7 @@ interface GameAward extends GameAwardDto {
 /**
  * 確定したゲームで、誰に何点入ったか（確定した順）。下書き・開催中のゲームは数えない
  * （クイズを選び直して、点数の変化から正解が分からないように）。
- * 結果入力は枠に入った人に枠の点数、クイズは選んだ選択肢の点数。確定の直前に受け付けて確定の後に保存された答え
+ * 結果入力は枠に入った人に枠の点数、クイズは選んだ選択肢の点数、数値予想は正解に近い順の順位が入る範囲の点数。確定の直前に受け付けて確定の後に保存された答え
  * （answeredAt > confirmedAt）は数えない
  */
 function gameAwards(entries: GameWithAnswers[]): GameAward[] {
@@ -1061,13 +1084,32 @@ function gameAwards(entries: GameWithAnswers[]): GameAward[] {
           awards.push({ userId, at, gameName: game.name, slotName: slot.name, points: slot.points });
         }
       }
-    } else {
+    } else if (game.format === "quiz") {
       const choices = new Map(game.choices.map((ch) => [ch.choiceId, ch]));
       for (const answer of answers) {
-        const choice = choices.get(answer.choiceId);
+        const choice = answer.choiceId === undefined ? undefined : choices.get(answer.choiceId);
         if (!choice || answer.answeredAt > at) continue;
         awards.push({ userId: answer.userId, at, gameName: game.name, slotName: choice.text, points: choice.points });
       }
+    } else if (game.correctNumber !== undefined) {
+      const counted = answers.filter(
+        (a): a is GameAnswerRecord & { value: number } => a.value !== undefined && a.answeredAt <= at,
+      );
+      const results = rankNumberAnswers(
+        counted.map((a) => a.value),
+        game.correctNumber,
+        game.ranks,
+      );
+      counted.forEach((answer, i) => {
+        const { rank, points } = results[i]!;
+        awards.push({
+          userId: answer.userId,
+          at,
+          gameName: game.name,
+          slotName: `${rank} 位（予想 ${answer.value}）`,
+          points,
+        });
+      });
     }
   }
   return awards;
@@ -1284,9 +1326,27 @@ function sortSchedule(items: ScheduleItemRecord[]): ScheduleItemDto[] {
 
 type ImageUrlOf = (imageId: string | undefined) => string | undefined;
 
+/** 参加者が答える形式（クイズ・数値予想） */
+function hasAnswers(game: Pick<GameRecord, "format">): boolean {
+  return game.format === "quiz" || game.format === "number";
+}
+
+/** 数値予想の点数の範囲を、順位の小さい順に */
+function sortRanks(ranks: GameRank[]): GameRank[] {
+  return [...ranks].sort((a, b) => a.from - b.from).map(({ from, to, points }) => ({ from, to, points }));
+}
+
+/** 確定できない理由（入るポイントが決まらない）。確定できるなら undefined */
+function confirmProblem(game: GameRecord): string | undefined {
+  if (game.format === "result" && game.slots.length === 0) return "枠を追加してから確定してください";
+  if (game.format === "number" && game.correctNumber === undefined) return "正解の数を入れてから確定してください";
+  if (game.format === "number" && game.ranks.length === 0) return "点数の範囲を追加してから確定してください";
+  return undefined;
+}
+
 function toGameDto(game: GameRecord, answers: GameAnswerRecord[], imageUrlOf: ImageUrlOf): GameDto {
   const counts = new Map<string, number>();
-  for (const a of answers) counts.set(a.choiceId, (counts.get(a.choiceId) ?? 0) + 1);
+  for (const a of answers) if (a.choiceId) counts.set(a.choiceId, (counts.get(a.choiceId) ?? 0) + 1);
   return {
     gameId: game.gameId,
     format: game.format,
@@ -1301,6 +1361,8 @@ function toGameDto(game: GameRecord, answers: GameAnswerRecord[], imageUrlOf: Im
       imageUrl: imageUrlOf(ch.imageId),
       answerCount: counts.get(ch.choiceId) ?? 0,
     })),
+    ranks: game.ranks.map((r) => ({ ...r })),
+    correctNumber: game.correctNumber,
     answerCount: answers.length,
     createdAt: game.createdAt,
     openedAt: game.openedAt,
@@ -1310,7 +1372,11 @@ function toGameDto(game: GameRecord, answers: GameAnswerRecord[], imageUrlOf: Im
 }
 
 /** 参加者に返す開催中のゲーム。誰がどの枠に入ったかと、クイズの選択肢の点数（正解が分かる）は含めない */
-function toCurrentGameDto(game: GameRecord, myChoiceId: string | undefined, imageUrlOf: ImageUrlOf): CurrentGameDto {
+function toCurrentGameDto(
+  game: GameRecord,
+  answer: Pick<GameAnswerRecord, "choiceId" | "value"> | undefined,
+  imageUrlOf: ImageUrlOf,
+): CurrentGameDto {
   return {
     gameId: game.gameId,
     format: game.format,
@@ -1319,7 +1385,10 @@ function toCurrentGameDto(game: GameRecord, myChoiceId: string | undefined, imag
     imageUrl: imageUrlOf(game.imageId),
     slots: game.slots.map(({ name, points }) => ({ name, points })),
     choices: game.choices.map(({ choiceId, text, imageId }) => ({ choiceId, text, imageUrl: imageUrlOf(imageId) })),
-    myChoiceId,
+    // 正解の数は返さない
+    ranks: game.ranks.map((r) => ({ ...r })),
+    myChoiceId: answer?.choiceId,
+    myValue: answer?.value,
   };
 }
 

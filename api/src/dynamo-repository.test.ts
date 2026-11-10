@@ -429,11 +429,12 @@ describe("DynamoRepository", () => {
       status: "draft" as const,
       slots: [{ slotId: "S1", name: "優勝", points: 30, userIds: ["U1"] }],
       choices: [],
+      ranks: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:01:00.000Z",
     };
     const gameItem = (status: string) => ({ PK: "GAME#G1", SK: "META", ...game, status });
-    const changes = { name: "大会", description: "", slots: game.slots, choices: [] };
+    const changes = { name: "大会", description: "", slots: game.slots, choices: [], ranks: [] };
 
     it("版を渡すと、保存済みの updatedAt が同じときだけ更新する。違えば InvalidStateError、無ければ NotFoundError", async () => {
       ddb.on(UpdateCommand).resolves({ Attributes: { ...gameItem("draft"), updatedAt: "t2" } });
@@ -444,12 +445,14 @@ describe("DynamoRepository", () => {
       });
       await repo.updateGame("G1", changes, "t3");
       expect(ddb.commandCalls(UpdateCommand)[1]!.args[0].input.ConditionExpression).toBe("attribute_exists(PK)");
-      // 画像が無ければ消し、あれば付ける
-      expect(ddb.commandCalls(UpdateCommand)[1]!.args[0].input.UpdateExpression).toMatch(/ REMOVE imageId$/);
-      await repo.updateGame("G1", { ...changes, imageId: "IMG1" }, "t3");
+      // 画像・正解の数が無ければ消し、あれば付ける（0 も正解の数として付ける）
+      expect(ddb.commandCalls(UpdateCommand)[1]!.args[0].input.UpdateExpression).toMatch(
+        / REMOVE imageId, correctNumber$/,
+      );
+      await repo.updateGame("G1", { ...changes, imageId: "IMG1", correctNumber: 0 }, "t3");
       expect(ddb.commandCalls(UpdateCommand)[2]!.args[0].input).toMatchObject({
-        UpdateExpression: expect.stringMatching(/, imageId = :imageId$/),
-        ExpressionAttributeValues: { ":imageId": "IMG1" },
+        UpdateExpression: expect.stringMatching(/, imageId = :imageId, correctNumber = :correctNumber$/),
+        ExpressionAttributeValues: { ":imageId": "IMG1", ":correctNumber": 0, ":ranks": [] },
       });
 
       const failed = new ConditionalCheckFailedException({ message: "failed", $metadata: {} });

@@ -93,6 +93,13 @@ export interface GameChoice {
   imageId?: string;
 }
 
+/** 数値予想の点数の範囲 */
+export interface GameRank {
+  from: number;
+  to: number;
+  points: number;
+}
+
 export interface GameRecord {
   gameId: string;
   format: GameFormat;
@@ -103,8 +110,12 @@ export interface GameRecord {
   status: GameStatus;
   /** 結果入力形式の枠（クイズ形式では空） */
   slots: GameSlot[];
-  /** クイズ形式の選択肢（結果入力形式では空） */
+  /** クイズ形式の選択肢（ほかの形式では空） */
   choices: GameChoice[];
+  /** 数値予想の点数の範囲（ほかの形式では空。from の小さい順） */
+  ranks: GameRank[];
+  /** 数値予想の正解の数。まだ決めていなければ無い */
+  correctNumber?: number;
   createdAt: string;
   updatedAt: string;
   /** 最後に開催した時刻 */
@@ -113,11 +124,14 @@ export interface GameRecord {
   confirmedAt?: string;
 }
 
-/** クイズ形式のゲームへの答え。1 人 1 ゲームにつき 1 件で、選び直すと上書きする */
+/** クイズ・数値予想のゲームへの答え。1 人 1 ゲームにつき 1 件で、答え直すと上書きする */
 export interface GameAnswerRecord {
   gameId: string;
   userId: string;
-  choiceId: string;
+  /** クイズで選んだ選択肢 */
+  choiceId?: string;
+  /** 数値予想で答えた数 */
+  value?: number;
   answeredAt: string;
 }
 
@@ -331,7 +345,7 @@ export interface Repository {
    */
   updateGame(
     gameId: string,
-    changes: Pick<GameRecord, "name" | "description" | "imageId" | "slots" | "choices">,
+    changes: Pick<GameRecord, "name" | "description" | "imageId" | "slots" | "choices" | "ranks" | "correctNumber">,
     updatedAt: string,
     expectedUpdatedAt?: string,
   ): Promise<GameRecord>;
