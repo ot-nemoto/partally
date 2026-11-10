@@ -290,7 +290,7 @@ export class MemoryRepository implements Repository {
 
   async updateGame(
     gameId: string,
-    changes: Pick<GameRecord, "name" | "description" | "imageId" | "slots" | "choices">,
+    changes: Pick<GameRecord, "name" | "description" | "imageId" | "slots" | "choices" | "ranks" | "correctNumber">,
     updatedAt: string,
     expectedUpdatedAt?: string,
   ) {

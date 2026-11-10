@@ -299,6 +299,13 @@ export interface GameChoiceDto {
   answerCount: number;
 }
 
+/** 数値予想の点数の範囲（from 位〜to 位の人に points） */
+export interface GameRankDto {
+  from: number;
+  to: number;
+  points: number;
+}
+
 /** 管理画面に返すゲーム */
 export interface GameDto {
   gameId: string;
@@ -313,9 +320,13 @@ export interface GameDto {
   status: GameStatus;
   /** 結果入力形式の枠（クイズ形式では空） */
   slots: GameSlotDto[];
-  /** クイズ形式の選択肢（結果入力形式では空） */
+  /** クイズ形式の選択肢（ほかの形式では空） */
   choices: GameChoiceDto[];
-  /** クイズ形式で答えた人数 */
+  /** 数値予想の点数の範囲（ほかの形式では空） */
+  ranks: GameRankDto[];
+  /** 数値予想の正解の数。まだ決めていなければ無い */
+  correctNumber?: number;
+  /** クイズ・数値予想で答えた人数 */
   answerCount: number;
   createdAt: string;
   /** 最後に開催した時刻 */
@@ -340,8 +351,12 @@ export interface CurrentGameDto {
   slots: { name: string; points: number }[];
   /** クイズ形式の選択肢（画像があれば、その URL） */
   choices: { choiceId: string; text: string; imageUrl?: string }[];
+  /** 数値予想の点数の範囲（正解の数は返さない） */
+  ranks: GameRankDto[];
   /** クイズ形式で自分が選んでいる選択肢 */
   myChoiceId?: string;
+  /** 数値予想で自分が答えている数 */
+  myValue?: number;
 }
 
 export interface CurrentGameResponse {
@@ -359,11 +374,14 @@ export interface GameResponse {
 export interface GameAnswerDto {
   userId: string;
   displayName?: string;
-  choiceId: string;
+  /** クイズで選んだ選択肢 */
+  choiceId?: string;
+  /** 数値予想で答えた数 */
+  value?: number;
   answeredAt: string;
 }
 
-/** クイズ形式のゲームと、答えた人の一覧（管理画面） */
+/** クイズ・数値予想のゲームと、答えた人の一覧（管理画面） */
 export interface GameAnswersResponse {
   game: GameDto;
   answers: GameAnswerDto[];
@@ -372,7 +390,7 @@ export interface GameAnswersResponse {
 /** 参加者に見せる、自分に点数が入ったゲーム（結果入力なら入った枠、クイズなら選んだ答え） */
 export interface GameAwardDto {
   gameName: string;
-  /** 結果入力なら枠の名前、クイズなら選んだ選択肢 */
+  /** 結果入力なら枠の名前、クイズなら選んだ選択肢、数値予想なら順位と答えた数（例: 3 位（予想 42）） */
   slotName: string;
   points: number;
 }

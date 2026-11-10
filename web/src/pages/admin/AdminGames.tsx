@@ -1,4 +1,5 @@
 import {
+  formatRankRange,
   GAME_CHOICE_IMAGE_MAX_EDGE,
   GAME_CHOICE_TEXT_MAX_LENGTH,
   GAME_CHOICES_MAX,
@@ -7,6 +8,10 @@ import {
   GAME_FORMAT_LABEL,
   GAME_FORMATS,
   GAME_NAME_MAX_LENGTH,
+  GAME_NUMBER_MAX,
+  GAME_NUMBER_MIN,
+  GAME_RANK_MAX,
+  GAME_RANKS_MAX,
   GAME_SLOT_NAME_MAX_LENGTH,
   GAME_SLOTS_MAX,
   type GameAnswersResponse,
@@ -15,8 +20,11 @@ import {
   type GameResponse,
   type GameStatus,
   type GamesResponse,
+  gameConfirmProblem,
+  hasGameAnswers,
   POINTS_MAX,
   PRIZE_IMAGE_MAX_EDGE,
+  rankNumberAnswers,
   type TokensResponse,
   type UserDto,
   type UsersResponse,
@@ -44,7 +52,7 @@ interface Member {
   label?: string;
 }
 
-/** 更新の本文のうち、ゲームの今の内容（名前・説明・枠・選択肢）。一部だけ変えるときに使う */
+/** 更新の本文のうち、ゲームの今の内容（名前・説明・枠・選択肢・点数の範囲・正解の数）。一部だけ変えるときに使う */
 function gameBody(game: GameDto) {
   return {
     format: game.format,
@@ -53,11 +61,14 @@ function gameBody(game: GameDto) {
     imageId: game.imageId,
     slots: game.slots.map(({ slotId, name, points, userIds }) => ({ slotId, name, points, userIds })),
     choices: game.choices.map(({ choiceId, text, points, imageId }) => ({ choiceId, text, points, imageId })),
+    ranks: game.ranks.map(({ from, to, points }) => ({ from, to, points })),
+    correctNumber: game.correctNumber,
   };
 }
 
 /**
- * ゲーム。形式は「クイズ」（参加者が選択肢から選ぶ）と「結果入力」（幹事が枠ごとに人を選ぶ）。
+ * ゲーム。形式は「クイズ」（参加者が選択肢から選ぶ）、「数値予想」（参加者が数を予想し、近い順の順位で点数が決まる）、
+ * 「結果入力」（幹事が枠ごとに人を選ぶ）。
  * 下書き → 開催中（参加者に知らせる。同時に 1 つだけ）→ 確定（その時刻でポイントが入る）と進める
  */
 export function AdminGames() {
@@ -136,16 +147,18 @@ export function AdminGames() {
     const note =
       g.format === "quiz"
         ? `確定すると答えの受付が終わり、選んだ答えの点数（${g.answerCount} 人）がポイントに入ります。`
-        : g.slots.some((s) => s.userIds.length > 0)
-          ? "確定すると、選んだ人にポイントが入ります。"
-          : "まだ誰も選んでいません。";
+        : g.format === "number"
+          ? `確定すると答えの受付が終わり、正解 ${g.correctNumber} に近い順の順位で点数（${g.answerCount} 人）がポイントに入ります。`
+          : g.slots.some((s) => s.userIds.length > 0)
+            ? "確定すると、選んだ人にポイントが入ります。"
+            : "まだ誰も選んでいません。";
     if (!confirm(`「${g.name}」を確定します。${note}よろしいですか？`)) return;
     return post(g, "confirm");
   };
   const stopGame = (g: GameDto) => {
     if (
       !confirm(
-        `「${g.name}」の開催をやめて下書きに戻します。${g.format === "quiz" ? "答えは残ります。" : ""}よろしいですか？`,
+        `「${g.name}」の開催をやめて下書きに戻します。${hasGameAnswers(g) ? "答えは残ります。" : ""}よろしいですか？`,
       )
     )
       return;
@@ -188,7 +201,7 @@ export function AdminGames() {
         </div>
       </PageTitle>
       <p className="muted small">
-        形式は「クイズ」（参加者がスマホで選択肢から選ぶ）と「結果入力」（じゃんけん大会などの結果で、枠ごとに人を選ぶ）。
+        形式は「クイズ」（参加者がスマホで選択肢から選ぶ）、「数値予想」（参加者が数を予想し、正解に近い順の順位で点数が決まる）、「結果入力」（じゃんけん大会などの結果で、枠ごとに人を選ぶ）。
         「開催する」と参加者の画面にお知らせが出ます（開催中にできるのは 1 つだけ）。「確定」でポイントが入ります。
       </p>
       {error && <p className="error">{error}</p>}
@@ -205,7 +218,7 @@ export function AdminGames() {
             <span className="muted small">第 {number} ゲーム</span>
             <span className="game-format small">{GAME_FORMAT_LABEL[g.format]}</span>
             <span className={`status status-${g.status}`}>{STATUS_LABEL[g.status]}</span>
-            {g.status === "open" && g.format === "quiz" && <span className="muted small">回答 {g.answerCount} 人</span>}
+            {g.status === "open" && hasGameAnswers(g) && <span className="muted small">回答 {g.answerCount} 人</span>}
             {g.confirmedAt && <span className="muted small">{formatTime(g.confirmedAt)} に確定</span>}
           </header>
           <h2 className="game-name">{g.name}</h2>
@@ -224,6 +237,29 @@ export function AdminGames() {
                 </li>
               ))}
             </ul>
+          ) : g.format === "number" ? (
+            <>
+              <p className="small game-number-correct">
+                正解の数:{" "}
+                {g.correctNumber === undefined ? (
+                  <span className="muted">未設定（「編集」で入れると確定できます）</span>
+                ) : (
+                  <strong>{g.correctNumber}</strong>
+                )}
+              </p>
+              {g.ranks.length === 0 ? (
+                <p className="muted small">まだ点数の範囲がありません。「編集」で追加してください。</p>
+              ) : (
+                <ul className="quiz-admin-choices">
+                  {g.ranks.map((r) => (
+                    <li key={r.from}>
+                      <span>{formatRankRange(r)}</span>
+                      <span className="muted small">{r.points} 点</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           ) : g.slots.length === 0 ? (
             <p className="muted small">まだ枠がありません。「編集」で枠（優勝・準優勝など）を追加してください。</p>
           ) : (
@@ -266,8 +302,8 @@ export function AdminGames() {
                 type="button"
                 className={g.status === "open" ? "primary" : undefined}
                 onClick={() => confirmGame(g)}
-                disabled={busy || (g.format === "result" && g.slots.length === 0)}
-                title={g.format === "result" && g.slots.length === 0 ? "枠を追加すると確定できます" : undefined}
+                disabled={busy || gameConfirmProblem(g) !== undefined}
+                title={gameConfirmProblem(g)}
               >
                 確定
               </button>
@@ -282,7 +318,7 @@ export function AdminGames() {
                 確定を取り消す
               </button>
             )}
-            {g.format === "quiz" && g.answerCount > 0 && (
+            {hasGameAnswers(g) && g.answerCount > 0 && (
               <button type="button" onClick={() => setAnswers(g)}>
                 回答者を見る
               </button>
@@ -392,7 +428,39 @@ interface ImageDraft {
   url?: string;
 }
 
+/** 数値予想の点数の範囲の編集中の行（空欄は NaN） */
+interface RankDraft {
+  key: string;
+  from: number;
+  to: number;
+  points: number;
+}
+
 let draftKey = 0;
+const newRank = (from: number, to: number, points: number): RankDraft => ({
+  key: `rank-${++draftKey}`,
+  from,
+  to,
+  points,
+});
+/** 次の範囲は、前の範囲のすぐ後から（前の点数より少し低く） */
+function nextRank(ranks: RankDraft[]): RankDraft {
+  const last = ranks.at(-1);
+  const from = last && !Number.isNaN(last.to) ? Math.min(GAME_RANK_MAX, last.to + 1) : 1;
+  const points = last && !Number.isNaN(last.points) ? Math.max(0, last.points - 2) : 10;
+  return newRank(from, from, points);
+}
+
+/** 点数の範囲の誤り（空欄・逆転・重なり）。無ければ undefined */
+function rankProblem(ranks: RankDraft[]): string | undefined {
+  if (ranks.some((r) => [r.from, r.to, r.points].some(Number.isNaN))) return "空欄の項目がある範囲があります。";
+  if (ranks.some((r) => r.from < 1)) return "順位は 1 位からです。";
+  if (ranks.some((r) => r.from > r.to)) return "「から」が「まで」より大きい範囲があります。";
+  const sorted = [...ranks].sort((a, b) => a.from - b.from);
+  if (sorted.some((r, i) => i > 0 && sorted[i - 1]!.to >= r.from)) return "順位が重なっている範囲があります。";
+  return undefined;
+}
+
 const newRow = (points = 10): RowDraft => ({ key: `new-${++draftKey}`, name: "", points, userIds: [], image: {} });
 
 /** 新しく選んだ画像をアップロードし、付ける imageId を返す（そのままなら保存済みの imageId） */
@@ -433,6 +501,11 @@ function GameFormDialog(props: {
       image: { imageId: ch.imageId, url: ch.imageUrl },
     })) ?? [newRow(10), newRow(0), newRow(0)],
   );
+  // 数値予想は 1 位 10 点・2〜3 位 5 点で始める
+  const [ranks, setRanks] = useState<RankDraft[]>(
+    game?.ranks.map((r) => newRank(r.from, r.to, r.points)) ?? [newRank(1, 1, 10), newRank(2, 3, 5)],
+  );
+  const [correctNumber, setCorrectNumber] = useState(game?.correctNumber ?? Number.NaN);
   const [image, setImage] = useState<ImageDraft>({ imageId: game?.imageId, url: game?.imageUrl });
   // 新しく選んだ画像の表示用 URL は、閉じるときにまとめて解放する
   const created = useRef<string[]>([]);
@@ -446,6 +519,9 @@ function GameFormDialog(props: {
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const quiz = format === "quiz";
+  const numberGame = format === "number";
+  // 確定した数値予想は、正解の数と点数の範囲を外せない（入ったポイントが消えないように）
+  const lockAnswer = numberGame && game?.status === "confirmed";
   const rows = quiz ? choices : slots;
   const setRows = quiz ? setChoices : setSlots;
   // 答えと食い違わないよう、クイズの選択肢を増やす・減らすのは、まだ答えが無い下書きの間だけ
@@ -477,7 +553,10 @@ function GameFormDialog(props: {
         name,
         description,
         imageId: await imageIdOf(image),
-        slots: quiz ? [] : slots.map((s) => ({ slotId: s.id, name: s.name, points: s.points, userIds: s.userIds })),
+        slots:
+          format !== "result"
+            ? []
+            : slots.map((s) => ({ slotId: s.id, name: s.name, points: s.points, userIds: s.userIds })),
         choices: quiz
           ? await Promise.all(
               choices.map(async (ch) => ({
@@ -488,6 +567,8 @@ function GameFormDialog(props: {
               })),
             )
           : [],
+        ranks: numberGame ? ranks.map(({ from, to, points }) => ({ from, to, points })) : [],
+        correctNumber: numberGame && !Number.isNaN(correctNumber) ? correctNumber : undefined,
         // 開いた後にほかで直されていたら、上書きせずに知らせる
         baseUpdatedAt: game?.updatedAt,
       };
@@ -503,7 +584,8 @@ function GameFormDialog(props: {
     }
   }
 
-  const incomplete = rows.some((r) => Number.isNaN(r.points));
+  const incomplete = !numberGame && rows.some((r) => Number.isNaN(r.points));
+  const rankError = numberGame ? rankProblem(ranks) : undefined;
   const title = game ? "ゲームの編集" : "ゲームを作る";
   const label = quiz ? "選択肢" : "枠";
 
@@ -526,7 +608,9 @@ function GameFormDialog(props: {
                   <span className="muted small">
                     {f === "quiz"
                       ? "参加者がスマホで選択肢から選び、選んだ答えの点数が入ります"
-                      : "じゃんけん大会などの結果で、枠（優勝など）ごとに人を選んで点数を付けます"}
+                      : f === "number"
+                        ? `参加者が数（${GAME_NUMBER_MIN}〜${GAME_NUMBER_MAX}）を予想し、正解に近い順の順位で点数が入ります`
+                        : "じゃんけん大会などの結果で、枠（優勝など）ごとに人を選んで点数を付けます"}
                   </span>
                 </span>
               </label>
@@ -539,124 +623,193 @@ function GameFormDialog(props: {
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={GAME_NAME_MAX_LENGTH}
-            placeholder={quiz ? "例: 第 1 問" : "例: じゃんけん大会"}
+            placeholder={quiz ? "例: 第 1 問" : numberGame ? "例: 瓶の中の飴の数" : "例: じゃんけん大会"}
             required
             data-autofocus
           />
         </label>
         <label className="field">
-          <span>{quiz ? "問題文" : "説明（任意）"}</span>
+          <span>{quiz || numberGame ? "問題文" : "説明（任意）"}</span>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             maxLength={GAME_DESCRIPTION_MAX_LENGTH}
             rows={3}
-            placeholder={quiz ? "例: 幹事の出身地は？" : "例: 負けた人は座ってください。最後まで残った人が優勝です"}
+            placeholder={
+              quiz
+                ? "例: 幹事の出身地は？"
+                : numberGame
+                  ? "例: 瓶の中に飴は何個入っている？"
+                  : "例: 負けた人は座ってください。最後まで残った人が優勝です"
+            }
           />
           <span className="muted small">参加者のゲームの画面に出ます。</span>
         </label>
         <ImageField
-          label={quiz ? "問題の画像（任意）" : "画像（任意）"}
+          label={quiz || numberGame ? "問題の画像（任意）" : "画像（任意）"}
           image={image}
           onChange={setImage}
           onPicked={track}
           disabled={saving}
         />
-        <fieldset className="game-form-slots">
-          <legend>{label}と点数</legend>
-          {rows.map((r, i) => (
-            <div key={r.key} className="game-form-slot">
-              <label className="field">
-                <span>
-                  {label} {i + 1}
-                </span>
-                <input
-                  value={r.name}
-                  onChange={(e) => update(r.key, { name: e.target.value })}
-                  maxLength={quiz ? GAME_CHOICE_TEXT_MAX_LENGTH : GAME_SLOT_NAME_MAX_LENGTH}
-                  placeholder={quiz ? undefined : (SLOT_PLACEHOLDERS[i] ?? "例: 参加賞")}
-                  required
+        {numberGame && (
+          <>
+            <NumberField
+              label={lockAnswer ? "正解の数" : "正解の数（任意・確定までに入れる）"}
+              value={correctNumber}
+              min={GAME_NUMBER_MIN}
+              max={GAME_NUMBER_MAX}
+              onChange={setCorrectNumber}
+              optional={!lockAnswer}
+            />
+            <fieldset className="game-form-slots">
+              <legend>順位と点数</legend>
+              {ranks.map((r, i) => (
+                <div key={r.key} className="game-form-slot game-form-rank">
+                  <span className="game-form-rank-title small">範囲 {i + 1}</span>
+                  <NumberField
+                    label="何位から"
+                    value={r.from}
+                    min={1}
+                    max={GAME_RANK_MAX}
+                    onChange={(from) => setRanks((prev) => prev.map((x) => (x.key === r.key ? { ...x, from } : x)))}
+                  />
+                  <NumberField
+                    label="何位まで"
+                    value={r.to}
+                    min={1}
+                    max={GAME_RANK_MAX}
+                    onChange={(to) => setRanks((prev) => prev.map((x) => (x.key === r.key ? { ...x, to } : x)))}
+                  />
+                  <NumberField
+                    label="点数"
+                    value={r.points}
+                    max={POINTS_MAX}
+                    onChange={(points) => setRanks((prev) => prev.map((x) => (x.key === r.key ? { ...x, points } : x)))}
+                  />
+                  <div className="game-form-slot-actions">
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => setRanks((prev) => prev.filter((x) => x.key !== r.key))}
+                      disabled={lockAnswer && ranks.length <= 1}
+                      aria-label={`範囲 ${i + 1} を削除`}
+                    >
+                      削除
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setRanks((prev) => [...prev, nextRank(prev)])}
+                disabled={ranks.length >= GAME_RANKS_MAX}
+              >
+                範囲を追加
+              </button>
+            </fieldset>
+          </>
+        )}
+        {!numberGame && (
+          <fieldset className="game-form-slots">
+            <legend>{label}と点数</legend>
+            {rows.map((r, i) => (
+              <div key={r.key} className="game-form-slot">
+                <label className="field">
+                  <span>
+                    {label} {i + 1}
+                  </span>
+                  <input
+                    value={r.name}
+                    onChange={(e) => update(r.key, { name: e.target.value })}
+                    maxLength={quiz ? GAME_CHOICE_TEXT_MAX_LENGTH : GAME_SLOT_NAME_MAX_LENGTH}
+                    placeholder={quiz ? undefined : (SLOT_PLACEHOLDERS[i] ?? "例: 参加賞")}
+                    required
+                  />
+                </label>
+                <NumberField
+                  label="点数"
+                  value={r.points}
+                  max={POINTS_MAX}
+                  onChange={(points) => update(r.key, { points })}
                 />
-              </label>
-              <NumberField
-                label="点数"
-                value={r.points}
-                max={POINTS_MAX}
-                onChange={(points) => update(r.key, { points })}
-              />
-              <div className="game-form-slot-actions">
-                <button
-                  type="button"
-                  onClick={() => move(i, i - 1)}
-                  disabled={i === 0}
-                  aria-label={`${label} ${i + 1} を上へ`}
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  onClick={() => move(i, i + 1)}
-                  disabled={i === rows.length - 1}
-                  aria-label={`${label} ${i + 1} を下へ`}
-                >
-                  ↓
-                </button>
-                {canChangeRows && (
+                <div className="game-form-slot-actions">
                   <button
                     type="button"
-                    className="link"
-                    onClick={() => setRows((prev) => prev.filter((x) => x.key !== r.key))}
-                    disabled={rows.length <= minRows}
-                    aria-label={`${label} ${i + 1} を削除`}
+                    onClick={() => move(i, i - 1)}
+                    disabled={i === 0}
+                    aria-label={`${label} ${i + 1} を上へ`}
                   >
-                    削除
+                    ↑
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => move(i, i + 1)}
+                    disabled={i === rows.length - 1}
+                    aria-label={`${label} ${i + 1} を下へ`}
+                  >
+                    ↓
+                  </button>
+                  {canChangeRows && (
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => setRows((prev) => prev.filter((x) => x.key !== r.key))}
+                      disabled={rows.length <= minRows}
+                      aria-label={`${label} ${i + 1} を削除`}
+                    >
+                      削除
+                    </button>
+                  )}
+                </div>
+                {r.userIds.length > 0 && (
+                  <p className="muted small game-form-slot-note">選んだ人: {r.userIds.length} 人</p>
+                )}
+                {quiz && (
+                  <div className="game-form-slot-note">
+                    <ImageField
+                      label={`${label} ${i + 1} の画像（任意）`}
+                      image={r.image}
+                      onChange={(image) => update(r.key, { image })}
+                      onPicked={track}
+                      disabled={saving}
+                      small
+                    />
+                  </div>
                 )}
               </div>
-              {r.userIds.length > 0 && (
-                <p className="muted small game-form-slot-note">選んだ人: {r.userIds.length} 人</p>
-              )}
-              {quiz && (
-                <div className="game-form-slot-note">
-                  <ImageField
-                    label={`${label} ${i + 1} の画像（任意）`}
-                    image={r.image}
-                    onChange={(image) => update(r.key, { image })}
-                    onPicked={track}
-                    disabled={saving}
-                    small
-                  />
-                </div>
-              )}
-            </div>
-          ))}
-          {canChangeRows ? (
-            <button
-              type="button"
-              onClick={() => setRows((prev) => [...prev, newRow(quiz ? 0 : 10)])}
-              disabled={rows.length >= maxRows}
-            >
-              {label}を追加
-            </button>
-          ) : (
-            <p className="muted small">
-              答えがある・開催した後は、選択肢の追加・削除はできません。文言と点数は直せます（点数を直すと、確定した分も数え直します）。
-            </p>
-          )}
-        </fieldset>
+            ))}
+            {canChangeRows ? (
+              <button
+                type="button"
+                onClick={() => setRows((prev) => [...prev, newRow(quiz ? 0 : 10)])}
+                disabled={rows.length >= maxRows}
+              >
+                {label}を追加
+              </button>
+            ) : (
+              <p className="muted small">
+                答えがある・開催した後は、選択肢の追加・削除はできません。文言と点数は直せます（点数を直すと、確定した分も数え直します）。
+              </p>
+            )}
+          </fieldset>
+        )}
         <p className="muted small">
           {quiz
             ? "正解は 10 点、惜しい答えは 5 点のように、選択肢ごとに点数を決められます。参加者には点数は見せません。"
-            : "枠は後から追加することもできます（枠が無いゲームは確定できません）。人は、保存した後に枠ごとの「人を選ぶ」で選びます。枠を削除すると、その枠で選んだ人も外れます。"}
+            : numberGame
+              ? "正解に近い順に順位を付け、順位が入る範囲の点数が入ります（同じだけ離れた人は同じ順位。どの範囲にも入らない順位は 0 点）。順位の範囲は参加者にも見せ、正解の数は見せません。"
+              : "枠は後から追加することもできます（枠が無いゲームは確定できません）。人は、保存した後に枠ごとの「人を選ぶ」で選びます。枠を削除すると、その枠で選んだ人も外れます。"}
           {game?.status === "confirmed" && "確定済みなので、保存するとすぐにポイントが変わります。"}
         </p>
         {error && <p className="error">{error}</p>}
         {incomplete && <p className="error">点数が空欄の{label}があります。</p>}
+        {rankError && <p className="error">{rankError}</p>}
         <div className="buttons">
           <button type="button" onClick={props.onClose} disabled={saving}>
             キャンセル
           </button>
-          <button type="submit" className="primary" disabled={saving || incomplete}>
+          <button type="submit" className="primary" disabled={saving || incomplete || rankError !== undefined}>
             保存
           </button>
         </div>
@@ -745,7 +898,7 @@ function ImageField(props: {
   );
 }
 
-/** クイズ形式で、だれがどの選択肢を選んだか */
+/** クイズ・数値予想で、だれが何を答えたか */
 function GameAnswersDialog(props: { game: GameDto; onClose: () => void }) {
   const [data, setData] = useState<GameAnswersResponse>();
   const [error, setError] = useState<string>();
@@ -765,6 +918,7 @@ function GameAnswersDialog(props: { game: GameDto; onClose: () => void }) {
         {props.game.description && <p className="quiz-text">{props.game.description}</p>}
         {error && <p className="error">{error}</p>}
         {!data && !error && <p className="muted">読み込み中…</p>}
+        {data?.game.format === "number" && <NumberAnswers game={data.game} answers={data.answers} />}
         {data?.game.choices.map((ch) => {
           const names = data.answers.filter((a) => a.choiceId === ch.choiceId);
           return (
@@ -792,6 +946,73 @@ function GameAnswersDialog(props: { game: GameDto; onClose: () => void }) {
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** 数値予想で、だれが何を答えたか（正解の数があれば、近い順に順位と点数も） */
+function NumberAnswers(props: { game: GameDto; answers: GameAnswersResponse["answers"] }) {
+  const { game } = props;
+  const answers = props.answers.filter((a): a is typeof a & { value: number } => a.value !== undefined);
+  if (answers.length === 0) return <p className="muted small">まだ答えがありません。</p>;
+  const correct = game.correctNumber;
+  if (correct === undefined) {
+    const sorted = [...answers].sort((a, b) => a.value - b.value);
+    return (
+      <>
+        <p className="muted small">正解の数を入れると、順位と点数が出ます。</p>
+        <table className="game-number-answers">
+          <thead>
+            <tr>
+              <th>答え</th>
+              <th>名前</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((a) => (
+              <tr key={a.userId}>
+                <td className="num">{a.value}</td>
+                <td>{a.displayName ?? "（不明なユーザ）"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </>
+    );
+  }
+  const results = rankNumberAnswers(
+    answers.map((a) => a.value),
+    correct,
+    game.ranks,
+  );
+  const rows = answers.map((a, i) => ({ answer: a, ...results[i]! })).sort((a, b) => a.rank - b.rank);
+  return (
+    <>
+      <p className="small">
+        正解: <strong>{correct}</strong>
+      </p>
+      <table className="game-number-answers">
+        <thead>
+          <tr>
+            <th>順位</th>
+            <th>答え</th>
+            <th>差</th>
+            <th>名前</th>
+            <th>点数</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.answer.userId}>
+              <td className="num">{r.rank} 位</td>
+              <td className="num">{r.answer.value}</td>
+              <td className="num">{r.diff}</td>
+              <td>{r.answer.displayName ?? "（不明なユーザ）"}</td>
+              <td className="num">{r.points} 点</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }
 

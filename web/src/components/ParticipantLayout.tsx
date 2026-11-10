@@ -127,13 +127,17 @@ export function ParticipantLayout() {
       <main className="page">
         {game && location.pathname !== "/game" && (
           <Link to="/game" className="quiz-banner">
-            <strong>{game.format === "quiz" ? "問題が出ています" : "ゲーム開催中"}</strong>
+            <strong>{game.format === "result" ? "ゲーム開催中" : "問題が出ています"}</strong>
             <span className="quiz-banner-sub">
               {game.format === "quiz"
                 ? game.myChoiceId
                   ? `${game.name}・回答済み（締め切りまで選び直せます）`
                   : `${game.name}・タップして回答する`
-                : `${game.name}・タップして見る`}
+                : game.format === "number"
+                  ? game.myValue !== undefined
+                    ? `${game.name}・回答済み（締め切りまで答え直せます）`
+                    : `${game.name}・タップして数を予想する`
+                  : `${game.name}・タップして見る`}
             </span>
           </Link>
         )}

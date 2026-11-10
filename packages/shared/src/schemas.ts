@@ -186,15 +186,27 @@ export const GAME_CHOICES_MIN = 2;
 export const GAME_CHOICES_MAX = 10;
 /** 1 つのゲームで選べる人数の上限（参加者は 80 名程度の想定） */
 export const GAME_MEMBERS_MAX = 1000;
+/** 数値予想で答えられる数の範囲（整数） */
+export const GAME_NUMBER_MIN = 0;
+export const GAME_NUMBER_MAX = 100;
+/** 数値予想の点数の範囲の数と、順位の上限 */
+export const GAME_RANKS_MAX = 20;
+export const GAME_RANK_MAX = 1000;
 
-/** ゲームの形式。quiz: 参加者が選択肢から選ぶ / result: 幹事が枠（優勝など）ごとに人を選ぶ */
-export const GAME_FORMATS = ["quiz", "result"] as const;
+/**
+ * ゲームの形式。quiz: 参加者が選択肢から選ぶ / result: 幹事が枠（優勝など）ごとに人を選ぶ /
+ * number: 参加者が数を答え、正解に近い順の順位で点数が入る（数値予想・ニアピン）
+ */
+export const GAME_FORMATS = ["quiz", "result", "number"] as const;
 
 /** 形式の名前（管理画面に出す） */
 export const GAME_FORMAT_LABEL: Record<(typeof GAME_FORMATS)[number], string> = {
   quiz: "クイズ",
   result: "結果入力",
+  number: "数値予想",
 };
+
+const gameNumber = z.number().int().min(GAME_NUMBER_MIN).max(GAME_NUMBER_MAX);
 
 /** 選択肢・枠の名前は 1 行なので、連続する空白も 1 つにする */
 const oneLine = (max: number) =>
@@ -207,6 +219,7 @@ const oneLine = (max: number) =>
  * ゲーム。形式は作るときに決め、後から変えない（更新で違う形式を送ると 400）。
  * - quiz: 選択肢（2〜10 個）ごとに点数を決める。slots は送らない
  * - result: 枠（0〜20 個。名前だけで作り、枠は後から足せる）ごとに点数と人を決める。1 人は 1 つの枠にだけ入る。choices は送らない
+ * - number: 点数の範囲（順位の始まりと終わり・点数。0〜20 個、重ねない）と、正解の数（確定までに入れる）を決める。choices・slots は送らない
  * choiceId・slotId は既存の選択肢・枠を直すときに指定する。新しいものには付けない
  */
 export const gameRequestSchema = z
@@ -244,6 +257,19 @@ export const gameRequestSchema = z
       )
       .max(GAME_SLOTS_MAX)
       .optional(),
+    /** 数値予想の点数の範囲。from 位〜to 位の人に points を付ける */
+    ranks: z
+      .array(
+        z.object({
+          from: z.number().int().min(1).max(GAME_RANK_MAX),
+          to: z.number().int().min(1).max(GAME_RANK_MAX),
+          points,
+        }),
+      )
+      .max(GAME_RANKS_MAX)
+      .optional(),
+    /** 数値予想の正解の数。省くとまだ決めていない（確定できない） */
+    correctNumber: gameNumber.optional(),
     /**
      * 更新のとき、画面が持っているゲームの updatedAt。保存済みのものと違えば（ほかで直されていれば）上書きせず 409 にする。
      * 省くと確かめない
@@ -254,10 +280,29 @@ export const gameRequestSchema = z
     message: `クイズは選択肢を ${GAME_CHOICES_MIN}〜${GAME_CHOICES_MAX} 個にしてください`,
     path: ["choices"],
   })
-  .refine((v) => v.format !== "result" || !v.choices?.length, {
-    message: "結果入力のゲームに選択肢は付けられません",
+  .refine((v) => v.format === "quiz" || !v.choices?.length, {
+    message: "選択肢を付けられるのはクイズだけです",
     path: ["choices"],
   })
+  .refine((v) => v.format === "result" || !v.slots?.length, {
+    message: "枠を付けられるのは結果入力だけです",
+    path: ["slots"],
+  })
+  .refine((v) => v.format === "number" || (!v.ranks?.length && v.correctNumber === undefined), {
+    message: "点数の範囲と正解の数を付けられるのは数値予想だけです",
+    path: ["ranks"],
+  })
+  .refine((v) => (v.ranks ?? []).every((r) => r.from <= r.to), {
+    message: "点数の範囲は、始まりの順位を終わりの順位以下にしてください",
+    path: ["ranks"],
+  })
+  .refine(
+    (v) => {
+      const sorted = [...(v.ranks ?? [])].sort((a, b) => a.from - b.from);
+      return sorted.every((r, i) => i === 0 || sorted[i - 1]!.to < r.from);
+    },
+    { message: "点数の範囲が重なっています（例: 1〜5 位と 6〜10 位のように分けてください）", path: ["ranks"] },
+  )
   .refine(
     (v) => {
       const ids = (v.slots ?? []).flatMap((s) => s.userIds);
@@ -284,7 +329,9 @@ export const gameRequestSchema = z
 
 export type GameRequest = z.infer<typeof gameRequestSchema>;
 
-/** クイズ形式のゲームへの答え */
-export const gameAnswerRequestSchema = z.object({
-  choiceId: idSchema,
-});
+/** ゲームへの答え。クイズは選んだ選択肢、数値予想は数（0〜100 の整数）。どちらか一方 */
+export const gameAnswerRequestSchema = z
+  .object({ choiceId: idSchema.optional(), value: gameNumber.optional() })
+  .refine((v) => (v.choiceId === undefined) !== (v.value === undefined), {
+    message: "選択肢か数のどちらかを送ってください",
+  });
