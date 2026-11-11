@@ -388,8 +388,18 @@ export interface Repository {
    * クイズ形式の答えを保存する（選び直しは上書き）。開催中かどうかは呼び出し側が強い整合性で読んで確かめ、
    * その後に answeredAt を付けて呼ぶ（全員が一斉に答えるため、ゲームのアイテムを含むトランザクションにはしない）
    */
-  putGameAnswer(answer: GameAnswerRecord): Promise<void>;
-  getGameAnswer(userId: string, gameId: string): Promise<GameAnswerRecord | undefined>;
+  /**
+   * 答えを保存する（答え直しは上書き）。expected を渡すと、保存済みの答えが読んだときのまま
+   * （answeredAt が同じ。undefined なら答えがまだ無い）のときだけ保存する。
+   * @throws InvalidStateError expected を渡し、保存済みの答えが変わっていたとき
+   */
+  putGameAnswer(answer: GameAnswerRecord, expected?: { answeredAt: string | undefined }): Promise<void>;
+  /** 自分の答えを読む。consistent を付けると、直前の保存も必ず反映した値を読む */
+  getGameAnswer(
+    userId: string,
+    gameId: string,
+    options?: { consistent?: boolean },
+  ): Promise<GameAnswerRecord | undefined>;
   listGameAnswersByUser(userId: string): Promise<GameAnswerRecord[]>;
   listGameAnswersByGame(gameId: string): Promise<GameAnswerRecord[]>;
 

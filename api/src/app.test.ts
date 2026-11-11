@@ -60,6 +60,8 @@ describe("API", () => {
       secureCookies: true,
       // 二つ名の抽選結果をテストから指定できるようにする（未指定なら 0）
       randomInt: () => epithetSeq.shift() ?? 0,
+      // 結果整合の読み取りを待たない（メモリ実装はすぐ反映される）
+      settle: async () => {},
       // 本番の ULID と同じく、文字列順が発行順になるようにする
       newId: () => `ID${String(++id).padStart(4, "0")}`,
     });
@@ -991,6 +993,22 @@ describe("API", () => {
 
       const confirmed = await admin("POST", `/api/admin/games/${quiz.gameId}/confirm`);
       expect(confirmed.body.game).toMatchObject({ status: "confirmed", answerCount: 2 });
+      // 確定の直前に受け付けて確定より後に保存された答えは、点数と同じく回答数・選択肢ごとの人数にも数えない
+      await repo.putGameAnswer({
+        gameId: quiz.gameId,
+        userId: a.userId,
+        choiceId: c2,
+        answeredAt: new Date(Date.parse(confirmed.body.game.confirmedAt) + 1).toISOString(),
+      });
+      const listed = (await admin("GET", "/api/admin/games")).body.games.find((g: any) => g.gameId === quiz.gameId);
+      expect(listed.answerCount).toBe(1);
+      expect(listed.choices.map((ch: any) => ch.answerCount)).toEqual([0, 1, 0]);
+      await repo.putGameAnswer({
+        gameId: quiz.gameId,
+        userId: a.userId,
+        choiceId: c3,
+        answeredAt: "2000-01-01T00:00:00.000Z",
+      });
       expect((await a.request("GET", "/api/game/current")).body.game).toBeNull();
       expect((await answer(a, c1)).body.error).toBe("game_closed");
       expect((await me(a.request)).user).toMatchObject({
@@ -1379,6 +1397,27 @@ describe("API", () => {
       expect(await pts()).toEqual([0, 0, 0, 7, 0]);
     });
 
+    it("確定のとき、1 回目の読み取りに出なかった参加者（結果整合の遅れ）も抽選に入る", async () => {
+      const admin = await adminClient();
+      const game = (await admin("POST", "/api/admin/games", { format: "lottery", name: "駆け込み", ranks })).body.game;
+      await admin("POST", `/api/admin/games/${game.gameId}/open`);
+      const a = await participant("早い人");
+      const b = await participant("駆け込み");
+      for (const p of [a, b]) await p.request("PUT", `/api/game/${game.gameId}/answer`, { entry: true });
+      // 1 回目の読み取りでは、駆け込みの人がまだ索引に出ていない
+      const list = repo.listGameAnswersByGame.bind(repo);
+      const spy = vi
+        .spyOn(repo, "listGameAnswersByGame")
+        .mockImplementationOnce(async (id) => (await list(id)).filter((x) => x.userId !== b.userId));
+      try {
+        const confirmed = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
+        expect(confirmed.status).toBe(200);
+        expect([...confirmed.body.game.drawOrder].sort()).toEqual([a.userId, b.userId].sort());
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it("入力の検証と、範囲が無いと確定できないこと", async () => {
       const admin = await adminClient();
       const game = (await admin("POST", "/api/admin/games", { format: "lottery", name: "抽選" })).body.game;
@@ -1506,6 +1545,32 @@ describe("API", () => {
       const changed = await admin("PUT", `/api/admin/games/${game.gameId}`, { ...base, keyword: "違う", ranks });
       expect(changed.status).toBe(200);
       expect(await Promise.all(people.map(async (p) => (await me(p.request)).gamePoints))).toEqual([0, 0, 0, 0, 0]);
+      // 回答数（正解した人数）も、今の合言葉に合う人だけを数える
+      expect(changed.body.game.answerCount).toBe(0);
+    });
+
+    it("正解を続けて送っても、後から保存された方が先の正解の時刻を上書きしない", async () => {
+      const admin = await adminClient();
+      const game = (
+        await admin("POST", "/api/admin/games", { format: "keyword", name: "二重送信", keyword: "かぎ", ranks })
+      ).body.game;
+      await admin("POST", `/api/admin/games/${game.gameId}/open`);
+      const a = await participant("二度押す人");
+      // 1 回目の保存の直前に、別の送信の正解が先に保存された
+      const put = repo.putGameAnswer.bind(repo);
+      const spy = vi.spyOn(repo, "putGameAnswer").mockImplementationOnce(async (answer, expected) => {
+        await put({ ...answer, answeredAt: "2000-01-01T00:00:00.000Z" });
+        return put(answer, expected);
+      });
+      try {
+        const res = await a.request("PUT", `/api/game/${game.gameId}/answer`, { text: "カギ" });
+        expect(res.status).toBe(200);
+        expect(res.body).toMatchObject({ correct: true, game: { myKeywordCorrect: true } });
+      } finally {
+        spy.mockRestore();
+      }
+      // 先に保存された正解の時刻のまま
+      expect((await repo.getGameAnswer(a.userId, game.gameId))?.answeredAt).toBe("2000-01-01T00:00:00.000Z");
     });
 
     it("入力の検証と、範囲が無いと確定できないこと", async () => {

@@ -332,11 +332,13 @@ export class MemoryRepository implements Repository {
     for (const [key, answer] of this.gameAnswers) if (answer.gameId === gameId) this.gameAnswers.delete(key);
   }
 
-  async putGameAnswer(answer: GameAnswerRecord) {
-    this.gameAnswers.set(`${answer.userId}#${answer.gameId}`, clone(answer));
+  async putGameAnswer(answer: GameAnswerRecord, expected?: { answeredAt: string | undefined }) {
+    const key = `${answer.userId}#${answer.gameId}`;
+    if (expected && this.gameAnswers.get(key)?.answeredAt !== expected.answeredAt) throw new InvalidStateError();
+    this.gameAnswers.set(key, clone(answer));
   }
 
-  async getGameAnswer(userId: string, gameId: string) {
+  async getGameAnswer(userId: string, gameId: string, _options?: { consistent?: boolean }) {
     return clone(this.gameAnswers.get(`${userId}#${gameId}`));
   }
 

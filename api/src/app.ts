@@ -89,6 +89,8 @@ export interface AppDeps {
   randomInt?: RandomInt;
   newId?: () => string;
   newToken?: () => string;
+  /** 結果整合の読み取りを待つ間（抽選の確定で、参加者を読み直す前に待つ）。テストでは待たない */
+  settle?: () => Promise<void>;
 }
 
 type Env = { Variables: { user: UserRecord } };
@@ -103,6 +105,8 @@ const PHOTO_COOKIE_TTL_MS = 12 * 60 * 60 * 1000;
 /** 検閲待ち写真・管理画面の署名付き URL の有効期間。画面は一覧の取り直しで URL を更新する */
 const SIGNED_URL_TTL_MS = 60 * 60 * 1000;
 const PHOTO_PAGE_SIZE = 30;
+/** 結果整合の索引（GSI）に、直前の書き込みが出るまで待つ間（通常は 1 秒もかからない） */
+const SETTLE_MS = 1000;
 const GAME_CONFLICT_MESSAGE = "ほかの画面でこのゲームが変更されました。開き直してから直してください";
 /** ランキングで公開中の写真をまとめて読むときの 1 回の件数 */
 const RANKING_PHOTO_PAGE_SIZE = 100;
@@ -121,6 +125,7 @@ export function createApp(deps: AppDeps) {
     randomInt: rand = (max) => randomInt(max),
     newId = () => ulid(),
     newToken = () => randomBytes(16).toString("base64url"),
+    settle = () => new Promise<void>((resolve) => setTimeout(resolve, SETTLE_MS)),
   } = deps;
   const nowSeconds = () => Math.floor(now().getTime() / 1000);
 
@@ -458,11 +463,22 @@ export function createApp(deps: AppDeps) {
     }
     if (text !== undefined) {
       // 合言葉は正解したときだけ保存する（不正解は何度でも試せる）。正解した後は、最初に正解した時刻のまま
+      // 続けて送られても先の正解の時刻を上書きしないよう、強い整合性で読み、読んだときのままなら保存する
       const correct = isKeywordCorrect(game, text);
-      const existing = await repo.getGameAnswer(userId, game.gameId);
+      const existing = await repo.getGameAnswer(userId, game.gameId, { consistent: true });
       if (!correct || isKeywordCorrect(game, existing?.text)) {
         return c.json({ game: toCurrentGameDto(game, existing, imageUrlOf), correct });
       }
+      const answer = { gameId: game.gameId, userId, text, answeredAt: now().toISOString() };
+      try {
+        await repo.putGameAnswer(answer, { answeredAt: existing?.answeredAt });
+      } catch (e) {
+        if (!(e instanceof InvalidStateError)) throw e;
+        // 同時に送られた別の答えが先に保存された（その答えのまま返す）
+        const saved = await repo.getGameAnswer(userId, game.gameId, { consistent: true });
+        return c.json({ game: toCurrentGameDto(game, saved, imageUrlOf), correct });
+      }
+      return c.json({ game: toCurrentGameDto(game, answer, imageUrlOf), correct: true });
     }
     // 時刻は開催中を確かめた後に付ける。この後に確定されて保存が遅れた答えは、点数の計算で除かれる
     const answer = {
@@ -1050,9 +1066,13 @@ export function createApp(deps: AppDeps) {
    * 乱数の前に userId で並べ、同じ乱数なら同じ結果になるようにする
    */
   const drawLottery = async (game: GameRecord, at: string) => {
-    const entrants = (await repo.listGameAnswersByGame(game.gameId))
-      .filter((a) => a.entry && a.answeredAt <= at)
-      .map((a) => a.userId);
+    // 参加者の一覧（GSI）は結果整合なので、確定の直前の参加がまだ出ていないことがある。
+    // 少し待ってもう一度読み、どちらかに出た人を合わせる（抽選は確定のときの順番を保存し、後から直らないため）
+    const read = async () =>
+      (await repo.listGameAnswersByGame(game.gameId)).filter((a) => a.entry && a.answeredAt <= at).map((a) => a.userId);
+    const first = await read();
+    await settle();
+    const entrants = [...new Set([...first, ...(await read())])];
     const active = (await repo.getUsers(entrants)).filter((u) => u.status === "active").map((u) => u.userId);
     return shuffle(active.sort(), rand);
   };
@@ -1493,7 +1513,19 @@ function sortRanks(ranks: GameRank[]): GameRank[] {
   return [...ranks].sort((a, b) => a.from - b.from).map(({ from, to, points }) => ({ from, to, points }));
 }
 
-function toGameDto(game: GameRecord, answers: GameAnswerRecord[], imageUrlOf: ImageUrlOf): GameDto {
+/**
+ * 回答数に数える答え。点数の計算（gameAwards）と同じく、確定したゲームでは確定より後に届いた答えを除き、
+ * 合言葉は今の合言葉に合う答えだけを数える
+ */
+function countedAnswers(game: GameRecord, answers: GameAnswerRecord[]): GameAnswerRecord[] {
+  const at = game.status === "confirmed" ? game.confirmedAt : undefined;
+  return answers.filter(
+    (a) => (at === undefined || a.answeredAt <= at) && (game.format !== "keyword" || isKeywordCorrect(game, a.text)),
+  );
+}
+
+function toGameDto(game: GameRecord, allAnswers: GameAnswerRecord[], imageUrlOf: ImageUrlOf): GameDto {
+  const answers = countedAnswers(game, allAnswers);
   const counts = new Map<string, number>();
   for (const a of answers) if (a.choiceId) counts.set(a.choiceId, (counts.get(a.choiceId) ?? 0) + 1);
   return {

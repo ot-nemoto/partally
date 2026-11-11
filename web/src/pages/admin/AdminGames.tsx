@@ -1070,6 +1070,10 @@ function ImageField(props: {
 /** クイズ・数値予想・投票で、だれが何を答えたか */
 function GameAnswersDialog(props: { game: GameDto; onClose: () => void }) {
   const [data, setData] = useState<GameAnswersResponse>();
+  // ポイントの計算と同じく、確定したゲームでは確定より後に届いた答えを数えない
+  const confirmedAt = data?.game.status === "confirmed" ? data.game.confirmedAt : undefined;
+  const counted = data?.answers.filter((a) => confirmedAt === undefined || a.answeredAt <= confirmedAt);
+  const late = data && counted ? data.answers.filter((a) => !counted.includes(a)) : [];
   const [error, setError] = useState<string>();
 
   useEffect(() => {
@@ -1087,12 +1091,15 @@ function GameAnswersDialog(props: { game: GameDto; onClose: () => void }) {
         {props.game.description && <p className="quiz-text">{props.game.description}</p>}
         {error && <p className="error">{error}</p>}
         {!data && !error && <p className="muted">読み込み中…</p>}
-        {data?.game.format === "number" && <NumberAnswers game={data.game} answers={data.answers} />}
-        {data?.game.format === "vote" && <VoteAnswers game={data.game} answers={data.answers} />}
-        {data?.game.format === "keyword" && <KeywordAnswers game={data.game} answers={data.answers} />}
+        {counted && late.length > 0 && (
+          <p className="muted small">確定より後に届いた答え（{late.length} 件）は、ポイントと同じく数えていません。</p>
+        )}
+        {data?.game.format === "number" && counted && <NumberAnswers game={data.game} answers={counted} />}
+        {data?.game.format === "vote" && counted && <VoteAnswers game={data.game} answers={counted} />}
+        {data?.game.format === "keyword" && counted && <KeywordAnswers game={data.game} answers={counted} />}
         {data?.game.format === "lottery" && <LotteryAnswers game={data.game} answers={data.answers} />}
         {data?.game.choices.map((ch) => {
-          const names = data.answers.filter((a) => a.choiceId === ch.choiceId);
+          const names = (counted ?? []).filter((a) => a.choiceId === ch.choiceId);
           return (
             <section key={ch.choiceId} className="quiz-result">
               <h3 className="game-choice-label">
@@ -1302,6 +1309,9 @@ function LotteryAnswers(props: { game: GameDto; answers: GameAnswersResponse["an
     const range = game.ranks.find((r) => r.from <= i + 1 && i + 1 <= r.to);
     return range ? [{ userId, order: i + 1, range }] : [];
   });
+  // 参加したのに抽選に入っていない人（紐づけを解除した人と、確定の直前に参加して読み取りに間に合わなかった人）
+  const drawn = new Set(game.drawOrder);
+  const missed = props.answers.filter((a) => a.entry && !drawn.has(a.userId));
   return (
     <>
       <p className="small">
@@ -1330,6 +1340,12 @@ function LotteryAnswers(props: { game: GameDto; answers: GameAnswersResponse["an
             ))}
           </tbody>
         </table>
+      )}
+      {missed.length > 0 && (
+        <p className="muted small">
+          抽選に入っていない参加者（{missed.length} 人）: {missed.map((a) => names.get(a.userId)).join("、")}
+          。紐づけを解除した人と、確定の直前に参加して間に合わなかった人です。入れるなら確定を取り消してもう一度確定します（引き直しになります）。
+        </p>
       )}
     </>
   );

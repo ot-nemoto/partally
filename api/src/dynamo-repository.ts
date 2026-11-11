@@ -859,25 +859,44 @@ export class DynamoRepository implements Repository {
     await this.batchWrite(answers.map((a) => ({ DeleteRequest: { Key: keys.gameAnswer(a.userId, a.gameId) } })));
   }
 
-  async putGameAnswer(answer: GameAnswerRecord) {
+  async putGameAnswer(answer: GameAnswerRecord, expected?: { answeredAt: string | undefined }) {
     // 全員が一斉に答えるので、ゲームのアイテムを含むトランザクションにはしない（TransactionConflict が多発する）。
     // 呼び出し側の確認と保存の間に確定された答えは、点数の計算で answeredAt > confirmedAt として除く
-    await this.client.send(
-      new PutCommand({
-        TableName: this.tableName,
-        Item: {
-          ...keys.gameAnswer(answer.userId, answer.gameId),
-          GSI1PK: `GANSWERS#${answer.gameId}`,
-          GSI1SK: answer.userId,
-          ...answer,
-        },
-      }),
-    );
+    const condition =
+      expected === undefined
+        ? {}
+        : expected.answeredAt === undefined
+          ? { ConditionExpression: "attribute_not_exists(PK)" }
+          : {
+              ConditionExpression: "answeredAt = :expected",
+              ExpressionAttributeValues: { ":expected": expected.answeredAt },
+            };
+    try {
+      await this.client.send(
+        new PutCommand({
+          TableName: this.tableName,
+          Item: {
+            ...keys.gameAnswer(answer.userId, answer.gameId),
+            GSI1PK: `GANSWERS#${answer.gameId}`,
+            GSI1SK: answer.userId,
+            ...answer,
+          },
+          ...condition,
+        }),
+      );
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) throw new InvalidStateError();
+      throw e;
+    }
   }
 
-  async getGameAnswer(userId: string, gameId: string) {
+  async getGameAnswer(userId: string, gameId: string, options?: { consistent?: boolean }) {
     const { Item } = await this.client.send(
-      new GetCommand({ TableName: this.tableName, Key: keys.gameAnswer(userId, gameId) }),
+      new GetCommand({
+        TableName: this.tableName,
+        Key: keys.gameAnswer(userId, gameId),
+        ...(options?.consistent ? { ConsistentRead: true } : {}),
+      }),
     );
     return Item ? toGameAnswerRecord(Item) : undefined;
   }
