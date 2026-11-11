@@ -551,6 +551,20 @@ describe("DynamoRepository", () => {
       expect(ddb.commandCalls(TransactWriteCommand)).toHaveLength(0);
     });
 
+    it("読んだときの答えを渡すと、変わっていないときだけ保存する（変わっていたら InvalidStateError）", async () => {
+      ddb.on(PutCommand).resolves({});
+      const answer = { gameId: "G1", userId: "u1", text: "かぎ", answeredAt: "2026-01-01T00:02:00.000Z" };
+      await repo.putGameAnswer(answer, { answeredAt: undefined });
+      await repo.putGameAnswer(answer, { answeredAt: "2026-01-01T00:01:00.000Z" });
+      expect(ddb.commandCalls(PutCommand)[0]!.args[0].input.ConditionExpression).toBe("attribute_not_exists(PK)");
+      expect(ddb.commandCalls(PutCommand)[1]!.args[0].input).toMatchObject({
+        ConditionExpression: "answeredAt = :expected",
+        ExpressionAttributeValues: { ":expected": "2026-01-01T00:01:00.000Z" },
+      });
+      ddb.on(PutCommand).rejects(new ConditionalCheckFailedException({ message: "failed", $metadata: {} }));
+      await expect(repo.putGameAnswer(answer, { answeredAt: undefined })).rejects.toBeInstanceOf(InvalidStateError);
+    });
+
     it("削除は開催中でなければゲームを消し、その答えもまとめて消す", async () => {
       ddb.on(DeleteCommand).resolves({});
       ddb.on(QueryCommand).resolves({
