@@ -8,6 +8,7 @@ import {
   type GameAnswerRecord,
   type GameChanges,
   type GameRecord,
+  InvalidCursorError,
   InvalidStateError,
   NotFoundError,
   type Page,
@@ -128,6 +129,7 @@ export class MemoryRepository implements Repository {
   async listPhotosByStatus(status: PhotoStatus, limit: number, cursor?: string): Promise<Page<PhotoRecord>> {
     const all = this.sortedPhotos().filter((p) => p.status === status);
     const start = cursor ? Number(cursor) : 0;
+    if (!Number.isSafeInteger(start) || start < 0) throw new InvalidCursorError();
     const items = all.slice(start, start + limit);
     const next = start + limit;
     return { items: items.map(clone), cursor: next < all.length ? String(next) : undefined };

@@ -56,6 +56,14 @@ aws sts get-caller-identity --query Account --output text
 
 デプロイしたいアカウント ID が表示されることを確認する。以降の例では `<ACCOUNT_ID>` と書く。
 
+あわせて、Lambda の同時実行数の上限を確認する。作ったばかりのアカウントでは上限が低く（10 など）、ゲームで参加者がほぼ同時に答えると、上限を超えた呼び出しがエラーになることがある。
+
+```sh
+aws lambda get-account-settings --query AccountLimit.ConcurrentExecutions
+```
+
+参加者が 100 人程度なら 100 以上あると安心。少ないときは、Service Quotas の「Concurrent executions」で引き上げを申請する（反映まで数日かかることがある）。
+
 ### 2. セッション署名鍵の作成
 
 ```sh
