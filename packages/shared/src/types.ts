@@ -344,7 +344,8 @@ export interface GameDto {
 }
 
 /**
- * 参加者に見せる開催中のゲーム。誰がどの枠に入ったかと、クイズの選択肢の点数（正解が分かる）は含めない
+ * 参加者に返す開催中のゲーム。何をしたら何点か（選択肢・枠・順位の範囲の点数、投票した人の点数）と、
+ * 正解（数値予想の正解の数・合言葉）、誰がどの枠に入ったかは返さない
  */
 export interface CurrentGameDto {
   gameId: string;
@@ -353,14 +354,8 @@ export interface CurrentGameDto {
   description: string;
   /** 問題の画像の URL（署名付き） */
   imageUrl?: string;
-  /** 結果入力形式の枠と点数 */
-  slots: { name: string; points: number }[];
-  /** クイズ形式の選択肢（画像があれば、その URL） */
+  /** クイズ形式の選択肢（画像があれば、その URL）。点数は返さない */
   choices: { choiceId: string; text: string; imageUrl?: string }[];
-  /** 数値予想・投票・合言葉の点数の範囲（数値予想の正解の数・合言葉は返さない） */
-  ranks: GameRankDto[];
-  /** 投票で、投票した人に入る点数 */
-  voterPoints: number;
   /** クイズ形式で自分が選んでいる選択肢 */
   myChoiceId?: string;
   /** 数値予想で自分が答えている数 */

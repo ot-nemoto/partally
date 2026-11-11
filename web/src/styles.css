@@ -1764,25 +1764,6 @@ textarea {
   text-align: center;
 }
 
-/* 参加者のゲームの画面の、枠ごとの点数 */
-.game-points {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  margin: 0 0 0.5rem;
-  padding: 0;
-  list-style: none;
-}
-
-.game-points li {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.35rem 0;
-  border-bottom: 1px solid var(--border);
-  overflow-wrap: anywhere;
-}
-
 .game-confirmed {
   border-color: var(--gold);
 }

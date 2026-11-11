@@ -1510,7 +1510,7 @@ function toGameDto(game: GameRecord, answers: GameAnswerRecord[], imageUrlOf: Im
   };
 }
 
-/** 参加者に返す開催中のゲーム。誰がどの枠に入ったかと、クイズの選択肢の点数（正解が分かる）は含めない */
+/** 参加者に返す開催中のゲーム。点数（何をしたら何点か）・正解・合言葉・誰がどの枠に入ったかは含めない（CurrentGameDto） */
 function toCurrentGameDto(
   game: GameRecord,
   answer: Pick<GameAnswerRecord, "choiceId" | "value" | "targetUserId" | "text" | "entry"> | undefined,
@@ -1522,12 +1522,8 @@ function toCurrentGameDto(
     name: game.name,
     description: game.description,
     imageUrl: imageUrlOf(game.imageId),
-    slots: game.slots.map(({ name, points }) => ({ name, points })),
     choices: game.choices.map(({ choiceId, text, imageId }) => ({ choiceId, text, imageUrl: imageUrlOf(imageId) })),
-    // 正解の数は返さない
-    ranks: game.ranks.map((r) => ({ ...r })),
     myChoiceId: answer?.choiceId,
-    voterPoints: game.voterPoints,
     myValue: answer?.value,
     myTargetUserId: answer?.targetUserId,
     // 合言葉そのものは返さず、正解したかだけ返す

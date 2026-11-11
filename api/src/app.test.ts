@@ -912,9 +912,6 @@ describe("API", () => {
         format: "quiz",
         name: "第 1 問",
         description: quiz.description,
-        slots: [],
-        ranks: [],
-        voterPoints: 0,
         // 正解がわからないよう、点数は返さない
         choices: quiz.choices.map((ch: any) => ({ choiceId: ch.choiceId, text: ch.text })),
       });
@@ -1216,6 +1213,8 @@ describe("API", () => {
       const result = (await admin("POST", "/api/admin/games", { format: "result", name: "大会" })).body.game;
       await admin("POST", `/api/admin/games/${result.gameId}/open`);
       const a = await participant("田中");
+      // 結果入力の枠と点数は参加者に返さない
+      expect((await a.request("GET", "/api/game/current")).body.game).not.toHaveProperty("slots");
       expect((await a.request("PUT", `/api/game/${result.gameId}/answer`, { choiceId: "X" })).status).toBe(400);
       expect((await createClient(app)("GET", "/api/game/current")).status).toBe(401);
       expect((await createClient(app)("GET", "/api/admin/games")).status).toBe(401);
@@ -1259,11 +1258,10 @@ describe("API", () => {
       expect((await enter(people[0]!)).body.error).toBe("game_closed");
 
       expect((await admin("POST", `/api/admin/games/${game.gameId}/open`)).status).toBe(200);
-      expect((await people[0]!.request("GET", "/api/game/current")).body.game).toMatchObject({
-        format: "lottery",
-        ranks,
-        myEntry: false,
-      });
+      const lotteryCurrent = (await people[0]!.request("GET", "/api/game/current")).body.game;
+      expect(lotteryCurrent).toMatchObject({ format: "lottery", myEntry: false });
+      // 何をしたら何点か（順番の範囲の点数）は参加者に返さない
+      expect(lotteryCurrent).not.toHaveProperty("ranks");
       expect((await people[0]!.request("PUT", `/api/game/${game.gameId}/answer`, { entry: false })).status).toBe(400);
       expect((await people[0]!.request("PUT", `/api/game/${game.gameId}/answer`, { text: "x" })).status).toBe(400);
       // A〜D と E が参加（A は 2 回押す）。E は確定の前に紐づけを解除される（抽選に含めない）
@@ -1376,7 +1374,8 @@ describe("API", () => {
 
       expect((await admin("POST", `/api/admin/games/${game.gameId}/open`)).status).toBe(200);
       const current = (await people[0]!.request("GET", "/api/game/current")).body.game;
-      expect(current).toMatchObject({ format: "keyword", ranks, myKeywordCorrect: false });
+      expect(current).toMatchObject({ format: "keyword", myKeywordCorrect: false });
+      expect(current).not.toHaveProperty("ranks");
       // 合言葉は参加者に返さない
       expect(JSON.stringify(current)).not.toContain("パーティー");
 
@@ -1512,7 +1511,10 @@ describe("API", () => {
       expect((await admin("POST", `/api/admin/users/${e.userId}/unbind`)).status).toBe(200);
       expect((await admin("POST", `/api/admin/games/${game.gameId}/open`)).status).toBe(200);
       const current = (await a.request("GET", "/api/game/current")).body.game;
-      expect(current).toMatchObject({ format: "vote", ranks, voterPoints: 2 });
+      expect(current).toMatchObject({ format: "vote" });
+      // 何をしたら何点か（得票の順位の点数、投票した人の点数）は参加者に返さない
+      expect(current).not.toHaveProperty("ranks");
+      expect(current).not.toHaveProperty("voterPoints");
       expect(current.myTargetUserId).toBeUndefined();
 
       const candidates = (await a.request("GET", `/api/game/${game.gameId}/candidates`)).body.candidates;
@@ -1642,7 +1644,8 @@ describe("API", () => {
 
       expect((await admin("POST", `/api/admin/games/${game.gameId}/open`)).status).toBe(200);
       const current = (await people[0]!.request("GET", "/api/game/current")).body.game;
-      expect(current).toMatchObject({ format: "number", ranks: [ranks[1], ranks[0]] });
+      expect(current).toMatchObject({ format: "number" });
+      expect(current).not.toHaveProperty("ranks");
       // 正解の数は参加者に返さない
       expect(current).not.toHaveProperty("correctNumber");
 
