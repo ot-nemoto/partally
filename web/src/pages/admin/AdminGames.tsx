@@ -677,7 +677,8 @@ function GameFormDialog(props: {
   const canChangeRows = !quiz || !game || (game.status === "draft" && game.answerCount === 0);
   const maxRows = quiz ? GAME_CHOICES_MAX : GAME_SLOTS_MAX;
   // 確定した結果入力は、最後の枠を消せない（入ったポイントが消えないように）
-  const minRows = quiz ? GAME_CHOICES_MIN : game?.status === "confirmed" ? 1 : 0;
+  const lastSlotLocked = !quiz && game?.status === "confirmed";
+  const minRows = quiz ? GAME_CHOICES_MIN : lastSlotLocked ? 1 : 0;
 
   function update(key: string, changes: Partial<RowDraft>) {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...changes } : r)));
@@ -920,6 +921,11 @@ function GameFormDialog(props: {
                       className="link"
                       onClick={() => setRows((prev) => prev.filter((x) => x.key !== r.key))}
                       disabled={rows.length <= minRows}
+                      title={
+                        lastSlotLocked && rows.length <= minRows
+                          ? "確定済みなので、最後の枠は消せません（先に確定を取り消してください）"
+                          : undefined
+                      }
                       aria-label={`${label} ${i + 1} を削除`}
                     >
                       削除
@@ -960,6 +966,7 @@ function GameFormDialog(props: {
         )}
         <p className="muted small">
           {text.note}
+          {lastSlotLocked && "確定済みなので、枠を全部は消せません（消すなら先に確定を取り消してください）。"}
           {game?.status === "confirmed" && "確定済みなので、保存するとすぐにポイントが変わります。"}
         </p>
         {error && <p className="error">{error}</p>}

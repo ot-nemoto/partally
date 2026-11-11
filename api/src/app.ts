@@ -667,15 +667,20 @@ export function createApp(deps: AppDeps) {
     try {
       await storage.copy(photoId, "pending", "approved");
     } catch (e) {
-      // 同時に別の承認・却下が先に済んで、検閲待ちの画像がもう無いとき
-      if ((await repo.getPhoto(photoId))?.status !== "pending") return fail(c, 409, "invalid_state");
+      // 同時に別の承認・却下が先に済んで、検閲待ちの画像がもう無いとき（古い値を読まないよう、強い整合性で読む）
+      if ((await repo.getPhoto(photoId, { consistent: true }))?.status !== "pending") {
+        return fail(c, 409, "invalid_state");
+      }
       throw e;
     }
     const approved = await photoAction(c, () => repo.approvePhoto(photoId, now().toISOString()));
     if (approved instanceof Response) {
       // DB の更新に失敗したら、公開領域へのコピーを取り消す。ただし同時に別の承認が先に済んでいたら、
-      // その承認が公開した画像なので消さない（消すと、公開中のまま画像が無くなり元に戻せない）
-      if ((await repo.getPhoto(photoId))?.status !== "approved") await storage.remove(photoId, "approved");
+      // その承認が公開した画像なので消さない（消すと、公開中のまま画像が無くなり元に戻せない）。
+      // 直前の承認を見落とさないよう、強い整合性で読む
+      if ((await repo.getPhoto(photoId, { consistent: true }))?.status !== "approved") {
+        await storage.remove(photoId, "approved");
+      }
       return approved;
     }
     await storage.remove(photoId, "pending");
@@ -991,9 +996,11 @@ export function createApp(deps: AppDeps) {
       return fail(c, 409, "invalid_state", "答えがある・開催した後のクイズは、選択肢を増やしたり減らしたりできません");
     }
     // 確定したゲームから、確定に要るもの（結果入力の枠、正解の数、点数の範囲）を全部外すと、
-    // 入ったポイントが黙って消えるので受け付けない（確定できない形には直せない）
+    // 入ったポイントが黙って消えるので受け付けない（確定できない形には直せない）。
+    // 以前の版で既に外してあるゲームは、名前などを直せるようにそのまま通す
     if (
       game.status === "confirmed" &&
+      !gameConfirmProblem(game) &&
       gameConfirmProblem({
         format: game.format,
         slots,

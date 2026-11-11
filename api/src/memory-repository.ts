@@ -121,7 +121,7 @@ export class MemoryRepository implements Repository {
     });
   }
 
-  async getPhoto(photoId: string) {
+  async getPhoto(photoId: string, _options?: { consistent?: boolean }) {
     return clone(this.photos.get(photoId));
   }
 

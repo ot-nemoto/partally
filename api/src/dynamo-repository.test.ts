@@ -224,6 +224,14 @@ describe("DynamoRepository", () => {
       expect(items[1]!.Update!.UpdateExpression).toBe("ADD uploadCount :one, approvedCount :one");
     });
 
+    it("写真は、consistent を付けたときだけ強い整合性で読む", async () => {
+      ddb.on(GetCommand).resolves({ Item: { ...photo } });
+      await repo.getPhoto("P1");
+      await repo.getPhoto("P1", { consistent: true });
+      expect(ddb.commandCalls(GetCommand)[0]!.args[0].input.ConsistentRead).toBeUndefined();
+      expect(ddb.commandCalls(GetCommand)[1]!.args[0].input.ConsistentRead).toBe(true);
+    });
+
     it("承認は状態と GSI を更新し approvedCount を加算する。pending 以外は InvalidStateError", async () => {
       ddb.on(GetCommand).resolves({ Item: { ...photo } });
       ddb.on(TransactWriteCommand).resolves({});
