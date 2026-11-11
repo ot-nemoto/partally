@@ -78,7 +78,7 @@ function gameBody(game: GameDto) {
 }
 
 /**
- * ゲーム。形式はクイズ・数値予想・投票・合言葉・結果入力（説明は FORMAT_TEXT）。
+ * ゲーム。形式はクイズ・数値予想・投票・合言葉・抽選・結果入力（説明は FORMAT_TEXT）。
  * 下書き → 開催中（参加者に知らせる。同時に 1 つだけ）→ 確定（その時刻でポイントが入る）と進める
  */
 export function AdminGames() {
@@ -211,7 +211,7 @@ export function AdminGames() {
         </div>
       </PageTitle>
       <p className="muted small">
-        形式は「クイズ」「数値予想」「投票」「合言葉」「結果入力」から選べます（それぞれの説明は「ゲームを作る」に出ます）。
+        形式は「クイズ」「数値予想」「投票」「合言葉」「抽選」「結果入力」から選べます（それぞれの説明は「ゲームを作る」に出ます）。
         「開催する」と参加者の画面にお知らせが出ます（開催中にできるのは 1 つだけ）。「確定」でポイントが入ります。
       </p>
       {error && <p className="error">{error}</p>}
@@ -676,7 +676,8 @@ function GameFormDialog(props: {
   // 答えと食い違わないよう、クイズの選択肢を増やす・減らすのは、まだ答えが無い下書きの間だけ
   const canChangeRows = !quiz || !game || (game.status === "draft" && game.answerCount === 0);
   const maxRows = quiz ? GAME_CHOICES_MAX : GAME_SLOTS_MAX;
-  const minRows = quiz ? GAME_CHOICES_MIN : 0;
+  // 確定した結果入力は、最後の枠を消せない（入ったポイントが消えないように）
+  const minRows = quiz ? GAME_CHOICES_MIN : game?.status === "confirmed" ? 1 : 0;
 
   function update(key: string, changes: Partial<RowDraft>) {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...changes } : r)));

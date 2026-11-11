@@ -12,7 +12,6 @@ import {
   gameConfirmProblem,
   gameRequestSchema,
   hasGameAnswers,
-  hasGameRanks,
   issueTokensRequestSchema,
   normalizeKeyword,
   type ParticipantRankingResponse,
@@ -664,12 +663,19 @@ export function createApp(deps: AppDeps) {
     const photo = await repo.getPhoto(photoId);
     if (!photo) return fail(c, 404, "not_found");
     if (photo.status !== "pending") return fail(c, 409, "invalid_state");
-    // 画像を先に公開領域へコピーし、DB を更新してから検閲待ちの画像を消す。
-    // 同時に却下されるなどで DB の更新に失敗したら、公開領域へのコピーを取り消す
-    await storage.copy(photoId, "pending", "approved");
+    // 画像を先に公開領域へコピーし、DB を更新してから検閲待ちの画像を消す
+    try {
+      await storage.copy(photoId, "pending", "approved");
+    } catch (e) {
+      // 同時に別の承認・却下が先に済んで、検閲待ちの画像がもう無いとき
+      if ((await repo.getPhoto(photoId))?.status !== "pending") return fail(c, 409, "invalid_state");
+      throw e;
+    }
     const approved = await photoAction(c, () => repo.approvePhoto(photoId, now().toISOString()));
     if (approved instanceof Response) {
-      await storage.remove(photoId, "approved");
+      // DB の更新に失敗したら、公開領域へのコピーを取り消す。ただし同時に別の承認が先に済んでいたら、
+      // その承認が公開した画像なので消さない（消すと、公開中のまま画像が無くなり元に戻せない）
+      if ((await repo.getPhoto(photoId))?.status !== "approved") await storage.remove(photoId, "approved");
       return approved;
     }
     await storage.remove(photoId, "pending");
@@ -984,13 +990,13 @@ export function createApp(deps: AppDeps) {
     if (structureChanged && (game.status !== "draft" || answers.length > 0)) {
       return fail(c, 409, "invalid_state", "答えがある・開催した後のクイズは、選択肢を増やしたり減らしたりできません");
     }
-    // 確定した数値予想・投票から正解の数や点数の範囲を外すと、入ったポイントが黙って消えるので受け付けない
+    // 確定したゲームから、確定に要るもの（結果入力の枠、正解の数、点数の範囲）を全部外すと、
+    // 入ったポイントが黙って消えるので受け付けない（確定できない形には直せない）
     if (
       game.status === "confirmed" &&
-      hasGameRanks(game) &&
       gameConfirmProblem({
         format: game.format,
-        slots: [],
+        slots,
         ranks: body.data.ranks ?? [],
         correctNumber: body.data.correctNumber,
       })
@@ -999,7 +1005,7 @@ export function createApp(deps: AppDeps) {
         c,
         409,
         "invalid_state",
-        "確定したゲームの正解の数と点数の範囲は外せません。先に確定を取り消してください",
+        "確定したゲームの枠・正解の数・点数の範囲は、全部は外せません。先に確定を取り消してください",
       );
     }
     const changes = {

@@ -19,6 +19,9 @@ export function AdminPhotos() {
   const [moderation, setModeration] = useState<string>();
   const [error, setError] = useState<string>();
   const [selected, setSelected] = useState<PhotoDto>();
+  /** 承認・却下・削除を送っている写真（同じ写真に二重に送らないよう、その間はボタンを押せなくする） */
+  const [acting, setActing] = useState<ReadonlySet<string>>(new Set());
+  const actingRef = useRef(new Set<string>());
 
   // タブの切り替えや「更新」で読み込みが重なったとき、後から返ってきた古い応答（別のタブの一覧）で上書きしない
   const latestRequest = useRef(0);
@@ -62,7 +65,11 @@ export function AdminPhotos() {
   }
 
   async function act(photo: PhotoDto, action: "approve" | "reject" | "delete") {
+    // 画面の更新を待たずに続けて押されても、2 回目は送らない
+    if (actingRef.current.has(photo.photoId)) return;
     if (action === "delete" && !confirm("この写真を削除します。元に戻せません。よろしいですか？")) return;
+    actingRef.current.add(photo.photoId);
+    setActing(new Set(actingRef.current));
     try {
       if (action === "delete") await api("DELETE", `/admin/photos/${photo.photoId}`);
       else await api<PhotoResponse>("POST", `/admin/photos/${photo.photoId}/${action}`);
@@ -71,6 +78,9 @@ export function AdminPhotos() {
     } catch (e) {
       alert(errorMessage(e));
       void load();
+    } finally {
+      actingRef.current.delete(photo.photoId);
+      setActing(new Set(actingRef.current));
     }
   }
 
@@ -117,7 +127,7 @@ export function AdminPhotos() {
               {formatTime(p.createdAt)}
               {p.status === "approved" && ` ・ ♥ ${p.favoriteCount}`}
             </p>
-            <PhotoActions photo={p} onAct={act} />
+            <PhotoActions photo={p} onAct={act} busy={acting.has(p.photoId)} />
           </div>
         ))}
       </div>
@@ -128,22 +138,27 @@ export function AdminPhotos() {
       )}
       {selected && (
         <Lightbox photo={selected} onClose={() => setSelected(undefined)}>
-          <PhotoActions photo={selected} onAct={act} />
+          <PhotoActions photo={selected} onAct={act} busy={acting.has(selected.photoId)} />
         </Lightbox>
       )}
     </section>
   );
 }
 
-function PhotoActions(props: { photo: PhotoDto; onAct: (p: PhotoDto, a: "approve" | "reject" | "delete") => void }) {
-  const { photo, onAct } = props;
+function PhotoActions(props: {
+  photo: PhotoDto;
+  onAct: (p: PhotoDto, a: "approve" | "reject" | "delete") => void;
+  /** この写真の操作を送っている間 */
+  busy: boolean;
+}) {
+  const { photo, onAct, busy } = props;
   if (photo.status === "pending") {
     return (
       <div className="actions">
-        <button type="button" className="primary" onClick={() => onAct(photo, "approve")}>
+        <button type="button" className="primary" onClick={() => onAct(photo, "approve")} disabled={busy}>
           承認
         </button>
-        <button type="button" className="danger" onClick={() => onAct(photo, "reject")}>
+        <button type="button" className="danger" onClick={() => onAct(photo, "reject")} disabled={busy}>
           却下
         </button>
       </div>
@@ -152,7 +167,7 @@ function PhotoActions(props: { photo: PhotoDto; onAct: (p: PhotoDto, a: "approve
   if (photo.status === "approved") {
     return (
       <div className="actions">
-        <button type="button" className="danger" onClick={() => onAct(photo, "delete")}>
+        <button type="button" className="danger" onClick={() => onAct(photo, "delete")} disabled={busy}>
           削除
         </button>
       </div>
