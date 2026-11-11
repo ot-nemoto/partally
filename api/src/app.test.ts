@@ -306,6 +306,70 @@ describe("API", () => {
       expect(res.body.thumb.fields.key).toBe(`uploads/${res.body.photoId}/thumb.jpg`);
     });
 
+    it("同じ写真への承認が同時に 2 つ来ても、公開した画像は消えない", async () => {
+      const { request } = await registerUser();
+      const { photoId } = await upload(request);
+      const admin = await adminClient();
+      const results = await Promise.all([
+        admin("POST", `/api/admin/photos/${photoId}/approve`),
+        admin("POST", `/api/admin/photos/${photoId}/approve`),
+      ]);
+      expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+      // 負けた方が、勝った方の公開した画像を消さない
+      expect(storage.get(photoKey("approved", photoId, "full"))).toBeDefined();
+      expect(storage.get(photoKey("approved", photoId, "thumb"))).toBeDefined();
+      expect(storage.get(photoKey("pending", photoId, "full"))).toBeUndefined();
+      expect((await request("GET", "/api/photos")).body.photos).toHaveLength(1);
+    });
+
+    it("承認の途中で別の承認が済んで検閲待ちの画像が無くなっていたら 409 にし、公開した画像は残す", async () => {
+      const { request } = await registerUser();
+      const { photoId } = await upload(request);
+      const admin = await adminClient();
+      // 1 つ目の承認がコピーしようとした時点で、別の承認が全部済んでいる（検閲待ちの画像はもう無い）
+      const copy = vi.spyOn(storage, "copy").mockImplementationOnce(async () => {
+        expect((await admin("POST", `/api/admin/photos/${photoId}/approve`)).status).toBe(200);
+        throw new Error("コピー元がありません");
+      });
+      try {
+        expect((await admin("POST", `/api/admin/photos/${photoId}/approve`)).status).toBe(409);
+      } finally {
+        copy.mockRestore();
+      }
+      expect(storage.get(photoKey("approved", photoId, "full"))).toBeDefined();
+      expect((await request("GET", "/api/photos")).body.photos).toHaveLength(1);
+    });
+
+    it("検閲待ちのままコピーに失敗したら、エラーにして検閲待ちのままにする", async () => {
+      const { request } = await registerUser();
+      const { photoId } = await upload(request);
+      const admin = await adminClient();
+      const copy = vi.spyOn(storage, "copy").mockRejectedValueOnce(new Error("S3 の一時的なエラー"));
+      try {
+        expect((await admin("POST", `/api/admin/photos/${photoId}/approve`)).status).toBe(500);
+      } finally {
+        copy.mockRestore();
+      }
+      expect((await admin("GET", "/api/admin/photos?status=pending")).body.photos).toHaveLength(1);
+      // もう一度承認すれば公開できる
+      expect((await admin("POST", `/api/admin/photos/${photoId}/approve`)).status).toBe(200);
+    });
+
+    it("承認と却下が同時に来ても、状態と画像が食い違わない", async () => {
+      const { request } = await registerUser();
+      const { photoId } = await upload(request);
+      const admin = await adminClient();
+      const [approve, reject] = await Promise.all([
+        admin("POST", `/api/admin/photos/${photoId}/approve`),
+        admin("POST", `/api/admin/photos/${photoId}/reject`),
+      ]);
+      expect([approve.status, reject.status].sort()).toEqual([200, 409]);
+      const published = storage.get(photoKey("approved", photoId, "full")) !== undefined;
+      // 承認が勝てば公開した画像があり、却下が勝てば無い
+      expect(published).toBe(approve.status === 200);
+      expect((await request("GET", "/api/photos")).body.photos).toHaveLength(published ? 1 : 0);
+    });
+
     it("事前承認モード: 検閲待ち → 承認で公開され、カウンタが増える", async () => {
       const { request, userId } = await registerUser();
       const { photoId, result } = await upload(request);
@@ -2201,15 +2265,35 @@ describe("API", () => {
       expect(added.status).toBe(200);
       expect((await admin("POST", `/api/admin/games/${game.gameId}/confirm`)).status).toBe(200);
       expect(await pointsOf(admin)).toMatchObject({ 田中: [10, 10] });
-      // 確定後に枠を全部外すこともでき、そのときはポイントも入らない
+      // 確定したまま枠を全部外すと、入ったポイントが黙って消えるので受け付けない
       const emptied = await admin("PUT", `/api/admin/games/${game.gameId}`, {
         format: "result",
         name: "ビンゴ",
         slots: [],
       });
-      expect(emptied.status).toBe(200);
+      expect(emptied.status).toBe(409);
+      expect(emptied.body.message).toContain("先に確定を取り消してください");
+      expect(await pointsOf(admin)).toMatchObject({ 田中: [10, 10] });
+      // 確定を取り消せば、枠を全部外せる
+      expect((await admin("POST", `/api/admin/games/${game.gameId}/unconfirm`)).status).toBe(200);
+      const drafted = await admin("PUT", `/api/admin/games/${game.gameId}`, {
+        format: "result",
+        name: "ビンゴ",
+        slots: [],
+      });
+      expect(drafted.status).toBe(200);
       expect(await pointsOf(admin)).toMatchObject({ 田中: [0, 0] });
       expect((await admin("POST", "/api/admin/games/NONE/confirm")).status).toBe(404);
+    });
+
+    it("以前の版で枠を外してあった確定済みのゲームは、名前などを直せる", async () => {
+      const admin = await adminClient();
+      const game = (await admin("POST", "/api/admin/games", { format: "result", name: "むかしの大会" })).body.game;
+      // 枠の無いまま確定になっている（以前は確定後に枠を全部外せた）
+      await repo.changeGameStatus(game.gameId, "draft", "confirmed", "2026-01-01T00:00:00.000Z");
+      const renamed = await admin("PUT", `/api/admin/games/${game.gameId}`, { format: "result", name: "昔の大会" });
+      expect(renamed.status).toBe(200);
+      expect(renamed.body.game).toMatchObject({ name: "昔の大会", status: "confirmed", slots: [] });
     });
 
     it("紐づけを解除した人は新しく選べないが、選んだ後に解除された人はそのまま残せる", async () => {

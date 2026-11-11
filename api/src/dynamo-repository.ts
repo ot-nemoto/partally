@@ -289,8 +289,14 @@ export class DynamoRepository implements Repository {
     return { ...rest, status: "unbound" as const, updatedAt };
   }
 
-  async getPhoto(photoId: string) {
-    const { Item } = await this.client.send(new GetCommand({ TableName: this.tableName, Key: keys.photo(photoId) }));
+  async getPhoto(photoId: string, options?: { consistent?: boolean }) {
+    const { Item } = await this.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: keys.photo(photoId),
+        ...(options?.consistent ? { ConsistentRead: true } : {}),
+      }),
+    );
     return Item ? toPhotoRecord(Item) : undefined;
   }
 

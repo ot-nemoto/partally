@@ -265,7 +265,11 @@ export interface Repository {
 
   // ---- 写真 ----
 
-  getPhoto(photoId: string): Promise<PhotoRecord | undefined>;
+  /**
+   * 写真を読む。consistent を付けると、直前の更新も必ず反映した値を読む
+   * （更新に失敗した直後に、今の状態で後片付けを決めるときに使う）
+   */
+  getPhoto(photoId: string, options?: { consistent?: boolean }): Promise<PhotoRecord | undefined>;
 
   /** 状態別に新しい順で返す */
   listPhotosByStatus(status: PhotoStatus, limit: number, cursor?: string): Promise<Page<PhotoRecord>>;
