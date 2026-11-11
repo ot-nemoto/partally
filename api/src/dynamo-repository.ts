@@ -1148,7 +1148,8 @@ function encodeCursor(key: Record<string, unknown> | undefined): string | undefi
 
 /**
  * 写真の一覧の続きを読む位置（cursor）を DynamoDB の開始キーに戻す。cursor は参加者から送られるので、
- * この一覧（GSI1PK）のキーの形（PK・SK・GSI1PK・GSI1SK の文字列だけ）でなければ InvalidCursorError にする
+ * 写真のキー（PK が PHOTO#…、SK が META）で、この一覧（GSI1PK）のもので、PK・SK・GSI1PK・GSI1SK の文字列だけでなければ
+ * InvalidCursorError にする
  */
 function decodePhotoCursor(cursor: string | undefined, gsi1pk: string): Record<string, unknown> | undefined {
   if (!cursor) return undefined;
@@ -1165,6 +1166,8 @@ function decodePhotoCursor(cursor: string | undefined, gsi1pk: string): Record<s
     !Array.isArray(key) &&
     Object.keys(key).length === names.length &&
     names.every((n) => typeof (key as Record<string, unknown>)[n] === "string") &&
+    String((key as Record<string, unknown>).PK).startsWith("PHOTO#") &&
+    (key as Record<string, unknown>).SK === "META" &&
     (key as Record<string, unknown>).GSI1PK === gsi1pk;
   if (!valid) throw new InvalidCursorError();
   return key as Record<string, unknown>;

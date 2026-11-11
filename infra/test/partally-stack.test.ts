@@ -94,6 +94,20 @@ describe("PartallyStack", () => {
     });
   });
 
+  it("管理者のログインは別のルートにし、低い上限を付ける（パスワードの総当たりを抑える）", () => {
+    template.hasResourceProperties("AWS::ApiGatewayV2::Route", { RouteKey: "POST /api/admin/login" });
+    template.hasResourceProperties("AWS::ApiGatewayV2::Stage", {
+      StageName: "$default",
+      RouteSettings: { "POST /api/admin/login": { ThrottlingRateLimit: 5, ThrottlingBurstLimit: 10 } },
+    });
+    // ステージはログインのルートができてから作る（無いルートの設定はデプロイで失敗する）
+    const stage = Object.values(template.findResources("AWS::ApiGatewayV2::Stage"))[0] as { DependsOn?: string[] };
+    const route = Object.entries(template.findResources("AWS::ApiGatewayV2::Route")).find(
+      ([, r]) => (r as { Properties: { RouteKey: string } }).Properties.RouteKey === "POST /api/admin/login",
+    )?.[0];
+    expect(stage.DependsOn).toContain(route);
+  });
+
   it("CloudFront は /api/* をキャッシュせず API Gateway に送り、既定は SPA 書き換え付きで S3 に送る", () => {
     const dists = template.findResources("AWS::CloudFront::Distribution");
     const config = Object.values(dists)[0]!.Properties.DistributionConfig;

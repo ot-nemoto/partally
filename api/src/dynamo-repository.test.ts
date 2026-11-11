@@ -279,6 +279,8 @@ describe("DynamoRepository", () => {
         encode({ PK: "PHOTO#P1", SK: "META", GSI1PK: "PHOTOS#approved" }),
         encode({ ...key, extra: "x" }),
         encode({ ...key, GSI1SK: 1 }),
+        encode({ ...key, PK: "USER#u1" }),
+        encode({ ...key, SK: "X" }),
       ];
       for (const cursor of bad) {
         await expect(repo.listPhotosByStatus("approved", 30, cursor)).rejects.toBeInstanceOf(InvalidCursorError);

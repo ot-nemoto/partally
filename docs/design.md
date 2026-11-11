@@ -290,7 +290,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 
 - `/admin` 画面でパスワードを入力 → `POST /api/admin/login` で `ADMIN_PASSWORD` と定数時間比較。
 - 成功時に `admin_session` Cookie（`{ adm: true, iat }` を `SESSION_SECRET` で HMAC 署名、`HttpOnly; Secure; SameSite=Strict; Path=/api/admin; Max-Age=12時間`）を発行。
-- パスワードの総当たりは API Gateway の `$default` ステージのスロットリング（200 rps / バースト 400）で緩和する。
+- パスワードの総当たりは、`POST /api/admin/login` だけを別のルートにして付けた低いスロットリング（5 rps / バースト 10）で緩和する（ステージ全体の上限は、参加者の一斉の答えに合わせて 200 rps / バースト 400 と高いため）。
 
 ---
 

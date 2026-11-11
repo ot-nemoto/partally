@@ -39,6 +39,8 @@ export interface PartallyStackProps extends StackProps {
 }
 
 const path = (p: string) => fileURLToPath(new URL(p, import.meta.url));
+/** 管理者のログインの API（Hono の basePath "/api" を含む、CloudFront から API Gateway に届くパス） */
+const ADMIN_LOGIN_PATH = "/api/admin/login";
 
 /** 初期化 Lambda の関数名。GitHub Actions のロールの権限（infra/github-oidc.yaml）と Reset ワークフローで同じ名前を使う */
 export const RESET_FUNCTION_NAME = "partally-reset";
@@ -116,13 +118,13 @@ export class PartallyStack extends Stack {
     });
 
     const httpApi = new apigw.HttpApi(this, "HttpApi", { createDefaultStage: false });
-    new apigw.HttpStage(this, "DefaultStage", {
+    const apiStage = new apigw.HttpStage(this, "DefaultStage", {
       httpApi,
       stageName: "$default",
       autoDeploy: true,
       // 呼び出し回数の上限（超えると 429）。参加者 100 人なら、開催中のゲームの確認（5 秒ごと）だけで毎秒 20 回になり、
       // ゲームで全員がほぼ同時に答えると数秒のうちに 100 回近く重なる。余裕を見て、毎秒 200 回・一度に 400 回までにする。
-      // 料金は呼び出し回数で決まるので、上限を上げても料金は変わらない（使いすぎの歯止めと、総当たりの緩和のための値）
+      // 料金は呼び出し回数で決まるので、上限を上げても料金は変わらない（使いすぎの歯止めのための値）
       throttle: { rateLimit: 200, burstLimit: 400 },
     });
 
@@ -234,11 +236,26 @@ function handler(event) {
     apiFunction.node.addDependency(keyPair);
 
     // 関数がディストリビューション ID を参照するため、HTTP API とは別にルートを作る
+    const apiIntegration = new integrations.HttpLambdaIntegration("ApiIntegration", apiFunction);
     new apigw.HttpRoute(httpApi, "DefaultRoute", {
       httpApi,
       routeKey: apigw.HttpRouteKey.DEFAULT,
-      integration: new integrations.HttpLambdaIntegration("ApiIntegration", apiFunction),
+      integration: apiIntegration,
     });
+    // 管理者のログインだけは別のルートにして、低い上限（毎秒 5 回・一度に 10 回）を付ける。
+    // ステージ全体の上限は参加者の一斉の答えに合わせて高くしたので、パスワードの総当たりはこちらで抑える
+    const adminLoginRoute = new apigw.HttpRoute(httpApi, "AdminLoginRoute", {
+      httpApi,
+      routeKey: apigw.HttpRouteKey.with(ADMIN_LOGIN_PATH, apigw.HttpMethod.POST),
+      integration: apiIntegration,
+    });
+    const cfnStage = apiStage.node.defaultChild as apigw.CfnStage;
+    // RouteSettings はそのまま CloudFormation に渡る JSON なので、項目名は CloudFormation の書き方（先頭が大文字）にする
+    cfnStage.routeSettings = {
+      [`POST ${ADMIN_LOGIN_PATH}`]: { ThrottlingRateLimit: 5, ThrottlingBurstLimit: 10 },
+    };
+    // ルートの設定は、そのルートができてから付ける（無いルートの設定はデプロイで失敗する）
+    apiStage.node.addDependency(adminLoginRoute);
 
     const ingestFunction = new nodejs.NodejsFunction(this, "PhotoIngestFunction", {
       entry: path("../../api/src/ingest-lambda.ts"),
