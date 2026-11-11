@@ -45,11 +45,13 @@ describe("API", () => {
   let storage: MemoryPhotoStorage;
   let app: ReturnType<typeof createApp>;
   let epithetSeq: number[];
+  let settleHook: () => Promise<void>;
 
   beforeEach(() => {
     repo = new MemoryRepository();
     storage = new MemoryPhotoStorage();
     epithetSeq = [];
+    settleHook = async () => {};
     let id = 0;
     app = createApp({
       repo,
@@ -60,8 +62,8 @@ describe("API", () => {
       secureCookies: true,
       // 二つ名の抽選結果をテストから指定できるようにする（未指定なら 0）
       randomInt: () => epithetSeq.shift() ?? 0,
-      // 結果整合の読み取りを待たない（メモリ実装はすぐ反映される）
-      settle: async () => {},
+      // 結果整合の読み取りを待たない（メモリ実装はすぐ反映される）。待つ間の動きはテストから差し込む
+      settle: () => settleHook(),
       // 本番の ULID と同じく、文字列順が発行順になるようにする
       newId: () => `ID${String(++id).padStart(4, "0")}`,
     });
@@ -1418,6 +1420,25 @@ describe("API", () => {
       }
     });
 
+    it("確定を待っている間に参加した人も抽選に入り、確定した後の参加人数は抽選に入った人だけを数える", async () => {
+      const admin = await adminClient();
+      const game = (await admin("POST", "/api/admin/games", { format: "lottery", name: "待つ間", ranks })).body.game;
+      await admin("POST", `/api/admin/games/${game.gameId}/open`);
+      const a = await participant("先に参加");
+      const b = await participant("待つ間に参加");
+      const c = await participant("会場を離れる");
+      for (const p of [a, c]) await p.request("PUT", `/api/game/${game.gameId}/answer`, { entry: true });
+      await admin("POST", `/api/admin/users/${c.userId}/unbind`);
+      // 確定の 1 回目の読み取りの後、待っている間に参加する
+      settleHook = async () => {
+        expect((await b.request("PUT", `/api/game/${game.gameId}/answer`, { entry: true })).status).toBe(200);
+      };
+      const confirmed = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
+      expect([...confirmed.body.game.drawOrder].sort()).toEqual([a.userId, b.userId].sort());
+      // 紐づけを解除した人は抽選に入らず、参加人数にも数えない（保存された答えは 3 件）
+      expect(confirmed.body.game).toMatchObject({ answerCount: 2, storedAnswerCount: 3 });
+    });
+
     it("入力の検証と、範囲が無いと確定できないこと", async () => {
       const admin = await adminClient();
       const game = (await admin("POST", "/api/admin/games", { format: "lottery", name: "抽選" })).body.game;
@@ -1545,8 +1566,8 @@ describe("API", () => {
       const changed = await admin("PUT", `/api/admin/games/${game.gameId}`, { ...base, keyword: "違う", ranks });
       expect(changed.status).toBe(200);
       expect(await Promise.all(people.map(async (p) => (await me(p.request)).gamePoints))).toEqual([0, 0, 0, 0, 0]);
-      // 回答数（正解した人数）も、今の合言葉に合う人だけを数える
-      expect(changed.body.game.answerCount).toBe(0);
+      // 回答数（正解した人数）も、今の合言葉に合う人だけを数える。保存された答えは残っている（回答者の一覧は開ける）
+      expect(changed.body.game).toMatchObject({ answerCount: 0, storedAnswerCount: 4 });
     });
 
     it("正解を続けて送っても、後から保存された方が先の正解の時刻を上書きしない", async () => {

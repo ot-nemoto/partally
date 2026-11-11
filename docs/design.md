@@ -217,7 +217,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `correctNumber` | number? | 数値予想の正解の数（0〜100 の整数）。確定までに入れる（無いと確定できない） |
 | `voterPoints` | number | 投票で、投票した人に入る点数（0〜100。0 なら入らない）。ほかの形式では 0（無いアイテムは 0 として読む） |
 | `keyword` | string? | 合言葉（前後の空白を除いて 1〜50 文字）。合言葉の形式では必須、ほかの形式では無い。参加者には返さない |
-| `drawOrder` | list? | 抽選で、確定したときに無作為に決めた参加者の順番（userId の配列。紐づけを解除した人は除く。Fisher–Yates、乱数は `crypto.randomInt`）。確定の直前の参加を取りこぼさないよう、参加者（GSI・結果整合）を 1 秒空けて 2 回読んで合わせる。確定を取り消すと消え、もう一度確定すると引き直す |
+| `drawOrder` | list? | 抽選で、確定したときに無作為に決めた参加者の順番（userId の配列。紐づけを解除した人は除く。Fisher–Yates、乱数は `crypto.randomInt`）。確定の直前の参加を取りこぼさないよう、開催中の抽選では参加者（GSI・結果整合）を 1 秒空けて 2 回読んで合わせ、確定の時刻は 2 回目の読み取りの直前に決める（待っている間の参加も数える。下書きからの確定は待たない）。確定を取り消すと消え、もう一度確定すると引き直す |
 | `openedAt` | string? | 最後に開催した時刻 |
 | `confirmedAt` | string? | 確定した時刻。確定を取り消すと消える |
 | `createdAt` / `updatedAt` | string | `updatedAt` は名前・説明・選択肢・枠・人・状態を変えるたびに進む。更新の版の確かめに使う |
@@ -444,7 +444,7 @@ sequenceDiagram
 | POST | `/api/admin/photos/{photoId}/approve` | 承認 |
 | POST | `/api/admin/photos/{photoId}/reject` | 却下 |
 | DELETE | `/api/admin/photos/{photoId}` | 削除 |
-| GET | `/api/admin/games` | ゲームの一覧（作成順、結果入力以外は回答数（合言葉は正解した人数、抽選は参加した人数）、抽選は確定後の順番 `drawOrder`、クイズは選択肢ごとの回答数も付く）。回答数と選択肢ごとの人数は、確定したゲームでは確定より後に届いた答えを数えない（ポイントの計算と同じ） |
+| GET | `/api/admin/games` | ゲームの一覧（作成順、結果入力以外は回答数（合言葉は正解した人数、抽選は参加した人数）、抽選は確定後の順番 `drawOrder`、クイズは選択肢ごとの回答数も付く）。回答数 `answerCount` と選択肢ごとの人数は、ポイントの計算と同じ数え方（確定より後に届いた答え・今の合言葉に合わない答え・確定した抽選で抽選に入らなかった人を数えない）。保存されている答えの数は `storedAnswerCount` |
 | GET | `/api/admin/games/{gameId}/answers` | 結果入力以外のゲームと、答えた人の一覧（選んだ選択肢か、答えた数か、選んだ人とその表示名か、正解した言葉か、抽選への参加） |
 | POST | `/api/admin/games/image-upload` | ゲームの画像（問題・選択肢）を 1 枚、受け口へアップロードする署名付き POST と `imageId` を発行（景品と同じ受け口・置き場） |
 | POST | `/api/admin/games` | ゲームを作る `{format, name, description?, imageId?, choices?: [{text, points, imageId?}], slots?: [{name, points, userIds}], ranks?: [{from, to, points}], correctNumber?, voterPoints?, keyword?}`（下書き）。`imageId` は受け口にアップロード済みであること（無い・ほかで使った画像・同じ画像を 2 か所は 400）。保存時に配信する領域へ移す。クイズは選択肢 2〜10 個で枠なし、結果入力は選択肢なし（枠は空でもよい）、数値予想・投票・合言葉は選択肢・枠なし（`ranks` は数値予想・投票・合言葉だけ、`correctNumber` は数値予想だけ、`voterPoints` は投票だけ、`keyword` は合言葉だけで必須。範囲の逆転・重なりは 400）。同じ人が 2 つの枠に入る・登録されていない人や紐づけを解除した人を新しく選ぶと 400 |

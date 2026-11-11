@@ -1060,28 +1060,34 @@ export function createApp(deps: AppDeps) {
     }
   });
 
-  /** 状態を変える。from は今の状態の前提（違えば 409） */
   /**
-   * 抽選の順番を決める。確定までに参加した人のうち、紐づけを解除した人（会場を離れた人）は除く。
-   * 乱数の前に userId で並べ、同じ乱数なら同じ結果になるようにする
+   * 参加者の一覧（GSI）は結果整合なので、確定の直前の参加がまだ出ていないことがある。開催中の抽選を確定するときは、
+   * 一度読んでから少し待ってもう一度読み、どちらかに出た人を合わせる（抽選は確定のときの順番を保存し、後から直らないため）。
+   * 確定の時刻は 2 回目の読み取りの直前に決めるので、待っている間の参加も数える
    */
-  const drawLottery = async (game: GameRecord, at: string) => {
-    // 参加者の一覧（GSI）は結果整合なので、確定の直前の参加がまだ出ていないことがある。
-    // 少し待ってもう一度読み、どちらかに出た人を合わせる（抽選は確定のときの順番を保存し、後から直らないため）
-    const read = async () =>
-      (await repo.listGameAnswersByGame(game.gameId)).filter((a) => a.entry && a.answeredAt <= at).map((a) => a.userId);
-    const first = await read();
-    await settle();
-    const entrants = [...new Set([...first, ...(await read())])];
+  const readLotteryEntrants = async (game: GameRecord) => {
+    const read = async () => (await repo.listGameAnswersByGame(game.gameId)).filter((a) => a.entry);
+    // 下書きからの確定は、新しい参加が無い（開催中しか参加できない）ので待たない
+    const first = game.status === "open" ? await read() : [];
+    if (game.status === "open") await settle();
+    const at = now().toISOString();
+    const entrants = [...first, ...(await read())].filter((a) => a.answeredAt <= at).map((a) => a.userId);
+    return { at, entrants: [...new Set(entrants)] };
+  };
+
+  /** 抽選の順番を決める。紐づけを解除した人（会場を離れた人）は除き、userId で並べてから並べ替える */
+  const drawLottery = async (entrants: string[]) => {
     const active = (await repo.getUsers(entrants)).filter((u) => u.status === "active").map((u) => u.userId);
     return shuffle(active.sort(), rand);
   };
 
+  /** 状態を変える。from は今の状態の前提（違えば 409） */
   const changeGameStatus = async (c: Context, game: GameRecord, to: GameRecord["status"], message: string) => {
     try {
-      const at = now().toISOString();
       // 抽選は確定するときに、確定までに参加した人の順番を無作為に決めて保存する（確定し直すと引き直す）
-      const drawOrder = to === "confirmed" && game.format === "lottery" ? await drawLottery(game, at) : undefined;
+      const lottery = to === "confirmed" && game.format === "lottery" ? await readLotteryEntrants(game) : undefined;
+      const at = lottery?.at ?? now().toISOString();
+      const drawOrder = lottery ? await drawLottery(lottery.entrants) : undefined;
       const updated = await repo.changeGameStatus(game.gameId, game.status, to, at, drawOrder);
       const answers = hasGameAnswers(updated) ? await repo.listGameAnswersByGame(updated.gameId) : [];
       return c.json({ game: toGameDto(updated, answers, imageUrlOf) });
@@ -1210,8 +1216,10 @@ function gameAwards(entries: GameWithAnswers[]): GameAward[] {
         e.game.status === "confirmed" && !!e.game.confirmedAt,
     )
     .sort((a, b) => a.game.confirmedAt.localeCompare(b.game.confirmedAt));
-  for (const { game, answers } of confirmed) {
+  for (const { game, answers: all } of confirmed) {
     const at = game.confirmedAt;
+    // 数える答え（確定より後に届いた答えと、今の合言葉に合わない答えを除く）。管理画面の回答数と同じ数え方
+    const answers = countedAnswers(game, all);
     if (game.format === "result") {
       for (const slot of game.slots) {
         for (const userId of slot.userIds) {
@@ -1222,13 +1230,11 @@ function gameAwards(entries: GameWithAnswers[]): GameAward[] {
       const choices = new Map(game.choices.map((ch) => [ch.choiceId, ch]));
       for (const answer of answers) {
         const choice = answer.choiceId === undefined ? undefined : choices.get(answer.choiceId);
-        if (!choice || answer.answeredAt > at) continue;
+        if (!choice) continue;
         awards.push({ userId: answer.userId, at, gameName: game.name, slotName: choice.text, points: choice.points });
       }
     } else if (game.correctNumber !== undefined) {
-      const counted = answers.filter(
-        (a): a is GameAnswerRecord & { value: number } => a.value !== undefined && a.answeredAt <= at,
-      );
+      const counted = answers.filter((a): a is GameAnswerRecord & { value: number } => a.value !== undefined);
       const results = rankNumberAnswers(
         counted.map((a) => a.value),
         game.correctNumber,
@@ -1246,7 +1252,7 @@ function gameAwards(entries: GameWithAnswers[]): GameAward[] {
       });
     } else if (game.format === "vote") {
       const counted = answers.filter(
-        (a): a is GameAnswerRecord & { targetUserId: string } => a.targetUserId !== undefined && a.answeredAt <= at,
+        (a): a is GameAnswerRecord & { targetUserId: string } => a.targetUserId !== undefined,
       );
       for (const { userId, votes, rank, points } of tallyVotes(
         counted.map((a) => a.targetUserId),
@@ -1262,7 +1268,7 @@ function gameAwards(entries: GameWithAnswers[]): GameAward[] {
     } else if (game.format === "keyword") {
       // 今の合言葉に合う答えを、正解した時刻の順に並べる（同じ時刻は userId の順）
       const correct = answers
-        .filter((a) => a.answeredAt <= at && isKeywordCorrect(game, a.text))
+        .slice()
         .sort((a, b) => a.answeredAt.localeCompare(b.answeredAt) || a.userId.localeCompare(b.userId));
       correct.forEach((answer, i) => {
         const range = game.ranks.find((r) => r.from <= i + 1 && i + 1 <= r.to);
@@ -1514,13 +1520,18 @@ function sortRanks(ranks: GameRank[]): GameRank[] {
 }
 
 /**
- * 回答数に数える答え。点数の計算（gameAwards）と同じく、確定したゲームでは確定より後に届いた答えを除き、
- * 合言葉は今の合言葉に合う答えだけを数える
+ * 数える答え。点数の計算（gameAwards）と管理画面の回答数で共通。確定したゲームでは確定より後に届いた答えを除き、
+ * 合言葉は今の合言葉に合う答えだけ、確定した抽選は抽選に入った人だけを数える
  */
 function countedAnswers(game: GameRecord, answers: GameAnswerRecord[]): GameAnswerRecord[] {
   const at = game.status === "confirmed" ? game.confirmedAt : undefined;
+  // 抽選は確定したら、抽選に入った人（drawOrder）だけを数える
+  const drawn = game.format === "lottery" && game.drawOrder ? new Set(game.drawOrder) : undefined;
   return answers.filter(
-    (a) => (at === undefined || a.answeredAt <= at) && (game.format !== "keyword" || isKeywordCorrect(game, a.text)),
+    (a) =>
+      (at === undefined || a.answeredAt <= at) &&
+      (game.format !== "keyword" || isKeywordCorrect(game, a.text)) &&
+      (drawn === undefined || drawn.has(a.userId)),
   );
 }
 
@@ -1548,6 +1559,7 @@ function toGameDto(game: GameRecord, allAnswers: GameAnswerRecord[], imageUrlOf:
     keyword: game.keyword,
     drawOrder: game.drawOrder,
     answerCount: answers.length,
+    storedAnswerCount: allAnswers.length,
     createdAt: game.createdAt,
     openedAt: game.openedAt,
     updatedAt: game.updatedAt,

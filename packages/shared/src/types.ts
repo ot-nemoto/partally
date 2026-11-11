@@ -332,8 +332,13 @@ export interface GameDto {
   keyword?: string;
   /** 抽選で、確定したときに決めた順番（userId の並び。確定するまでは無い） */
   drawOrder?: string[];
-  /** クイズ・数値予想・投票で答えた人数 */
+  /**
+   * 答えた人数（ポイントと同じ数え方: 確定したゲームでは確定より後に届いた答えを除き、合言葉は今の合言葉に合う人、
+   * 確定した抽選は抽選に入った人だけ）
+   */
   answerCount: number;
+  /** 保存されている答えの数（数えない答えも含む。回答者の一覧を開けるか、削除で答えも消えるかの判断に使う） */
+  storedAnswerCount: number;
   createdAt: string;
   /** 最後に開催した時刻 */
   openedAt?: string;
