@@ -310,6 +310,16 @@ describe("API", () => {
       expect(res.body.thumb.fields.key).toBe(`uploads/${res.body.photoId}/thumb.jpg`);
     });
 
+    it("一覧の続きを読む位置（cursor）が壊れていたら 400", async () => {
+      const { request } = await registerUser();
+      const admin = await adminClient();
+      for (const cursor of ["abc", "-1", "1.5"]) {
+        expect((await request("GET", `/api/photos?cursor=${cursor}`)).status).toBe(400);
+        expect((await admin("GET", `/api/admin/photos?status=pending&cursor=${cursor}`)).status).toBe(400);
+      }
+      expect((await request("GET", "/api/photos?cursor=0")).status).toBe(200);
+    });
+
     it("同じ写真への承認が同時に 2 つ来ても、公開した画像は消えない", async () => {
       const { request } = await registerUser();
       const { photoId } = await upload(request);

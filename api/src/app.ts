@@ -56,6 +56,7 @@ import {
   type GameRank,
   type GameRecord,
   type GameSlot,
+  InvalidCursorError,
   InvalidStateError,
   NotFoundError,
   type PhotoRecord,
@@ -132,6 +133,8 @@ export function createApp(deps: AppDeps) {
   const app = new Hono<Env>().basePath("/api");
 
   app.onError((err, c) => {
+    // 一覧の続きを読む位置（cursor）は利用者から送られるので、読めないものは利用者の誤りとして 400 にする
+    if (err instanceof InvalidCursorError) return fail(c, 400, "bad_request", "一覧の続きを読む位置が正しくありません");
     console.error(err);
     return fail(c, 500, "internal_error");
   });

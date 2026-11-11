@@ -21,6 +21,7 @@ import {
   EpithetTakenError,
   FavoriteLimitError,
   GameAlreadyOpenError,
+  InvalidCursorError,
   InvalidStateError,
   NotFoundError,
   type PhotoRecord,
@@ -263,6 +264,28 @@ describe("DynamoRepository", () => {
 
       await repo.listPhotosByStatus("approved", 30, page.cursor);
       expect(ddb.commandCalls(QueryCommand)[1]!.args[0].input.ExclusiveStartKey).toEqual(lastKey);
+    });
+
+    it("続きを読む位置（cursor）が、この一覧のキーとして読めなければ InvalidCursorError（DynamoDB には送らない）", async () => {
+      ddb.on(QueryCommand).resolves({ Items: [] });
+      const encode = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64url");
+      const key = { PK: "PHOTO#P1", SK: "META", GSI1PK: "PHOTOS#approved", GSI1SK: "2026-01-01T00:00:00.000Z#P1" };
+      const bad = [
+        "!!!",
+        Buffer.from("not json").toString("base64url"),
+        encode([key]),
+        encode({ ...key, GSI1PK: "PHOTOS#pending" }),
+        encode({ ...key, GSI1PK: "USERS" }),
+        encode({ PK: "PHOTO#P1", SK: "META", GSI1PK: "PHOTOS#approved" }),
+        encode({ ...key, extra: "x" }),
+        encode({ ...key, GSI1SK: 1 }),
+      ];
+      for (const cursor of bad) {
+        await expect(repo.listPhotosByStatus("approved", 30, cursor)).rejects.toBeInstanceOf(InvalidCursorError);
+      }
+      expect(ddb.commandCalls(QueryCommand)).toHaveLength(0);
+      await repo.listPhotosByStatus("approved", 30, encode(key));
+      expect(ddb.commandCalls(QueryCommand)[0]!.args[0].input.ExclusiveStartKey).toEqual(key);
     });
   });
 

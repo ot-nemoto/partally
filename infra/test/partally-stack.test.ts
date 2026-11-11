@@ -90,7 +90,7 @@ describe("PartallyStack", () => {
   it("HTTP API の $default ステージにスロットリングを設定する", () => {
     template.hasResourceProperties("AWS::ApiGatewayV2::Stage", {
       StageName: "$default",
-      DefaultRouteSettings: { ThrottlingRateLimit: 50, ThrottlingBurstLimit: 100 },
+      DefaultRouteSettings: { ThrottlingRateLimit: 200, ThrottlingBurstLimit: 400 },
     });
   });
 

@@ -226,6 +226,14 @@ export class GameAlreadyOpenError extends Error {
   }
 }
 
+/** 一覧の続きを読む位置（cursor）が、この一覧のものとして読めない（壊れている・別の一覧のもの） */
+export class InvalidCursorError extends Error {
+  constructor() {
+    super("invalid cursor");
+    this.name = "InvalidCursorError";
+  }
+}
+
 export class NotFoundError extends Error {
   constructor() {
     super("not found");
@@ -271,7 +279,10 @@ export interface Repository {
    */
   getPhoto(photoId: string, options?: { consistent?: boolean }): Promise<PhotoRecord | undefined>;
 
-  /** 状態別に新しい順で返す */
+  /**
+   * 状態別に新しい順で返す。
+   * @throws InvalidCursorError cursor が、この状態の一覧の続きとして読めないとき
+   */
   listPhotosByStatus(status: PhotoStatus, limit: number, cursor?: string): Promise<Page<PhotoRecord>>;
 
   /** アップロード者別に新しい順で返す（削除済みも含む） */

@@ -290,7 +290,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 
 - `/admin` 画面でパスワードを入力 → `POST /api/admin/login` で `ADMIN_PASSWORD` と定数時間比較。
 - 成功時に `admin_session` Cookie（`{ adm: true, iat }` を `SESSION_SECRET` で HMAC 署名、`HttpOnly; Secure; SameSite=Strict; Path=/api/admin; Max-Age=12時間`）を発行。
-- パスワードの総当たりは API Gateway の `$default` ステージのスロットリング（50 rps / バースト 100）で緩和する。
+- パスワードの総当たりは API Gateway の `$default` ステージのスロットリング（200 rps / バースト 400）で緩和する。
 
 ---
 
@@ -531,7 +531,7 @@ sequenceDiagram
 
 - すべてのリソースに `Project=partally` タグを付与し、コストを分離する。
 - 事前に数名でリハーサルし、会場の通信状況を確認する。QR は予備を印刷しておく。
-- API Gateway のステージ全体にスロットリング（例: 50 rps / バースト 100）を設定する。
+- API Gateway のステージ全体にスロットリング（200 rps / バースト 400）を設定する。参加者 100 人なら、開催中のゲームの確認（5 秒ごと）だけで 20 rps、ゲームで全員がほぼ同時に答えると数秒のうちに 100 件近く重なるため、余裕を見た値にしている。料金は呼び出し回数で決まるので、上限の高さで料金は変わらない。
 - **本番データの初期化**: GitHub Actions の Reset ワークフロー（手動実行、`production` Environment、確認欄に `初期化`）から初期化 Lambda（`partally-reset`）を呼び、テーブルの全アイテム（景品を含む）と写真バケットの全オブジェクト（景品・ゲームの画像を含む）を消して `/photos/*`・`/prizes/*` を無効化する。管理画面からは実行できない（管理者パスワードを知っているだけでは消せないようにするため）。Lambda も決まった合言葉付きの呼び出しでなければ何もしない。手順は [初期設定・デプロイ手順](setup.md#本番データの初期化)。
 
 ---

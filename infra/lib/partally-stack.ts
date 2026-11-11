@@ -120,7 +120,10 @@ export class PartallyStack extends Stack {
       httpApi,
       stageName: "$default",
       autoDeploy: true,
-      throttle: { rateLimit: 50, burstLimit: 100 },
+      // 呼び出し回数の上限（超えると 429）。参加者 100 人なら、開催中のゲームの確認（5 秒ごと）だけで毎秒 20 回になり、
+      // ゲームで全員がほぼ同時に答えると数秒のうちに 100 回近く重なる。余裕を見て、毎秒 200 回・一度に 400 回までにする。
+      // 料金は呼び出し回数で決まるので、上限を上げても料金は変わらない（使いすぎの歯止めと、総当たりの緩和のための値）
+      throttle: { rateLimit: 200, burstLimit: 400 },
     });
 
     // ---- 静的サイト（S3 + CloudFront）----
