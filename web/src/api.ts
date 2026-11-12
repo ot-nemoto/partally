@@ -52,6 +52,8 @@ export function errorMessage(e: unknown): string {
         return "このゲームの受付は終わりました。";
       case "unauthorized":
         return "ログインが必要です。";
+      case "image_not_uploaded":
+        return "画像を保存できませんでした。画像を選び直してから保存してください。";
       case "bad_request":
         return e.message && e.message !== e.code
           ? `入力内容を確認してください（${e.message}）`

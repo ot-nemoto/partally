@@ -23,7 +23,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../../../api";
 import { Modal } from "../../../components/Modal";
 import { NumberField } from "../../../components/NumberField";
-import { uploadGameImage } from "../prizeImage";
+import { ImageUploads, uploadGameImage } from "../prizeImage";
 import { FORMAT_ICON, FORMAT_ORDER, FORMAT_TEXT } from "./formats";
 import { type ImageDraft, ImageField } from "./ImageField";
 
@@ -76,11 +76,6 @@ function rankProblem(ranks: RankDraft[], unit: string): string | undefined {
 }
 
 const newRow = (points = 10): RowDraft => ({ key: `new-${++draftKey}`, name: "", points, userIds: [], image: {} });
-
-/** 新しく選んだ画像をアップロードし、付ける imageId を返す（そのままなら保存済みの imageId） */
-async function imageIdOf(image: ImageDraft): Promise<string | undefined> {
-  return image.blob ? uploadGameImage(image.blob) : image.imageId;
-}
 
 const SLOT_PLACEHOLDERS = ["例: 優勝", "例: 準優勝", "例: ベスト 4"];
 
@@ -150,7 +145,7 @@ export function GameFormDialog(props: {
   const canChangeRows = !quiz || !game || (game.status === "draft" && game.storedAnswerCount === 0);
   const maxRows = quiz ? GAME_CHOICES_MAX : GAME_SLOTS_MAX;
   // 確定した結果入力は、最後の枠を消せない（入ったポイントが消えないように）
-  const lastSlotLocked = !quiz && game?.status === "confirmed";
+  const lastSlotLocked = format === "result" && game?.status === "confirmed";
   const minRows = quiz ? GAME_CHOICES_MIN : lastSlotLocked ? 1 : 0;
 
   function update(key: string, changes: Partial<RowDraft>) {
@@ -166,41 +161,53 @@ export function GameFormDialog(props: {
     });
   }
 
+  /** 保存し直すときに、同じ画像をアップロードし直さない */
+  const [uploads] = useState(() => new ImageUploads(uploadGameImage));
+
+  /** 新しく選んだ画像をアップロードし、付ける imageId を返す（そのままなら保存済みの imageId） */
+  async function imageIdOf(draft: ImageDraft): Promise<string | undefined> {
+    return draft.blob ? uploads.idOf(draft.blob) : draft.imageId;
+  }
+
+  async function save() {
+    // 新しく選んだ画像を先にアップロードする（保存したときに、サーバが受け口から移す）
+    const body = {
+      format,
+      name,
+      description,
+      imageId: await imageIdOf(image),
+      slots:
+        format !== "result"
+          ? []
+          : slots.map((s) => ({ slotId: s.id, name: s.name, points: s.points, userIds: s.userIds })),
+      choices: quiz
+        ? await Promise.all(
+            choices.map(async (ch) => ({
+              choiceId: ch.id,
+              text: ch.name,
+              points: ch.points,
+              imageId: await imageIdOf(ch.image),
+            })),
+          )
+        : [],
+      ranks: ranked ? ranks.map(({ from, to, points }) => ({ from, to, points })) : [],
+      correctNumber: numberGame && !Number.isNaN(correctNumber) ? correctNumber : undefined,
+      voterPoints: voteGame ? voterPoints : undefined,
+      keyword: keywordGame ? keyword : undefined,
+      // 開いた後にほかで直されていたら、上書きせずに知らせる
+      baseUpdatedAt: game?.updatedAt,
+    };
+    return game
+      ? await api<GameResponse>("PUT", `/admin/games/${game.gameId}`, body)
+      : await api<GameResponse>("POST", "/admin/games", body);
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setSaving(true);
     setError(undefined);
     try {
-      // 新しく選んだ画像を先にアップロードする（保存したときに、サーバが受け口から移す）
-      const body = {
-        format,
-        name,
-        description,
-        imageId: await imageIdOf(image),
-        slots:
-          format !== "result"
-            ? []
-            : slots.map((s) => ({ slotId: s.id, name: s.name, points: s.points, userIds: s.userIds })),
-        choices: quiz
-          ? await Promise.all(
-              choices.map(async (ch) => ({
-                choiceId: ch.id,
-                text: ch.name,
-                points: ch.points,
-                imageId: await imageIdOf(ch.image),
-              })),
-            )
-          : [],
-        ranks: ranked ? ranks.map(({ from, to, points }) => ({ from, to, points })) : [],
-        correctNumber: numberGame && !Number.isNaN(correctNumber) ? correctNumber : undefined,
-        voterPoints: voteGame ? voterPoints : undefined,
-        keyword: keywordGame ? keyword : undefined,
-        // 開いた後にほかで直されていたら、上書きせずに知らせる
-        baseUpdatedAt: game?.updatedAt,
-      };
-      const res = game
-        ? await api<GameResponse>("PUT", `/admin/games/${game.gameId}`, body)
-        : await api<GameResponse>("POST", "/admin/games", body);
+      const res = await uploads.save(save);
       props.onSaved(res.game);
     } catch (err) {
       setError(errorMessage(err));

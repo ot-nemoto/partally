@@ -106,11 +106,18 @@ describe("API", () => {
       expect((await post({ name: "A", quantity: 0, positions: [] })).status).toBe(400);
       expect((await post({ name: "A", quantity: 1, positions: [0] })).status).toBe(400);
       expect((await post({ name: "", quantity: 1, positions: [] })).status).toBe(400);
-      expect((await post({ name: "A", quantity: 1, positions: [], imageId: "NOTUPLOADED" })).status).toBe(400);
+      // 画像が受け口に無いときは、ほかの入力の誤りと分けて image_not_uploaded を返す（画面がアップロードし直すため）
+      expect(await post({ name: "A", quantity: 1, positions: [], imageId: "NOTUPLOADED" })).toMatchObject({
+        status: 400,
+        body: { error: "image_not_uploaded" },
+      });
 
       const imageId = await uploadImage(admin);
       expect((await post({ name: "A", quantity: 1, positions: [1], imageId })).status).toBe(201);
-      expect((await post({ name: "B", quantity: 1, positions: [1], imageId })).status).toBe(400);
+      expect(await post({ name: "B", quantity: 1, positions: [1], imageId })).toMatchObject({
+        status: 400,
+        body: { error: "image_not_uploaded" },
+      });
     });
 
     it("参加者には見せる設定のときだけ返し、管理者用の API は使えない", async () => {
