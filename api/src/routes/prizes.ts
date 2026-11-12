@@ -5,7 +5,7 @@ import { NotFoundError, type PrizeRecord } from "../repository.js";
 import type { AppContext } from "./context.js";
 
 export function registerPrizeRoutes(app: Hono<Env>, ctx: AppContext) {
-  const { repo, now, newId, toPrizeDto, requireUser, removePrizeImage, createImageUpload, attachImages } = ctx;
+  const { repo, now, newId, toPrizeDto, requireUser, removeImage, createImageUpload, attachImages } = ctx;
 
   // 参加者に見せる景品。見せない設定のときは無いものとして扱う
   app.get("/prizes", requireUser, async (c) => {
@@ -36,7 +36,7 @@ export function registerPrizeRoutes(app: Hono<Env>, ctx: AppContext) {
     try {
       await repo.createPrize(prize);
     } catch (e) {
-      if (prize.imageId) await removePrizeImage(prize.imageId);
+      if (prize.imageId) await removeImage(prize.imageId);
       throw e;
     }
     return c.json({ prize: toPrizeDto(prize) }, 201);
@@ -65,11 +65,11 @@ export function registerPrizeRoutes(app: Hono<Env>, ctx: AppContext) {
         now().toISOString(),
       );
       // 差し替えた・外した画像は、保存できてから消す
-      if (prize.imageId && prize.imageId !== updated.imageId) await removePrizeImage(prize.imageId);
+      if (prize.imageId && prize.imageId !== updated.imageId) await removeImage(prize.imageId);
       return c.json({ prize: toPrizeDto(updated) });
     } catch (e) {
       // 保存できなかったら、新しく移した画像を消す
-      if (body.data.imageId && body.data.imageId !== prize.imageId) await removePrizeImage(body.data.imageId);
+      if (body.data.imageId && body.data.imageId !== prize.imageId) await removeImage(body.data.imageId);
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
       throw e;
     }
@@ -84,7 +84,7 @@ export function registerPrizeRoutes(app: Hono<Env>, ctx: AppContext) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
       throw e;
     }
-    if (prize.imageId) await removePrizeImage(prize.imageId);
+    if (prize.imageId) await removeImage(prize.imageId);
     return c.json({});
   });
 }

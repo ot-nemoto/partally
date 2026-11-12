@@ -40,7 +40,7 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
     imageUrlOf,
     gamesWithAnswers,
     requireUser,
-    removePrizeImage,
+    removeImages,
     createImageUpload,
     attachImages,
   } = ctx;
@@ -237,7 +237,7 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
     try {
       await repo.createGame(game);
     } catch (e) {
-      for (const id of images.attached) await removePrizeImage(id);
+      await removeImages(images.attached);
       throw e;
     }
     return c.json({ game: toGameDto(game, [], imageUrlOf) }, 201);
@@ -303,11 +303,11 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
     try {
       const updated = await repo.updateGame(game.gameId, changes, now().toISOString(), body.data.baseUpdatedAt);
       // 差し替えた・外した画像は、保存できてから消す
-      for (const id of before.filter((id) => !after.includes(id))) await removePrizeImage(id);
+      await removeImages(before.filter((id) => !after.includes(id)));
       return c.json({ game: toGameDto(updated, answers, imageUrlOf) });
     } catch (e) {
       // 保存できなかったら、新しく移した画像を消す
-      for (const id of images.attached) await removePrizeImage(id);
+      await removeImages(images.attached);
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
       if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state", GAME_CONFLICT_MESSAGE);
       throw e;
@@ -386,7 +386,7 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
     if (!game) return fail(c, 404, "not_found");
     try {
       await repo.deleteGame(game.gameId);
-      for (const id of gameImageIds(game)) await removePrizeImage(id);
+      await removeImages(gameImageIds(game));
       return c.json({});
     } catch (e) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
