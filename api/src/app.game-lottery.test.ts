@@ -8,8 +8,6 @@ describe("API", () => {
     let participantSeq = 0;
     const participant = (name: string) => t.register(name, [5, participantSeq++]);
 
-    const adminClient = () => t.adminClient();
-
     const me = async (request: Client) => (await request("GET", "/api/me")).body.user;
     const ranks = [
       { from: 1, to: 1, points: 30 },
@@ -17,7 +15,7 @@ describe("API", () => {
     ];
 
     it("開催 → 参加 → 確定で順番を決めて保存し、範囲に入った人に点数が入る。取り消して確定し直すと引き直す", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const created = await admin("POST", "/api/admin/games", { format: "lottery", name: "ラッキー賞", ranks });
       expect(created.status).toBe(201);
       const game = created.body.game;
@@ -46,7 +44,7 @@ describe("API", () => {
       expect((await admin("POST", `/api/admin/users/${people[4]!.userId}/unbind`)).status).toBe(200);
 
       // 乱数を常に 0 にすると、参加者（userId 順の A, B, C, D）は B, C, D, A の順になる
-      t.epithets = [0, 0, 0, 0];
+      t.randomInts = [0, 0, 0, 0];
       const confirmed = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect(confirmed.status).toBe(200);
       const [a, b, c, d, e] = people.map((p) => p.userId);
@@ -82,14 +80,14 @@ describe("API", () => {
       const undone = await admin("POST", `/api/admin/games/${game.gameId}/unconfirm`);
       expect(undone.body.game.drawOrder).toBeUndefined();
       expect(await pts()).toEqual([0, 0, 0, 0, 0]);
-      t.epithets = [3, 2, 1];
+      t.randomInts = [3, 2, 1];
       const again = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect(again.body.game.drawOrder).toEqual([a, b, c, d]);
       expect(await pts()).toEqual([0, 0, 0, 7, 0]);
     });
 
     it("確定のとき、1 回目の読み取りに出なかった参加者（結果整合の遅れ）も抽選に入る", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const game = (await admin("POST", "/api/admin/games", { format: "lottery", name: "駆け込み", ranks })).body.game;
       await admin("POST", `/api/admin/games/${game.gameId}/open`);
       const a = await participant("早い人");
@@ -110,7 +108,7 @@ describe("API", () => {
     });
 
     it("確定を待っている間に参加した人も抽選に入り、確定した後の参加人数は抽選に入った人だけを数える", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const game = (await admin("POST", "/api/admin/games", { format: "lottery", name: "待つ間", ranks })).body.game;
       await admin("POST", `/api/admin/games/${game.gameId}/open`);
       const a = await participant("先に参加");
@@ -129,7 +127,7 @@ describe("API", () => {
     });
 
     it("入力の検証と、範囲が無いと確定できないこと", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const game = (await admin("POST", "/api/admin/games", { format: "lottery", name: "抽選" })).body.game;
       const res = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect(res.status).toBe(409);

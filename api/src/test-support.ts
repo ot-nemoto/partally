@@ -51,8 +51,8 @@ export function useApiTest() {
     repo: undefined as unknown as MemoryRepository,
     storage: undefined as unknown as MemoryPhotoStorage,
     app: undefined as unknown as App,
-    /** 二つ名の抽選に使う乱数を、テストから順に指定する（無くなったら 0） */
-    epithets: [] as number[],
+    /** アプリの randomInt が順に返す値（二つ名の抽選・抽選ゲームの当選順）。無くなったら 0 */
+    randomInts: [] as number[],
     /** 結果整合の読み取りを待つ間に差し込む動き（抽選の確定など）。既定は何もしない */
     settle: async () => {},
     /** 未使用の QR のトークンを 1 つ作る */
@@ -60,10 +60,10 @@ export function useApiTest() {
       const [token] = await t.repo.createTokens([`tok${++tokenSeq}`.padEnd(22, "x")], "2026-01-01T00:00:00.000Z");
       return token!.token;
     },
-    /** QR で名前を登録した参加者。epithets を渡すと、その二つ名の抽選結果で登録する */
-    register: async (name: string, epithets?: number[]) => {
+    /** QR で名前を登録した参加者。randomInts を渡すと、それを二つ名の抽選に使う */
+    register: async (name: string, randomInts?: number[]) => {
       const token = await t.issueToken();
-      if (epithets) t.epithets = epithets;
+      if (randomInts) t.randomInts = randomInts;
       const request = createClient(t.app);
       const reg = await request("POST", "/api/auth/register", { token, name });
       return { request, userId: reg.body.user.userId as string };
@@ -80,7 +80,7 @@ export function useApiTest() {
   beforeEach(() => {
     t.repo = new MemoryRepository();
     t.storage = new MemoryPhotoStorage();
-    t.epithets = [];
+    t.randomInts = [];
     t.settle = async () => {};
     let id = 0;
     t.app = createApp({
@@ -90,8 +90,8 @@ export function useApiTest() {
       sessionSecret: "test-secret",
       adminPassword: ADMIN_PASSWORD,
       secureCookies: true,
-      // 二つ名の抽選結果をテストから指定できるようにする（未指定なら 0）
-      randomInt: () => t.epithets.shift() ?? 0,
+      // 乱数をテストから指定できるようにする（未指定なら 0）
+      randomInt: () => t.randomInts.shift() ?? 0,
       // 結果整合の読み取りを待たない（メモリ実装はすぐ反映される）。待つ間の動きはテストから差し込む
       settle: () => t.settle(),
       // 本番の ULID と同じく、文字列順が発行順になるようにする

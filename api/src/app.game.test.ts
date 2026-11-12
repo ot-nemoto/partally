@@ -8,8 +8,6 @@ describe("API", () => {
     let participantSeq = 0;
     const participant = (name: string) => t.register(name, [2, participantSeq++]);
 
-    const adminClient = () => t.adminClient();
-
     const me = async (request: Client) => (await request("GET", "/api/me")).body.user;
     const pointsOf = async (admin: Client) =>
       Object.fromEntries(
@@ -17,7 +15,7 @@ describe("API", () => {
       );
 
     it("作った・直したゲームは下書きのままではポイントに入らず、確定すると入り、取り消すと消える", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const a = await participant("田中");
       const b = await participant("鈴木");
       const c = await participant("佐藤");
@@ -105,7 +103,7 @@ describe("API", () => {
     });
 
     it("入力を確かめる（点数の範囲・同じ人が 2 つの枠・知らない人や枠）", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const a = await participant("田中");
       const post = (slots: unknown[]) => admin("POST", "/api/admin/games", { format: "result", name: "大会", slots });
       expect((await post([{ name: "優勝", points: 101, userIds: [] }])).status).toBe(400);
@@ -136,7 +134,7 @@ describe("API", () => {
       vi.useFakeTimers({ toFake: ["Date"] });
       try {
         vi.setSystemTime(new Date("2026-01-01T01:00:00.000Z"));
-        const admin = await adminClient();
+        const admin = await t.adminClient();
         const a = await participant("田中");
         const b = await participant("鈴木");
         const { game } = (
@@ -190,7 +188,7 @@ describe("API", () => {
     });
 
     it("名前だけで作れ、枠は後から足せる。枠が無いゲームは確定できない", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const a = await participant("田中");
       const created = await admin("POST", "/api/admin/games", { format: "result", name: "ビンゴ", slots: [] });
       expect(created.status).toBe(201);
@@ -230,7 +228,7 @@ describe("API", () => {
     });
 
     it("以前の版で枠を外してあった確定済みのゲームは、名前などを直せる", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const game = (await admin("POST", "/api/admin/games", { format: "result", name: "むかしの大会" })).body.game;
       // 枠の無いまま確定になっている（以前は確定後に枠を全部外せた）
       await t.repo.changeGameStatus(game.gameId, "draft", "confirmed", "2026-01-01T00:00:00.000Z");
@@ -240,7 +238,7 @@ describe("API", () => {
     });
 
     it("紐づけを解除した人は新しく選べないが、選んだ後に解除された人はそのまま残せる", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const a = await participant("田中");
       const b = await participant("鈴木");
       const { game } = (
@@ -273,7 +271,7 @@ describe("API", () => {
     });
 
     it("ゲームの点数を伏せると、参加者には点数と入った枠を返さない（合計には入る）", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const a = await participant("田中");
       const { game } = (
         await admin("POST", "/api/admin/games", {

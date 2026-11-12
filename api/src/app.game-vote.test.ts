@@ -8,8 +8,6 @@ describe("API", () => {
     let participantSeq = 0;
     const participant = (name: string) => t.register(name, [3, participantSeq++]);
 
-    const adminClient = () => t.adminClient();
-
     const me = async (request: Client) => (await request("GET", "/api/me")).body.user;
     const ranks = [
       { from: 1, to: 1, points: 30 },
@@ -17,7 +15,7 @@ describe("API", () => {
     ];
 
     it("開催 → 投票（選び直し可）→ 確定で、得票の順位に応じた点数と、投票した人の点数が入る", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const created = await admin("POST", "/api/admin/games", { format: "vote", name: "MVP", ranks, voterPoints: 2 });
       expect(created.status).toBe(201);
       const game = created.body.game;
@@ -101,7 +99,7 @@ describe("API", () => {
     });
 
     it("入力の検証と、範囲が無いと確定できないこと", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const bad = (body: Record<string, unknown>) =>
         admin("POST", "/api/admin/games", { format: "vote", name: "投票", ...body }).then((r) => r.status);
       expect(await bad({ correctNumber: 1 })).toBe(400);

@@ -7,8 +7,6 @@ describe("API", () => {
   const t = useApiTest();
 
   describe("景品", () => {
-    const adminClient = () => t.adminClient();
-
     async function participant() {
       const token = await t.issueToken();
       const request = createClient(t.app);
@@ -28,7 +26,7 @@ describe("API", () => {
     const served = (imageId: string) => t.storage.get(prizeImageKey(imageId)) !== undefined;
 
     it("登録・更新・削除ができ、順位は小さい順に並べ、画像は署名付き URL で返す", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const imageId = await uploadImage(admin);
       const created = await admin("POST", "/api/admin/prizes", {
         name: "  ＴＶ  ",
@@ -101,7 +99,7 @@ describe("API", () => {
     });
 
     it("数量を超える割り当て・重複した順位・アップロードしていない画像・他の景品の画像は 400", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const post = (body: unknown) => admin("POST", "/api/admin/prizes", body);
       expect((await post({ name: "A", quantity: 2, positions: [1, 2, 3] })).status).toBe(400);
       expect((await post({ name: "A", quantity: 3, positions: [1, 1] })).status).toBe(400);
@@ -116,7 +114,7 @@ describe("API", () => {
     });
 
     it("参加者には見せる設定のときだけ返し、管理者用の API は使えない", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       await admin("POST", "/api/admin/prizes", { name: "TV", quantity: 1, positions: [1] });
       const user = await participant();
 

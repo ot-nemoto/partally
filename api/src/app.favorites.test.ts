@@ -11,15 +11,13 @@ describe("API", () => {
     // 二つ名が重ならないよう、参加者ごとに称号を変える
     const participant = (name: string) => t.register(name, [0, participantSeq++]);
 
-    const adminClient = () => t.adminClient();
-
     async function uploadAs(request: Client) {
       const res = await request("POST", "/api/photos/upload-url");
       for (const kind of ["thumb", "full"] as const) {
         const { fields } = res.body[kind];
         t.storage.put(fields.key, new Uint8Array([1]), fields["x-amz-meta-uploader"]);
       }
-      await ingestUpload({ repo: t.repo, storage: t.storage }, res.body.full.fields.key);
+      await ingestUpload(t, res.body.full.fields.key);
       return res.body.photoId as string;
     }
 
@@ -30,7 +28,7 @@ describe("API", () => {
       const photoA1 = await uploadAs(a.request);
       const photoA2 = await uploadAs(a.request);
       const photoB = await uploadAs(b.request);
-      return { a, b, photoA1, photoA2, photoB, admin: await adminClient() };
+      return { a, b, photoA1, photoA2, photoB, admin: await t.adminClient() };
     }
 
     const me = async (request: Client) => (await request("GET", "/api/me")).body;

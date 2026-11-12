@@ -52,9 +52,9 @@ describe("API", () => {
     it("名前・二つ名を変更でき、使用中の二つ名には変更できない", async () => {
       const t1 = await t.issueToken();
       const t2 = await t.issueToken();
-      t.epithets = [0, 0];
+      t.randomInts = [0, 0];
       const a = await createClient(t.app)("POST", "/api/auth/register", { token: t1, name: "田中" });
-      t.epithets = [0, 1];
+      t.randomInts = [0, 1];
       const b = await createClient(t.app)("POST", "/api/auth/register", { token: t2, name: "鈴木" });
       const admin = await adminClient();
 
@@ -91,7 +91,7 @@ describe("API", () => {
       expect((await participant("POST", "/api/auth/qr", { token })).body).toEqual({ status: "unbound" });
 
       // 解除済みユーザの二つ名は確保されたままなので、別の二つ名になる
-      t.epithets = [0, 0, 0, 1];
+      t.randomInts = [0, 0, 0, 1];
       const again = await participant("POST", "/api/auth/register", { token, name: "鈴木" });
       expect(again.status).toBe(201);
       expect(again.body.user.userId).not.toBe(reg.body.user.userId);

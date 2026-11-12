@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ingestUpload } from "./ingest.js";
 import { photoKey } from "./photo-storage.js";
 import { DEFAULT_SETTINGS } from "./repository.js";
-import { ADMIN_PASSWORD, type Client, createClient, useApiTest } from "./test-support.js";
+import { type Client, createClient, useApiTest } from "./test-support.js";
 
 describe("API", () => {
   const t = useApiTest();
@@ -15,8 +15,6 @@ describe("API", () => {
       return { request, userId: reg.body.user.userId as string, reg };
     }
 
-    const adminClient = () => t.adminClient();
-
     /** 署名付き POST を受け取り、ブラウザの代わりにストレージへ置いて取り込む */
     async function upload(request: Client) {
       const res = await request("POST", "/api/photos/upload-url");
@@ -25,7 +23,7 @@ describe("API", () => {
         const { fields } = res.body[kind];
         t.storage.put(fields.key, new Uint8Array([1, 2, 3]), fields["x-amz-meta-uploader"]);
       }
-      const result = await ingestUpload({ repo: t.repo, storage: t.storage }, res.body.full.fields.key);
+      const result = await ingestUpload(t, res.body.full.fields.key);
       return { photoId: res.body.photoId as string, result };
     }
 
@@ -50,7 +48,7 @@ describe("API", () => {
 
     it("一覧の続きを読む位置（cursor）が壊れていたら 400", async () => {
       const { request } = await registerUser();
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       for (const cursor of ["abc", "-1", "1.5"]) {
         expect((await request("GET", `/api/photos?cursor=${cursor}`)).status).toBe(400);
         expect((await admin("GET", `/api/admin/photos?status=pending&cursor=${cursor}`)).status).toBe(400);
@@ -61,7 +59,7 @@ describe("API", () => {
     it("同じ写真への承認が同時に 2 つ来ても、公開した画像は消えない", async () => {
       const { request } = await registerUser();
       const { photoId } = await upload(request);
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const results = await Promise.all([
         admin("POST", `/api/admin/photos/${photoId}/approve`),
         admin("POST", `/api/admin/photos/${photoId}/approve`),
@@ -77,7 +75,7 @@ describe("API", () => {
     it("承認の途中で別の承認が済んで検閲待ちの画像が無くなっていたら 409 にし、公開した画像は残す", async () => {
       const { request } = await registerUser();
       const { photoId } = await upload(request);
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       // 1 つ目の承認がコピーしようとした時点で、別の承認が全部済んでいる（検閲待ちの画像はもう無い）
       const copy = vi.spyOn(t.storage, "copy").mockImplementationOnce(async () => {
         expect((await admin("POST", `/api/admin/photos/${photoId}/approve`)).status).toBe(200);
@@ -95,7 +93,7 @@ describe("API", () => {
     it("検閲待ちのままコピーに失敗したら、エラーにして検閲待ちのままにする", async () => {
       const { request } = await registerUser();
       const { photoId } = await upload(request);
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const copy = vi.spyOn(t.storage, "copy").mockRejectedValueOnce(new Error("S3 の一時的なエラー"));
       try {
         expect((await admin("POST", `/api/admin/photos/${photoId}/approve`)).status).toBe(500);
@@ -110,7 +108,7 @@ describe("API", () => {
     it("承認と却下が同時に来ても、状態と画像が食い違わない", async () => {
       const { request } = await registerUser();
       const { photoId } = await upload(request);
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const [approve, reject] = await Promise.all([
         admin("POST", `/api/admin/photos/${photoId}/approve`),
         admin("POST", `/api/admin/photos/${photoId}/reject`),
@@ -137,7 +135,7 @@ describe("API", () => {
       expect((await request("GET", "/api/photos")).body.photos).toEqual([]);
       expect((await request("GET", "/api/me")).body.user).toMatchObject({ uploadCount: 1, approvedCount: 0 });
 
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const pending = await admin("GET", "/api/admin/photos?status=pending");
       expect(pending.body.photos[0]).toMatchObject({ photoId, uploaderName: "〈疾風の魔術師〉田中" });
 
@@ -167,7 +165,7 @@ describe("API", () => {
     it("却下すると画像が消え、アップロード数から除かれる", async () => {
       const { request } = await registerUser();
       const { photoId } = await upload(request);
-      const admin = await adminClient();
+      const admin = await t.adminClient();
 
       const rejected = await admin("POST", `/api/admin/photos/${photoId}/reject`);
       expect(rejected.body.photo).toMatchObject({ status: "rejected" });
@@ -181,7 +179,7 @@ describe("API", () => {
     it("公開済みの写真を削除すると、画像・カウンタ・CDN キャッシュが片付く", async () => {
       const { request } = await registerUser();
       const { photoId } = await upload(request);
-      const admin = await adminClient();
+      const admin = await t.adminClient();
 
       // 検閲待ちは削除ではなく却下する
       expect((await admin("DELETE", `/api/admin/photos/${photoId}`)).status).toBe(409);
@@ -201,7 +199,7 @@ describe("API", () => {
     });
 
     it("即時公開モード: 取り込み時に公開される", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       expect((await admin("GET", "/api/admin/settings")).body.settings).toEqual(DEFAULT_SETTINGS);
       expect((await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "post" })).status).toBe(200);
       expect((await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, moderation: "x" })).status).toBe(400);
@@ -257,12 +255,8 @@ describe("API", () => {
 
   describe("写真（レビュー指摘の回帰テスト）", () => {
     async function setup() {
-      const token = await t.issueToken();
-      const request = createClient(t.app);
-      await request("POST", "/api/auth/register", { token, name: "田中" });
-      const admin = createClient(t.app);
-      await admin("POST", "/api/admin/login", { password: ADMIN_PASSWORD });
-      return { request, admin };
+      const { request } = await t.register("田中");
+      return { request, admin: await t.adminClient() };
     }
 
     async function uploadWith(request: Client, bytes: number[]) {
@@ -274,7 +268,7 @@ describe("API", () => {
       return {
         photoId: res.body.photoId as string,
         forms: res.body,
-        result: await ingestUpload({ repo: t.repo, storage: t.storage }, res.body.full.fields.key),
+        result: await ingestUpload(t, res.body.full.fields.key),
       };
     }
 
@@ -286,7 +280,7 @@ describe("API", () => {
       // 同じフォームで別の画像を送り直す
       t.storage.put(forms.thumb.fields.key, new Uint8Array([9]), forms.thumb.fields["x-amz-meta-uploader"]);
       t.storage.put(forms.full.fields.key, new Uint8Array([9]), forms.full.fields["x-amz-meta-uploader"]);
-      expect(await ingestUpload({ repo: t.repo, storage: t.storage }, forms.full.fields.key)).toBe("duplicate");
+      expect(await ingestUpload(t, forms.full.fields.key)).toBe("duplicate");
       expect(t.storage.get(photoKey("uploads", photoId, "full"))).toBeUndefined();
 
       await admin("POST", `/api/admin/photos/${photoId}/approve`);
@@ -301,7 +295,7 @@ describe("API", () => {
 
       t.storage.put(forms.thumb.fields.key, new Uint8Array([1]), forms.thumb.fields["x-amz-meta-uploader"]);
       t.storage.put(forms.full.fields.key, new Uint8Array([1]), forms.full.fields["x-amz-meta-uploader"]);
-      expect(await ingestUpload({ repo: t.repo, storage: t.storage }, forms.full.fields.key)).toBe("duplicate");
+      expect(await ingestUpload(t, forms.full.fields.key)).toBe("duplicate");
       expect(t.storage.get(photoKey("approved", photoId, "full"))).toBeUndefined();
       expect((await request("GET", "/api/photos")).body.photos).toEqual([]);
     });

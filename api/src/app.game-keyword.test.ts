@@ -8,8 +8,6 @@ describe("API", () => {
     let participantSeq = 0;
     const participant = (name: string) => t.register(name, [4, participantSeq++]);
 
-    const adminClient = () => t.adminClient();
-
     const me = async (request: Client) => (await request("GET", "/api/me")).body.user;
     const ranks = [
       { from: 1, to: 1, points: 20 },
@@ -17,7 +15,7 @@ describe("API", () => {
     ];
 
     it("開催 → 合言葉を入れる（不正解は何度でも、正解は先着順）→ 確定で、正解した順の点数が入る", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const created = await admin("POST", "/api/admin/games", {
         format: "keyword",
         name: "宝探し",
@@ -49,12 +47,12 @@ describe("API", () => {
       expect((await people[0]!.request("PUT", `/api/game/${game.gameId}/answer`, { text: "  " })).status).toBe(400);
 
       // 正解した順は時刻で決まるので、1 秒ずつ進める
-      let t = Date.now();
+      let now = Date.now();
       vi.useFakeTimers({ toFake: ["Date"] });
       try {
         const tick = () => {
-          t += 1000;
-          vi.setSystemTime(t);
+          now += 1000;
+          vi.setSystemTime(now);
         };
         // 表記の揺れは同じ言葉として扱う。正解の順: B, A, D, C（E は不正解のまま）
         tick();
@@ -109,7 +107,7 @@ describe("API", () => {
     });
 
     it("正解を続けて送っても、後から保存された方が先の正解の時刻を上書きしない", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const game = (
         await admin("POST", "/api/admin/games", { format: "keyword", name: "二重送信", keyword: "かぎ", ranks })
       ).body.game;
@@ -133,7 +131,7 @@ describe("API", () => {
     });
 
     it("入力の検証と、範囲が無いと確定できないこと", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const bad = (body: Record<string, unknown>) =>
         admin("POST", "/api/admin/games", { format: "keyword", name: "合言葉", ...body }).then((r) => r.status);
       expect(await bad({})).toBe(400);

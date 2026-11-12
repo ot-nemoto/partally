@@ -10,8 +10,6 @@ describe("API", () => {
     let participantSeq = 0;
     const participant = (name: string) => t.register(name, [1, participantSeq++]);
 
-    const adminClient = () => t.adminClient();
-
     const me = async (request: Client) => (await request("GET", "/api/me")).body;
 
     async function createQuiz(admin: Client, points = [10, 0, 5]) {
@@ -28,7 +26,7 @@ describe("API", () => {
       game.choices.map((ch: any) => ({ choiceId: ch.choiceId, text: ch.text, points: ch.points }));
 
     it("開催 → 答える（選び直し可）→ 確定で、選んだ選択肢の点数がポイントに加わる", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const a = await participant("田中");
       const b = await participant("鈴木");
       const quiz = await createQuiz(admin);
@@ -130,7 +128,7 @@ describe("API", () => {
     const served = (imageId: string) => t.storage.get(prizeImageKey(imageId)) !== undefined;
 
     it("問題と選択肢に画像を付けられ、差し替え・外す・削除で古い画像を消す。参加者には署名付き URL で返す", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const a = await participant("田中");
       const q = await uploadImage(admin);
       const c1 = await uploadImage(admin);
@@ -241,7 +239,7 @@ describe("API", () => {
     });
 
     it("開催中にできるのは 1 つだけ（形式によらない）。やめる・確定で次を開催できる", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const q1 = await createQuiz(admin);
       const q2 = await createQuiz(admin);
       const r1 = (await admin("POST", "/api/admin/games", { format: "result", name: "大会", slots: [] })).body.game;
@@ -270,7 +268,7 @@ describe("API", () => {
     });
 
     it("開催した後も文言と点数は直せて、点数を直すと数え直す。選択肢の増減は答えが無い下書きの間だけ", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const a = await participant("田中");
       const quiz = await createQuiz(admin);
       const [c1] = quiz.choices.map((ch: any) => ch.choiceId);
@@ -312,7 +310,7 @@ describe("API", () => {
     });
 
     it("開催中は削除できず、確定したゲームを削除すると答えと点数も消える", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const a = await participant("田中");
       const quiz = await createQuiz(admin);
       await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
@@ -329,7 +327,7 @@ describe("API", () => {
     });
 
     it("ゲームの点数は写真のポイントとは別に伏せられる", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const a = await participant("田中");
       const quiz = await createQuiz(admin);
       await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
@@ -351,7 +349,7 @@ describe("API", () => {
     });
 
     it("入力の検証とログインの確認", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const bad = (body: Record<string, unknown>) =>
         admin("POST", "/api/admin/games", { format: "quiz", name: "問題", ...body }).then((r) => r.status);
       const two = [

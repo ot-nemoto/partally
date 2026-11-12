@@ -6,10 +6,8 @@ describe("API", () => {
   const t = useApiTest();
 
   describe("スケジュール", () => {
-    const adminClient = () => t.adminClient();
-
     it("作成・更新・削除ができ、一覧は開始時刻の早い順", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const toast = await admin("POST", "/api/admin/schedule", {
         title: " 乾杯 ",
         detail: "  幹事から一言\n  ",
@@ -60,7 +58,7 @@ describe("API", () => {
     });
 
     it("終わりが 24:00 を越える・5 分未満・長すぎる詳細は 400", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const post = (body: Record<string, unknown>) =>
         admin("POST", "/api/admin/schedule", {
           title: "x",
@@ -77,7 +75,7 @@ describe("API", () => {
     });
 
     it("参加者には見せる設定のときだけ、日付と一緒に返す", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       await admin("POST", "/api/admin/schedule", { title: "開場", detail: "", startMinute: 1080, durationMinutes: 15 });
       const token = await t.issueToken();
       const user = createClient(t.app);

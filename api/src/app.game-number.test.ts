@@ -8,8 +8,6 @@ describe("API", () => {
     let participantSeq = 0;
     const participant = (name: string) => t.register(name, [2, participantSeq++]);
 
-    const adminClient = () => t.adminClient();
-
     const me = async (request: Client) => (await request("GET", "/api/me")).body.user;
     const ranks = [
       { from: 3, to: 5, points: 3 },
@@ -17,7 +15,7 @@ describe("API", () => {
     ];
 
     it("開催 → 数を答える（答え直し可）→ 正解の数を入れて確定で、近い順の順位に応じた点数が入る", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const created = await admin("POST", "/api/admin/games", {
         format: "number",
         name: "瓶の中の飴は何個？",
@@ -115,7 +113,7 @@ describe("API", () => {
     });
 
     it("点数の範囲が無いと確定できず、範囲の重なりや逆転は受け付けない", async () => {
-      const admin = await adminClient();
+      const admin = await t.adminClient();
       const bad = (body: Record<string, unknown>) =>
         admin("POST", "/api/admin/games", { format: "number", name: "数", ...body }).then((r) => r.status);
       expect(await bad({ ranks: [{ from: 3, to: 1, points: 1 }] })).toBe(400);

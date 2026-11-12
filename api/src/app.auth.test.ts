@@ -50,9 +50,9 @@ describe("API", () => {
       const request = createClient(t.app);
 
       // 1 人目: (0,0)。2 人目: 最初に (0,0) が出て衝突 → (0,1) で確定
-      t.epithets = [0, 0];
+      t.randomInts = [0, 0];
       const a = await request("POST", "/api/auth/register", { token: t1, name: "田中" });
-      t.epithets = [0, 0, 0, 1];
+      t.randomInts = [0, 0, 0, 1];
       const b = await request("POST", "/api/auth/register", { token: t2, name: "田中" });
 
       expect(a.body.user.epithet).toBe("疾風の魔術師");
