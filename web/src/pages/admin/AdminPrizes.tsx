@@ -18,7 +18,7 @@ import { PrizeChips, PrizeImage } from "../../components/PrizeChips";
 import { useOnReload } from "../../hooks/useReload";
 import { processImage } from "../../photos/process";
 import { PrizeTransferButtons } from "./PrizeTransfer";
-import { uploadPrizeImage } from "./prizeImage";
+import { ImageUploads, uploadPrizeImage } from "./prizeImage";
 
 /**
  * 景品の登録と、順位（上から何番目の人か）への割り当て。1 つの景品は数量の分だけ順位に割り当てられ、
@@ -164,6 +164,8 @@ function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved
   const [saving, setSaving] = useState(false);
   const [processing, setProcessing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  /** 保存し直すときに、同じ画像をアップロードし直さない */
+  const [uploads] = useState(() => new ImageUploads(uploadPrizeImage));
 
   // 選んだ画像のプレビュー用 URL は、差し替え・閉じるときに解放する
   useEffect(() => () => (image ? URL.revokeObjectURL(image.url) : undefined), [image]);
@@ -200,11 +202,12 @@ function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved
     setSaving(true);
     setError(undefined);
     try {
-      let imageId = image === null ? undefined : prize?.imageId;
-      if (image) imageId = await uploadPrizeImage(image.blob);
-      const body = { name, quantity, positions, imageId };
-      if (prize) await api<PrizeResponse>("PUT", `/admin/prizes/${prize.prizeId}`, body);
-      else await api<PrizeResponse>("POST", "/admin/prizes", body);
+      await uploads.save(async () => {
+        const imageId = image ? await uploads.idOf(image.blob) : image === null ? undefined : prize?.imageId;
+        const body = { name, quantity, positions, imageId };
+        if (prize) await api<PrizeResponse>("PUT", `/admin/prizes/${prize.prizeId}`, body);
+        else await api<PrizeResponse>("POST", "/admin/prizes", body);
+      });
       props.onSaved();
     } catch (err) {
       setError(errorMessage(err));

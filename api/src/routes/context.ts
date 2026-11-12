@@ -284,7 +284,9 @@ export function createContext(deps: AppDeps) {
     for (const imageId of imageIds.filter((id) => !current.includes(id))) {
       if (!(await storage.attachPrizeImage(imageId))) {
         for (const id of attached) await removePrizeImage(id);
-        return { response: fail(c, 400, "bad_request", "画像がアップロードされていないか、ほかで使われています") };
+        return {
+          response: fail(c, 400, "image_not_uploaded", "画像がアップロードされていないか、ほかで使われています"),
+        };
       }
       attached.push(imageId);
     }

@@ -23,7 +23,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../../../api";
 import { Modal } from "../../../components/Modal";
 import { NumberField } from "../../../components/NumberField";
-import { uploadGameImage } from "../prizeImage";
+import { ImageUploads, uploadGameImage } from "../prizeImage";
 import { FORMAT_ICON, FORMAT_ORDER, FORMAT_TEXT } from "./formats";
 import { type ImageDraft, ImageField } from "./ImageField";
 
@@ -161,18 +161,12 @@ export function GameFormDialog(props: {
     });
   }
 
-  /** 新しく選んだ画像の、アップロードした imageId。保存に失敗して保存し直すときに、同じ画像をアップロードし直さない */
-  const uploaded = useRef(new Map<Blob, string>());
+  /** 保存し直すときに、同じ画像をアップロードし直さない */
+  const [uploads] = useState(() => new ImageUploads(uploadGameImage));
 
   /** 新しく選んだ画像をアップロードし、付ける imageId を返す（そのままなら保存済みの imageId） */
   async function imageIdOf(draft: ImageDraft): Promise<string | undefined> {
-    if (!draft.blob) return draft.imageId;
-    let imageId = uploaded.current.get(draft.blob);
-    if (!imageId) {
-      imageId = await uploadGameImage(draft.blob);
-      uploaded.current.set(draft.blob, imageId);
-    }
-    return imageId;
+    return draft.blob ? uploads.idOf(draft.blob) : draft.imageId;
   }
 
   async function save() {
@@ -213,17 +207,7 @@ export function GameFormDialog(props: {
     setSaving(true);
     setError(undefined);
     try {
-      const reused = uploaded.current.size > 0;
-      let res: GameResponse;
-      try {
-        res = await save();
-      } catch (err) {
-        // 前の保存の失敗で、使い回した画像がサーバで片付けられていることがある（保存できなかったとき、移した画像は消す）。
-        // そのときは 400 になるので、アップロードし直してもう一度だけ送る
-        if (!(reused && err instanceof ApiError && err.status === 400)) throw err;
-        uploaded.current.clear();
-        res = await save();
-      }
+      const res = await uploads.save(save);
       props.onSaved(res.game);
     } catch (err) {
       setError(errorMessage(err));

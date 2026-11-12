@@ -63,6 +63,8 @@ export interface UserResponse {
 
 export type ApiErrorCode =
   | "bad_request"
+  /** 付ける画像が受け口に無い（アップロードしていない・ほかで使った・保存の失敗で片付けた） */
+  | "image_not_uploaded"
   | "unauthorized"
   | "invalid_token"
   | "token_already_bound"

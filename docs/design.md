@@ -447,7 +447,7 @@ sequenceDiagram
 | GET | `/api/admin/games` | ゲームの一覧（作成順、結果入力以外は回答数（合言葉は正解した人数、抽選は参加した人数）、抽選は確定後の順番 `drawOrder`、クイズは選択肢ごとの回答数も付く）。回答数 `answerCount` と選択肢ごとの人数は、ポイントの計算と同じ数え方（確定より後に届いた答え・今の合言葉に合わない答え・確定した抽選で抽選に入らなかった人を数えない）。保存されている答えの数は `storedAnswerCount` |
 | GET | `/api/admin/games/{gameId}/answers` | 結果入力以外のゲームと、答えた人の一覧（選んだ選択肢か、答えた数か、選んだ人とその表示名か、正解した言葉か、抽選への参加） |
 | POST | `/api/admin/games/image-upload` | ゲームの画像（問題・選択肢）を 1 枚、受け口へアップロードする署名付き POST と `imageId` を発行（景品と同じ受け口・置き場） |
-| POST | `/api/admin/games` | ゲームを作る `{format, name, description?, imageId?, choices?: [{text, points, imageId?}], slots?: [{name, points, userIds}], ranks?: [{from, to, points}], correctNumber?, voterPoints?, keyword?}`（下書き）。`imageId` は受け口にアップロード済みであること（無い・ほかで使った画像・同じ画像を 2 か所は 400）。保存時に配信する領域へ移す。クイズは選択肢 2〜10 個で枠なし、結果入力は選択肢なし（枠は空でもよい）、数値予想・投票・合言葉は選択肢・枠なし（`ranks` は数値予想・投票・合言葉だけ、`correctNumber` は数値予想だけ、`voterPoints` は投票だけ、`keyword` は合言葉だけで必須。範囲の逆転・重なりは 400）。同じ人が 2 つの枠に入る・登録されていない人や紐づけを解除した人を新しく選ぶと 400 |
+| POST | `/api/admin/games` | ゲームを作る `{format, name, description?, imageId?, choices?: [{text, points, imageId?}], slots?: [{name, points, userIds}], ranks?: [{from, to, points}], correctNumber?, voterPoints?, keyword?}`（下書き）。`imageId` は受け口にアップロード済みであること（無い・ほかで使った画像は 400 `image_not_uploaded`、同じ画像を 2 か所は 400）。保存時に配信する領域へ移す。クイズは選択肢 2〜10 個で枠なし、結果入力は選択肢なし（枠は空でもよい）、数値予想・投票・合言葉は選択肢・枠なし（`ranks` は数値予想・投票・合言葉だけ、`correctNumber` は数値予想だけ、`voterPoints` は投票だけ、`keyword` は合言葉だけで必須。範囲の逆転・重なりは 400）。同じ人が 2 つの枠に入る・登録されていない人や紐づけを解除した人を新しく選ぶと 400 |
 | PUT | `/api/admin/games/{gameId}` | 名前・説明・選択肢・枠・選んだ人・順位の範囲・正解の数・投票した人の点数・合言葉を直す（作るときと同じ形。既存の選択肢・枠は `choiceId`・`slotId` を付けて送る）。開催中・確定済みでも直せる。差し替えた・外した画像は消す（保存できなかったときは、新しく移した画像を消す）。形式を変えると 400。クイズの選択肢の増減は、答えが無い下書きの間だけ（それ以外は 409）。確定した結果入力から枠を、確定した数値予想から正解の数か順位の範囲を、確定した投票・合言葉・抽選から順位の範囲を全部外すと 409。画面が持っている `updatedAt` を `baseUpdatedAt` で送ると、ほかで直されていたとき（保存済みと違うとき）は上書きせず 409 |
 | POST | `/api/admin/games/{gameId}/open` | 開催。下書きでない・別のゲームが開催中なら 409 |
 | POST | `/api/admin/games/{gameId}/stop` | 開催をやめて下書きに戻す（結果入力以外の答えは残る）。開催中でなければ 409 |
@@ -456,7 +456,7 @@ sequenceDiagram
 | DELETE | `/api/admin/games/{gameId}` | 削除（答え・画像も消え、確定済みなら入ったポイントも消える）。開催中は 409 |
 | GET | `/api/admin/prizes` | 景品の一覧（作成順、画像の署名付き URL 付き） |
 | POST | `/api/admin/prizes/image-upload` | 景品の画像を 1 枚、受け口へアップロードする署名付き POST と `imageId` を発行 |
-| POST | `/api/admin/prizes` | 景品を登録する `{name, quantity, positions, imageId?}`。割り当てが数量を超える・順位が重複するときは 400。`imageId` は受け口にアップロード済みであること（無い・別の景品で使った画像は 400）。保存時に配信する領域へ移す |
+| POST | `/api/admin/prizes` | 景品を登録する `{name, quantity, positions, imageId?}`。割り当てが数量を超える・順位が重複するときは 400。`imageId` は受け口にアップロード済みであること（無い・別の景品で使った画像は 400 `image_not_uploaded`。画面は、保存し直すときに前にアップロードした画像を使い回し、これが返ったときだけアップロードし直す）。保存時に配信する領域へ移す |
 | PUT | `/api/admin/prizes/{prizeId}` | 景品を直す（登録と同じ形）。`imageId` を省くと画像を外す。差し替え・外した画像は消す |
 | DELETE | `/api/admin/prizes/{prizeId}` | 景品を削除（画像も消す） |
 | GET | `/api/admin/schedule` | スケジュール（開始時刻の早い順）とイベントの日付 |
