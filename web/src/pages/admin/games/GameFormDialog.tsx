@@ -23,9 +23,9 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../../../api";
 import { Modal } from "../../../components/Modal";
 import { NumberField } from "../../../components/NumberField";
+import { type ImageDraft, ImageField } from "../ImageField";
 import { ImageUploads, uploadGameImage } from "../prizeImage";
 import { FORMAT_ICON, FORMAT_ORDER, FORMAT_TEXT } from "./formats";
-import { type ImageDraft, ImageField } from "./ImageField";
 
 /** 枠・選択肢の編集中の行。既存のものを直すときだけ id が付く */
 interface RowDraft {
@@ -423,7 +423,7 @@ export function GameFormDialog(props: {
                       onChange={(image) => update(r.key, { image })}
                       onPicked={track}
                       disabled={saving}
-                      small
+                      variant="choice"
                     />
                   </div>
                 )}

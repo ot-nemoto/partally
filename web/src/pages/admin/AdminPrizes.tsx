@@ -1,6 +1,5 @@
 import {
   formatPositions,
-  PRIZE_IMAGE_MAX_EDGE,
   PRIZE_NAME_MAX_LENGTH,
   PRIZE_QUANTITY_MAX,
   type PrizeDto,
@@ -16,7 +15,7 @@ import { NumberField } from "../../components/NumberField";
 import { PageTitle } from "../../components/PageTitle";
 import { PrizeChips, PrizeImage } from "../../components/PrizeChips";
 import { useOnReload } from "../../hooks/useReload";
-import { processImage } from "../../photos/process";
+import { type ImageDraft, ImageField } from "./ImageField";
 import { PrizeTransferButtons } from "./PrizeTransfer";
 import { ImageUploads, uploadPrizeImage } from "./prizeImage";
 
@@ -158,17 +157,22 @@ function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved
   const [name, setName] = useState(prize?.name ?? "");
   const [quantity, setQuantity] = useState(prize?.quantity ?? 1);
   const [positionsText, setPositionsText] = useState(prize ? formatPositions(prize.positions) : "");
-  /** 新しく選んだ画像（縮小済み）。undefined なら今の画像のまま、null なら画像を外す */
-  const [image, setImage] = useState<{ blob: Blob; url: string } | null>();
+  /** 編集中の画像（保存済みの画像か、新しく選んだ縮小済みの画像。空なら画像なし） */
+  const [image, setImage] = useState<ImageDraft>({ imageId: prize?.imageId, url: prize?.imageUrl });
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
   /** 保存し直すときに、同じ画像をアップロードし直さない */
   const [uploads] = useState(() => new ImageUploads(uploadPrizeImage));
 
-  // 選んだ画像のプレビュー用 URL は、差し替え・閉じるときに解放する
-  useEffect(() => () => (image ? URL.revokeObjectURL(image.url) : undefined), [image]);
+  // 新しく選んだ画像の表示用 URL は、閉じるときにまとめて解放する
+  const created = useRef<string[]>([]);
+  useEffect(
+    () => () => {
+      for (const url of created.current) URL.revokeObjectURL(url);
+    },
+    [],
+  );
 
   const parsed = parsePositions(positionsText);
   const positions = "positions" in parsed ? parsed.positions : [];
@@ -180,21 +184,6 @@ function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved
         : positions.length > quantity
           ? `割り当てた順位（${positions.length} 個）が数量（${quantity}）を超えています。`
           : undefined;
-  const previewUrl = image === null ? undefined : (image?.url ?? prize?.imageUrl);
-
-  async function pick(file: File | undefined) {
-    if (!file) return;
-    setProcessing(true);
-    setError(undefined);
-    try {
-      const blob = await processImage(file, PRIZE_IMAGE_MAX_EDGE);
-      setImage({ blob, url: URL.createObjectURL(blob) });
-    } catch {
-      setError("画像を読み込めませんでした。別の画像を選んでください。");
-    } finally {
-      setProcessing(false);
-    }
-  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -203,7 +192,7 @@ function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved
     setError(undefined);
     try {
       await uploads.save(async () => {
-        const imageId = image ? await uploads.idOf(image.blob) : image === null ? undefined : prize?.imageId;
+        const imageId = image.blob ? await uploads.idOf(image.blob) : image.imageId;
         const body = { name, quantity, positions, imageId };
         if (prize) await api<PrizeResponse>("PUT", `/admin/prizes/${prize.prizeId}`, body);
         else await api<PrizeResponse>("POST", "/admin/prizes", body);
@@ -235,38 +224,15 @@ function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved
             data-autofocus
           />
         </label>
-        <div className="field">
-          <span>画像</span>
-          <div className="prize-image-field">
-            {previewUrl ? (
-              <img className="prize-image" src={previewUrl} alt="選んだ画像" />
-            ) : (
-              <span className="prize-image placeholder" aria-hidden="true">
-                🎁
-              </span>
-            )}
-            <div className="prize-image-actions">
-              <button type="button" onClick={() => fileRef.current?.click()} disabled={processing || saving}>
-                {processing ? "読み込み中…" : previewUrl ? "画像を変える" : "画像を選ぶ"}
-              </button>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*,.heic,.heif"
-                hidden
-                onChange={(e) => {
-                  void pick(e.target.files?.[0]);
-                  e.target.value = "";
-                }}
-              />
-              {previewUrl && (
-                <button type="button" className="link" onClick={() => setImage(null)} disabled={saving}>
-                  画像を外す
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <ImageField
+          label="画像"
+          variant="prize"
+          image={image}
+          onChange={setImage}
+          onPicked={(url) => created.current.push(url)}
+          onProcessing={setProcessing}
+          disabled={saving}
+        />
         <NumberField label="数量" value={quantity} min={1} max={PRIZE_QUANTITY_MAX} onChange={setQuantity} />
         <label className="field">
           <span>渡す順位</span>

@@ -1,6 +1,6 @@
 import { GAME_CHOICE_IMAGE_MAX_EDGE, PRIZE_IMAGE_MAX_EDGE } from "@partally/shared";
 import { useRef, useState } from "react";
-import { processImage } from "../../../photos/process";
+import { processImage } from "../../photos/process";
 
 /**
  * 編集中の画像。imageId は保存済みの画像、blob は新しく選んだ画像（縮小済み）。
@@ -12,18 +12,57 @@ export interface ImageDraft {
   url?: string;
 }
 
-/** 画像を選ぶ・変える・外す。選んだ画像は端末で縮小・JPEG にしてから持つ（アップロードは保存のとき） */
+/**
+ * 種類ごとの見た目と縮小の大きさ。景品の画像は形がまちまちなので、枠に収めて全体を見せる。
+ * ゲームの問題・選択肢の画像は四角く切り抜いて見せる（選択肢は小さく出し、縮小も小さめにする）
+ */
+const VARIANTS = {
+  game: {
+    field: "game-image-field",
+    body: "game-image-field-body",
+    preview: "game-image-preview",
+    actions: "game-image-actions",
+    placeholder: "🖼",
+    remove: "外す",
+    maxEdge: PRIZE_IMAGE_MAX_EDGE,
+  },
+  choice: {
+    field: "game-image-field small",
+    body: "game-image-field-body",
+    preview: "game-image-preview",
+    actions: "game-image-actions",
+    placeholder: "🖼",
+    remove: "外す",
+    maxEdge: GAME_CHOICE_IMAGE_MAX_EDGE,
+  },
+  prize: {
+    field: "",
+    body: "prize-image-field",
+    preview: "prize-image",
+    actions: "prize-image-actions",
+    placeholder: "🎁",
+    remove: "画像を外す",
+    maxEdge: PRIZE_IMAGE_MAX_EDGE,
+  },
+} as const;
+
+/**
+ * 画像を選ぶ・変える・外す（景品・ゲームで共通）。選んだ画像は端末で縮小・JPEG にしてから持つ
+ * （アップロードは保存のとき。ImageUploads を使う）
+ */
 export function ImageField(props: {
   label: string;
   image: ImageDraft;
   onChange: (image: ImageDraft) => void;
   /** 新しく作った表示用 URL（呼び出し側が閉じるときに解放する） */
   onPicked: (url: string) => void;
+  /** 選んだ画像を縮小している間か（その間は保存させないときに使う） */
+  onProcessing?: (processing: boolean) => void;
   disabled?: boolean;
-  /** 選択肢の画像（小さく出し、縮小も小さめにする） */
-  small?: boolean;
+  variant?: keyof typeof VARIANTS;
 }) {
   const { image } = props;
+  const v = VARIANTS[props.variant ?? "game"];
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string>();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -31,9 +70,10 @@ export function ImageField(props: {
   async function pick(file: File | undefined) {
     if (!file) return;
     setProcessing(true);
+    props.onProcessing?.(true);
     setError(undefined);
     try {
-      const blob = await processImage(file, props.small ? GAME_CHOICE_IMAGE_MAX_EDGE : PRIZE_IMAGE_MAX_EDGE);
+      const blob = await processImage(file, v.maxEdge);
       const url = URL.createObjectURL(blob);
       props.onPicked(url);
       props.onChange({ blob, url });
@@ -41,21 +81,22 @@ export function ImageField(props: {
       setError("画像を読み込めませんでした。別の画像を選んでください。");
     } finally {
       setProcessing(false);
+      props.onProcessing?.(false);
     }
   }
 
   return (
-    <div className={`field game-image-field${props.small ? " small" : ""}`}>
+    <div className={v.field ? `field ${v.field}` : "field"}>
       <span>{props.label}</span>
-      <div className="game-image-field-body">
+      <div className={v.body}>
         {image.url ? (
-          <img className="game-image-preview" src={image.url} alt="選んだ画像" />
+          <img className={v.preview} src={image.url} alt="選んだ画像" />
         ) : (
-          <span className="game-image-preview placeholder" aria-hidden="true">
-            🖼
+          <span className={`${v.preview} placeholder`} aria-hidden="true">
+            {v.placeholder}
           </span>
         )}
-        <div className="game-image-actions">
+        <div className={v.actions}>
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
@@ -82,7 +123,7 @@ export function ImageField(props: {
               disabled={props.disabled}
               aria-label={`${props.label}を外す`}
             >
-              外す
+              {v.remove}
             </button>
           )}
         </div>
