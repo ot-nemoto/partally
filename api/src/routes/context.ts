@@ -51,7 +51,9 @@ export interface AppDeps {
 
 export const USER_COOKIE = "session";
 export const ADMIN_COOKIE = "admin_session";
-export const ADMIN_COOKIE_PATH = "/api/admin";
+/** API のパスの先頭（app.ts の basePath）。管理者の Cookie のパスもここから作る */
+export const API_BASE_PATH = "/api";
+export const ADMIN_COOKIE_PATH = `${API_BASE_PATH}/admin`;
 const PHOTO_COOKIE_PATH = "/photos/approved/";
 /** 公開済み写真を見るための CloudFront 署名付き Cookie の有効期間 */
 const PHOTO_COOKIE_TTL_MS = 12 * 60 * 60 * 1000;
