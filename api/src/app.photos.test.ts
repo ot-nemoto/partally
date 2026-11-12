@@ -105,6 +105,31 @@ describe("API", () => {
       expect((await admin("POST", `/api/admin/photos/${photoId}/approve`)).status).toBe(200);
     });
 
+    it("承認・却下の後に検閲待ちの画像を消せなくても、承認・却下は成功を返す", async () => {
+      const { request } = await registerUser();
+      const admin = await t.adminClient();
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        for (const action of ["approve", "reject"] as const) {
+          const { photoId } = await upload(request);
+          const remove = vi.spyOn(t.storage, "remove").mockRejectedValueOnce(new Error("S3 の一時的なエラー"));
+          try {
+            const res = await admin("POST", `/api/admin/photos/${photoId}/${action}`);
+            expect(res.status).toBe(200);
+            expect(res.body.photo.status).toBe(action === "approve" ? "approved" : "rejected");
+          } finally {
+            remove.mockRestore();
+          }
+        }
+        expect(
+          error.mock.calls.filter(([message]) => String(message).includes("検閲待ちの画像を消せませんでした")),
+        ).toHaveLength(2);
+      } finally {
+        error.mockRestore();
+      }
+      expect((await request("GET", "/api/photos")).body.photos).toHaveLength(1);
+    });
+
     it("承認と却下が同時に来ても、状態と画像が食い違わない", async () => {
       const { request } = await registerUser();
       const { photoId } = await upload(request);

@@ -3,7 +3,7 @@ import { type Env, fail } from "./http.js";
 import { InvalidCursorError } from "./repository.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAuthRoutes } from "./routes/auth.js";
-import { type AppDeps, createContext } from "./routes/context.js";
+import { API_BASE_PATH, type AppDeps, createContext } from "./routes/context.js";
 import { registerGameRoutes } from "./routes/games.js";
 import { registerPhotoRoutes } from "./routes/photos.js";
 import { registerPrizeRoutes } from "./routes/prizes.js";
@@ -14,7 +14,7 @@ export type { AppDeps } from "./routes/context.js";
 
 export function createApp(deps: AppDeps) {
   const ctx = createContext(deps);
-  const app = new Hono<Env>().basePath("/api");
+  const app = new Hono<Env>().basePath(API_BASE_PATH);
 
   app.onError((err, c) => {
     // 一覧の続きを読む位置（cursor）は利用者から送られるので、読めないものは利用者の誤りとして 400 にする

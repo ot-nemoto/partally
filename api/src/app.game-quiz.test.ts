@@ -238,6 +238,39 @@ describe("API", () => {
       expect([served(q2), served(c2)]).toEqual([false, false]);
     });
 
+    it("ゲームを削除すると、画像は 1 枚ずつ待たずに並行して消す", async () => {
+      const admin = await t.adminClient();
+      const [q, c1, c2] = [await uploadImage(admin), await uploadImage(admin), await uploadImage(admin)];
+      const created = await admin("POST", "/api/admin/games", {
+        format: "quiz",
+        name: "画像だらけ",
+        imageId: q,
+        choices: [
+          { text: "A", points: 1, imageId: c1 },
+          { text: "B", points: 0, imageId: c2 },
+        ],
+      });
+      // 3 枚の削除がそろって始まるまで、どの削除も終わらない（1 枚ずつ待つと、ここで止まって時間切れになる）
+      let started = 0;
+      let release: () => void = () => {};
+      const allStarted = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const original = t.storage.removePrizeImage.bind(t.storage);
+      const remove = vi.spyOn(t.storage, "removePrizeImage").mockImplementation(async (imageId) => {
+        if (++started === 3) release();
+        await allStarted;
+        await original(imageId);
+      });
+      try {
+        expect((await admin("DELETE", `/api/admin/games/${created.body.game.gameId}`)).status).toBe(200);
+      } finally {
+        remove.mockRestore();
+      }
+      expect(started).toBe(3);
+      expect([served(q), served(c1), served(c2)]).toEqual([false, false, false]);
+    });
+
     it("開催中にできるのは 1 つだけ（形式によらない）。やめる・確定で次を開催できる", async () => {
       const admin = await t.adminClient();
       const q1 = await createQuiz(admin);

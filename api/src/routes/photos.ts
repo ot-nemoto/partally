@@ -100,6 +100,18 @@ export function registerPhotoRoutes(app: Hono<Env>, ctx: AppContext) {
     });
   });
 
+  /**
+   * 承認・却下の後に、検閲待ちの画像を消す。状態は保存できているので、消せなくても失敗にはしない
+   * （やり直すと、もう検閲待ちではないので 409 になってしまう。検閲待ちの画像は署名付き URL でしか見えず、残っても Reset で消える）
+   */
+  const removePending = async (photoId: string) => {
+    try {
+      await storage.remove(photoId, "pending");
+    } catch (e) {
+      console.error(`写真 ${photoId} の検閲待ちの画像を消せませんでした`, e);
+    }
+  };
+
   app.post("/admin/photos/:photoId/approve", async (c) => {
     const photoId = c.req.param("photoId");
     const photo = await repo.getPhoto(photoId);
@@ -125,7 +137,7 @@ export function registerPhotoRoutes(app: Hono<Env>, ctx: AppContext) {
       }
       return approved;
     }
-    await storage.remove(photoId, "pending");
+    await removePending(photoId);
     return c.json({ photo: toPhotoDto(approved as VisiblePhoto, await uploadersOf([approved]), { signAll: true }) });
   });
 
@@ -133,7 +145,7 @@ export function registerPhotoRoutes(app: Hono<Env>, ctx: AppContext) {
     const photoId = c.req.param("photoId");
     const rejected = await photoAction(c, () => repo.rejectPhoto(photoId, now().toISOString()));
     if (rejected instanceof Response) return rejected;
-    await storage.remove(photoId, "pending");
+    await removePending(photoId);
     return c.json({ photo: toPhotoDto(rejected as VisiblePhoto, await uploadersOf([rejected]), { signAll: true }) });
   });
 

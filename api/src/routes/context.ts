@@ -51,7 +51,9 @@ export interface AppDeps {
 
 export const USER_COOKIE = "session";
 export const ADMIN_COOKIE = "admin_session";
-export const ADMIN_COOKIE_PATH = "/api/admin";
+/** API のパスの先頭（app.ts の basePath）。管理者の Cookie のパスもここから作る */
+export const API_BASE_PATH = "/api";
+export const ADMIN_COOKIE_PATH = `${API_BASE_PATH}/admin`;
 const PHOTO_COOKIE_PATH = "/photos/approved/";
 /** 公開済み写真を見るための CloudFront 署名付き Cookie の有効期間 */
 const PHOTO_COOKIE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -283,7 +285,7 @@ export function createContext(deps: AppDeps) {
     const attached: string[] = [];
     for (const imageId of imageIds.filter((id) => !current.includes(id))) {
       if (!(await storage.attachPrizeImage(imageId))) {
-        for (const id of attached) await removePrizeImage(id);
+        await removeImages(attached);
         return {
           response: fail(c, 400, "image_not_uploaded", "画像がアップロードされていないか、ほかで使われています"),
         };
@@ -294,12 +296,17 @@ export function createContext(deps: AppDeps) {
   };
 
   /** 使わなくなった画像を消す。景品・ゲームは保存できているので、消せなくても失敗にはしない（残った画像は Reset で消える） */
-  const removePrizeImage = async (imageId: string) => {
+  const removeImage = async (imageId: string) => {
     try {
       await storage.removePrizeImage(imageId);
     } catch (e) {
       console.error(`画像 ${imageId} の削除か、CloudFront のキャッシュの無効化に失敗しました`, e);
     }
+  };
+
+  /** 使わなくなった画像をまとめて消す（S3 の削除と CloudFront の無効化を、画像ごとに待たず並行して行う） */
+  const removeImages = async (imageIds: readonly string[]) => {
+    await Promise.all(imageIds.map(removeImage));
   };
 
   return {
@@ -327,7 +334,8 @@ export function createContext(deps: AppDeps) {
     loadRanking,
     requireUser,
     requireAdmin,
-    removePrizeImage,
+    removeImage,
+    removeImages,
     createImageUpload,
     attachImages,
   };

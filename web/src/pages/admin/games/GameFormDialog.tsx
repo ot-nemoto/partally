@@ -23,9 +23,9 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../../../api";
 import { Modal } from "../../../components/Modal";
 import { NumberField } from "../../../components/NumberField";
+import { type ImageDraft, ImageField } from "../ImageField";
 import { ImageUploads, uploadGameImage } from "../prizeImage";
 import { FORMAT_ICON, FORMAT_ORDER, FORMAT_TEXT } from "./formats";
-import { type ImageDraft, ImageField } from "./ImageField";
 
 /** 枠・選択肢の編集中の行。既存のものを直すときだけ id が付く */
 interface RowDraft {
@@ -121,6 +121,9 @@ export function GameFormDialog(props: {
   // 新しく選んだ画像の表示用 URL は、閉じるときにまとめて解放する
   const created = useRef<string[]>([]);
   const track = (url: string) => created.current.push(url);
+  // 縮小中の画像の数（問題と選択肢で、いくつも同時に縮小することがある）。縮小中は保存させない（選んだ画像が抜けないように）
+  const [processing, setProcessing] = useState(0);
+  const onProcessing = (busy: boolean) => setProcessing((n) => n + (busy ? 1 : -1));
   useEffect(
     () => () => {
       for (const url of created.current) URL.revokeObjectURL(url);
@@ -270,7 +273,14 @@ export function GameFormDialog(props: {
           />
           <span className="muted small">参加者のゲームの画面に出ます。</span>
         </label>
-        <ImageField label={text.imageLabel} image={image} onChange={setImage} onPicked={track} disabled={saving} />
+        <ImageField
+          label={text.imageLabel}
+          image={image}
+          onChange={setImage}
+          onPicked={track}
+          onProcessing={onProcessing}
+          disabled={saving}
+        />
         {ranked && (
           <>
             {numberGame && (
@@ -422,8 +432,9 @@ export function GameFormDialog(props: {
                       image={r.image}
                       onChange={(image) => update(r.key, { image })}
                       onPicked={track}
+                      onProcessing={onProcessing}
                       disabled={saving}
-                      small
+                      variant="choice"
                     />
                   </div>
                 )}
@@ -458,7 +469,11 @@ export function GameFormDialog(props: {
           <button type="button" onClick={props.onClose} disabled={saving}>
             キャンセル
           </button>
-          <button type="submit" className="primary" disabled={saving || incomplete || rankError !== undefined}>
+          <button
+            type="submit"
+            className="primary"
+            disabled={saving || processing > 0 || incomplete || rankError !== undefined}
+          >
             保存
           </button>
         </div>
