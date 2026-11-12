@@ -56,8 +56,8 @@ interface GameScoring {
    * 投票は自分が投票していなくても選ばれていることがあるので、いつも読む（always）
    */
   readsAllAnswers: "never" | "answered" | "always";
-  /** 数える答えか（確定より後に届いた答えは、形式によらず countedAnswers で除く） */
-  counts?: (game: GameRecord, answer: GameAnswerRecord) => boolean;
+  /** ゲームごとの、数える答えかの判定（確定より後に届いた答えは、形式によらず countedAnswers で除く） */
+  countsOf?: (game: GameRecord) => (answer: GameAnswerRecord) => boolean;
 }
 
 export const GAME_SCORING: Record<GameFormat, GameScoring> = {
@@ -118,7 +118,7 @@ export const GAME_SCORING: Record<GameFormat, GameScoring> = {
   // 正解した順が入る範囲の点数。今の合言葉に合う答えだけを数える
   keyword: {
     readsAllAnswers: "answered",
-    counts: (game, answer) => isKeywordCorrect(game, answer.text),
+    countsOf: (game) => (answer) => isKeywordCorrect(game, answer.text),
     awards: (game, answers) =>
       // 正解した時刻の順に並べる（同じ時刻は userId の順）
       answers
@@ -133,7 +133,11 @@ export const GAME_SCORING: Record<GameFormat, GameScoring> = {
   // 確定したときに決めた順番で、範囲に入った人に点数。確定したら、抽選に入った人（drawOrder）だけを数える
   lottery: {
     readsAllAnswers: "never",
-    counts: (game, answer) => !game.drawOrder || game.drawOrder.includes(answer.userId),
+    countsOf: (game) => {
+      if (!game.drawOrder) return () => true;
+      const drawn = new Set(game.drawOrder);
+      return (answer) => drawn.has(answer.userId);
+    },
     awards: (game) =>
       (game.drawOrder ?? []).flatMap((userId, i) => {
         const range = rankRangeOf(game.ranks, i + 1);
@@ -144,11 +148,8 @@ export const GAME_SCORING: Record<GameFormat, GameScoring> = {
 
 /**
  * 確定したゲームで、誰に何点入ったか（確定した順）。下書き・開催中のゲームは数えない
- * （クイズを選び直して、点数の変化から正解が分からないように）。
- * 結果入力は枠に入った人に枠の点数、クイズは選んだ選択肢の点数、数値予想は正解に近い順の順位が入る範囲の点数、
- * 投票は得票の順位が入る範囲の点数（選ばれた人）と、投票した人の点数、合言葉は正解した順が入る範囲の点数、
- * 抽選は確定したときに決めた順番が入る範囲の点数。確定の直前に受け付けて確定の後に保存された答え
- * （answeredAt > confirmedAt）は数えない
+ * （クイズを選び直して、点数の変化から正解が分からないように）。形式ごとの点数の付け方は GAME_SCORING。
+ * 確定の直前に受け付けて確定の後に保存された答え（answeredAt > confirmedAt）は数えない
  */
 export function gameAwards(entries: GameWithAnswers[]): GameAward[] {
   const awards: GameAward[] = [];
@@ -343,6 +344,6 @@ export function isKeywordCorrect(game: Pick<GameRecord, "keyword">, text: string
  */
 export function countedAnswers(game: GameRecord, answers: GameAnswerRecord[]): GameAnswerRecord[] {
   const at = game.status === "confirmed" ? game.confirmedAt : undefined;
-  const counts = GAME_SCORING[game.format].counts;
-  return answers.filter((a) => (at === undefined || a.answeredAt <= at) && (counts?.(game, a) ?? true));
+  const counts = GAME_SCORING[game.format].countsOf?.(game);
+  return answers.filter((a) => (at === undefined || a.answeredAt <= at) && (counts?.(a) ?? true));
 }

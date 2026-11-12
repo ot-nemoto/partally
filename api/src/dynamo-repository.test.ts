@@ -503,6 +503,11 @@ describe("DynamoRepository", () => {
       expect(await repo.getGame("G1")).toMatchObject({ format: "result", description: "", choices: [] });
     });
 
+    it("この版が知らない形式のゲームも、結果入力として読む", async () => {
+      ddb.on(GetCommand).resolves({ Item: { PK: "GAME#G1", SK: "META", ...game, format: "bingo" } });
+      expect(await repo.getGame("G1")).toMatchObject({ format: "result" });
+    });
+
     it("開催は「開催中」の印と状態の変更を 1 トランザクションで行い、別のゲームが開催中なら断る", async () => {
       ddb
         .on(TransactWriteCommand)
