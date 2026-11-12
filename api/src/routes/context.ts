@@ -16,6 +16,7 @@ import { type PhotoStorage, photoPath, prizeImagePath } from "../photo-storage.j
 import type { FavoriteRecord, GameRecord, PhotoRecord, PrizeRecord, Repository, UserRecord } from "../repository.js";
 import {
   buildRanking,
+  GAME_SCORING,
   type GameStats,
   type GameWithAnswers,
   gameStatsByUser,
@@ -170,17 +171,16 @@ export function createContext(deps: AppDeps) {
     new Map((await repo.getUsers(photos.map((p) => p.uploaderId))).map((u) => [u.userId, u]));
 
   /**
-   * 1 人分のゲームの点数。クイズ形式は自分の答えだけを読む。
-   * 数値予想・合言葉は順位が他の人の答えで決まるので、自分が答えた確定済みのものだけ全員の答えを読む。
-   * 投票は自分が投票していなくても選ばれていることがあるので、確定済みのものは全員の票を読む
+   * 1 人分のゲームの点数。ふだんは自分の答えだけを読み、順位が他の人の答えで決まる形式（GAME_SCORING の
+   * readsAllAnswers）の確定済みのものだけ全員の答えを読む
    */
   const scoresOf = async (userId: string): Promise<GameStats> => {
     const [games, mine] = await Promise.all([repo.listGames(), repo.listGameAnswersByUser(userId)]);
     const answered = new Set(mine.map((a) => a.gameId));
-    const needsAll = (game: GameRecord) =>
-      game.status === "confirmed" &&
-      (game.format === "vote" ||
-        ((game.format === "number" || game.format === "keyword") && answered.has(game.gameId)));
+    const needsAll = (game: GameRecord) => {
+      const reads = GAME_SCORING[game.format].readsAllAnswers;
+      return game.status === "confirmed" && (reads === "always" || (reads === "answered" && answered.has(game.gameId)));
+    };
     const entries = await Promise.all(
       withAnswers(games, mine).map(async (entry) =>
         needsAll(entry.game)
@@ -269,6 +269,28 @@ export function createContext(deps: AppDeps) {
     return buildRanking({ users, settings, photos, favorites, games, now: now().toISOString() });
   }
 
+  /** 景品・ゲームの画像の受け口（署名付き POST）を作る */
+  const createImageUpload = async (c: Context) => {
+    const imageId = newId();
+    return c.json({ imageId, upload: await storage.createPrizeImageUpload(imageId) });
+  };
+
+  /**
+   * 景品・ゲームに新しく付ける画像（current に無いもの）を、受け口から配信する領域へ移す。
+   * 1 つでも受け口に無ければ、移した分を消して 400 のレスポンスを返す
+   */
+  const attachImages = async (c: Context, imageIds: string[], current: string[] = []) => {
+    const attached: string[] = [];
+    for (const imageId of imageIds.filter((id) => !current.includes(id))) {
+      if (!(await storage.attachPrizeImage(imageId))) {
+        for (const id of attached) await removePrizeImage(id);
+        return { response: fail(c, 400, "bad_request", "画像がアップロードされていないか、ほかで使われています") };
+      }
+      attached.push(imageId);
+    }
+    return { attached };
+  };
+
   /** 使わなくなった画像を消す。景品・ゲームは保存できているので、消せなくても失敗にはしない（残った画像は Reset で消える） */
   const removePrizeImage = async (imageId: string) => {
     try {
@@ -304,6 +326,8 @@ export function createContext(deps: AppDeps) {
     requireUser,
     requireAdmin,
     removePrizeImage,
+    createImageUpload,
+    attachImages,
   };
 }
 

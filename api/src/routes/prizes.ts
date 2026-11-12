@@ -1,11 +1,11 @@
 import { prizeRequestSchema } from "@partally/shared";
-import type { Context, Hono } from "hono";
+import type { Hono } from "hono";
 import { type Env, fail, parseBody } from "../http.js";
 import { NotFoundError, type PrizeRecord } from "../repository.js";
 import type { AppContext } from "./context.js";
 
 export function registerPrizeRoutes(app: Hono<Env>, ctx: AppContext) {
-  const { repo, storage, now, newId, toPrizeDto, requireUser, removePrizeImage } = ctx;
+  const { repo, now, newId, toPrizeDto, requireUser, removePrizeImage, createImageUpload, attachImages } = ctx;
 
   // 参加者に見せる景品。見せない設定のときは無いものとして扱う
   app.get("/prizes", requireUser, async (c) => {
@@ -16,23 +16,13 @@ export function registerPrizeRoutes(app: Hono<Env>, ctx: AppContext) {
 
   app.get("/admin/prizes", async (c) => c.json({ prizes: (await repo.listPrizes()).map(toPrizeDto) }));
 
-  app.post("/admin/prizes/image-upload", async (c) => {
-    const imageId = newId();
-    return c.json({ imageId, upload: await storage.createPrizeImageUpload(imageId) });
-  });
-
-  /** 新しく付ける画像を受け口から配信する領域へ移す。受け口に無ければ 400 のレスポンスを返す */
-  const attachPrizeImage = async (c: Context, imageId: string | undefined, current?: string) => {
-    if (imageId === undefined || imageId === current) return undefined;
-    if (await storage.attachPrizeImage(imageId)) return undefined;
-    return fail(c, 400, "bad_request", "画像がアップロードされていないか、ほかで使われています");
-  };
+  app.post("/admin/prizes/image-upload", createImageUpload);
 
   app.post("/admin/prizes", async (c) => {
     const body = await parseBody(c, prizeRequestSchema);
     if (!body.ok) return body.response;
-    const invalid = await attachPrizeImage(c, body.data.imageId);
-    if (invalid) return invalid;
+    const images = await attachImages(c, body.data.imageId ? [body.data.imageId] : []);
+    if (images.response) return images.response;
     const timestamp = now().toISOString();
     const prize: PrizeRecord = {
       prizeId: newId(),
@@ -57,8 +47,12 @@ export function registerPrizeRoutes(app: Hono<Env>, ctx: AppContext) {
     if (!body.ok) return body.response;
     const prize = await repo.getPrize(c.req.param("prizeId"));
     if (!prize) return fail(c, 404, "not_found");
-    const invalid = await attachPrizeImage(c, body.data.imageId, prize.imageId);
-    if (invalid) return invalid;
+    const images = await attachImages(
+      c,
+      body.data.imageId ? [body.data.imageId] : [],
+      prize.imageId ? [prize.imageId] : [],
+    );
+    if (images.response) return images.response;
     try {
       const updated = await repo.updatePrize(
         prize.prizeId,

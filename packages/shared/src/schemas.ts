@@ -379,3 +379,4 @@ export const gameAnswerRequestSchema = z
   .refine((v) => [v.choiceId, v.value, v.targetUserId, v.text, v.entry].filter((x) => x !== undefined).length === 1, {
     message: "選択肢・数・選んだ人・言葉・参加のどれか 1 つを送ってください",
   });
+export type GameAnswerRequest = z.infer<typeof gameAnswerRequestSchema>;

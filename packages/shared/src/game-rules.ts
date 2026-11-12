@@ -2,6 +2,26 @@
  * ゲームの決まり（形式によらない部分と、形式ごとの集計）。API と画面の両方で使う。
  * 数値予想の順位付け・投票の集計・合言葉の比べ方・抽選の並べ替え・確定の条件など
  */
+import type { GameAnswerRequest } from "./schemas.js";
+import type { GameFormat } from "./types.js";
+
+/** 形式ごとの決まり。形式を足すときは、ここと API の点数の数え方（api/src/scoring.ts の GAME_SCORING）を足す */
+export interface GameFormatRule {
+  /** 参加者の答えに使う項目（PUT /api/game/:gameId/answer）。結果入力は参加者が答えない */
+  answerField?: keyof GameAnswerRequest;
+  /** 順位の範囲で点数を決める形式の、順位の単位 */
+  rankUnit?: string;
+}
+
+export const GAME_FORMAT_RULES: Record<GameFormat, GameFormatRule> = {
+  quiz: { answerField: "choiceId" },
+  result: {},
+  number: { answerField: "value", rankUnit: "位" },
+  vote: { answerField: "targetUserId", rankUnit: "位" },
+  keyword: { answerField: "text", rankUnit: "番目" },
+  lottery: { answerField: "entry", rankUnit: "等" },
+};
+
 /** 順位（位・番目・等）の範囲と点数（from〜to に points）。数値予想・投票・合言葉・抽選で使う */
 export interface RankRange {
   from: number;
@@ -70,9 +90,9 @@ export function tallyVotes(targetUserIds: string[], ranks: RankRange[]): VoteRes
   });
 }
 
-/** 順位の単位（合言葉は正解した順なので「番目」、抽選は「等」） */
-export function rankUnit(format: string): string {
-  return format === "keyword" ? "番目" : format === "lottery" ? "等" : "位";
+/** 順位の単位（合言葉は正解した順なので「番目」、抽選は「等」）。順位の範囲を使わない形式は「位」 */
+export function rankUnit(format: GameFormat): string {
+  return GAME_FORMAT_RULES[format].rankUnit ?? "位";
 }
 
 /** 「1〜5 位」「3 位」のように書く */
@@ -81,13 +101,13 @@ export function formatRankRange(range: Pick<RankRange, "from" | "to">, unit = "�
 }
 
 /** 参加者が答える形式か（結果入力のほか全部） */
-export function hasGameAnswers(game: { format: string }): boolean {
-  return game.format !== "result";
+export function hasGameAnswers(game: { format: GameFormat }): boolean {
+  return GAME_FORMAT_RULES[game.format].answerField !== undefined;
 }
 
 /** 順位の範囲で点数を決める形式か（数値予想・投票・合言葉・抽選） */
-export function hasGameRanks(game: { format: string }): boolean {
-  return ["number", "vote", "keyword", "lottery"].includes(game.format);
+export function hasGameRanks(game: { format: GameFormat }): boolean {
+  return GAME_FORMAT_RULES[game.format].rankUnit !== undefined;
 }
 
 /**
@@ -107,7 +127,7 @@ export function normalizeKeyword(input: string): string {
  * 枠の無い結果入力、正解の数か点数の範囲が無い数値予想、点数の範囲が無い投票・合言葉・抽選は確定できない
  */
 export function gameConfirmProblem(game: {
-  format: string;
+  format: GameFormat;
   slots: unknown[];
   ranks: unknown[];
   correctNumber?: number;
