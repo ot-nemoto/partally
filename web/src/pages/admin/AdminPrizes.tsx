@@ -228,7 +228,11 @@ function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved
           label="画像"
           variant="prize"
           image={image}
-          onChange={setImage}
+          onChange={(next) => {
+            // 差し替え・外した、新しく選んだ画像の表示用 URL はすぐ解放する（選び直しで画像がたまらないように）
+            if (image.blob && image.url) URL.revokeObjectURL(image.url);
+            setImage(next);
+          }}
           onPicked={(url) => created.current.push(url)}
           onProcessing={setProcessing}
           disabled={saving}

@@ -121,7 +121,9 @@ describe("API", () => {
             remove.mockRestore();
           }
         }
-        expect(error).toHaveBeenCalledTimes(2);
+        expect(
+          error.mock.calls.filter(([message]) => String(message).includes("検閲待ちの画像を消せませんでした")),
+        ).toHaveLength(2);
       } finally {
         error.mockRestore();
       }

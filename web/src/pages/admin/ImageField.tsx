@@ -56,7 +56,7 @@ export function ImageField(props: {
   onChange: (image: ImageDraft) => void;
   /** 新しく作った表示用 URL（呼び出し側が閉じるときに解放する） */
   onPicked: (url: string) => void;
-  /** 選んだ画像を縮小している間か（その間は保存させないときに使う） */
+  /** 縮小を始めた（true）・終えた（false）。その間は保存させないときに使う（欄がいくつもある画面は、数を数える） */
   onProcessing?: (processing: boolean) => void;
   disabled?: boolean;
   variant?: keyof typeof VARIANTS;
