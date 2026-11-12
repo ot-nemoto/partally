@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { EPITHET_MAX_LENGTH } from "./epithet.js";
-import { hasGameRanks, normalizeKeyword } from "./number-game.js";
+import { hasGameRanks, normalizeKeyword } from "./game-rules.js";
 import type { TieBreakKey } from "./types.js";
 
 export const NAME_MAX_LENGTH = 20;

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { formatRankRange, normalizeKeyword, rankNumberAnswers, shuffle, tallyVotes } from "./number-game.js";
+import {
+  formatRankRange,
+  normalizeKeyword,
+  rankNumberAnswers,
+  rankRangeOf,
+  shuffle,
+  tallyVotes,
+} from "./game-rules.js";
 
 describe("数値予想の順位", () => {
   const ranks = [
@@ -87,5 +94,21 @@ describe("抽選の順番", () => {
     }
     expect(counts.size).toBe(6);
     for (const c of counts.values()) expect(c).toBeGreaterThan(800);
+  });
+});
+
+describe("順位が入る範囲", () => {
+  const ranks = [
+    { from: 1, to: 1, points: 30 },
+    { from: 2, to: 5, points: 10 },
+  ];
+
+  it("範囲の端も含め、順位が入る範囲を返す。どこにも入らなければ undefined", () => {
+    expect(rankRangeOf(ranks, 1)?.points).toBe(30);
+    expect(rankRangeOf(ranks, 2)?.points).toBe(10);
+    expect(rankRangeOf(ranks, 5)?.points).toBe(10);
+    expect(rankRangeOf(ranks, 6)).toBeUndefined();
+    expect(rankRangeOf(ranks, 0)).toBeUndefined();
+    expect(rankRangeOf([], 1)).toBeUndefined();
   });
 });

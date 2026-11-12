@@ -29,6 +29,7 @@ import {
   type Rules,
   randomEpithet,
   rankNumberAnswers,
+  rankRangeOf,
   registerRequestSchema,
   type ScheduleItemDto,
   type Settings,
@@ -1274,7 +1275,7 @@ function gameAwards(entries: GameWithAnswers[]): GameAward[] {
         .slice()
         .sort((a, b) => a.answeredAt.localeCompare(b.answeredAt) || a.userId.localeCompare(b.userId));
       correct.forEach((answer, i) => {
-        const range = game.ranks.find((r) => r.from <= i + 1 && i + 1 <= r.to);
+        const range = rankRangeOf(game.ranks, i + 1);
         awards.push({
           userId: answer.userId,
           at,
@@ -1286,7 +1287,7 @@ function gameAwards(entries: GameWithAnswers[]): GameAward[] {
     } else if (game.format === "lottery") {
       // 確定したときに決めた順番で、範囲に入った人に点数を入れる
       (game.drawOrder ?? []).forEach((userId, i) => {
-        const range = game.ranks.find((r) => r.from <= i + 1 && i + 1 <= r.to);
+        const range = rankRangeOf(game.ranks, i + 1);
         if (!range) return;
         awards.push({
           userId,

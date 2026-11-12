@@ -31,6 +31,7 @@ import {
   POINTS_MAX,
   PRIZE_IMAGE_MAX_EDGE,
   rankNumberAnswers,
+  rankRangeOf,
   rankUnit,
   type TokensResponse,
   tallyVotes,
@@ -44,6 +45,7 @@ import { Modal } from "../../components/Modal";
 import { NumberField } from "../../components/NumberField";
 import { PageTitle } from "../../components/PageTitle";
 import { StatusFilter, useShownStatuses } from "../../components/StatusFilter";
+import { formatRecentTime } from "../../format";
 import { useOnReload } from "../../hooks/useReload";
 import { processImage } from "../../photos/process";
 import { uploadGameImage } from "./prizeImage";
@@ -236,7 +238,7 @@ export function AdminGames() {
                 {g.format === "keyword" ? "正解" : g.format === "lottery" ? "参加" : "回答"} {g.answerCount} 人
               </span>
             )}
-            {g.confirmedAt && <span className="muted small">{formatTime(g.confirmedAt)} に確定</span>}
+            {g.confirmedAt && <span className="muted small">{formatRecentTime(g.confirmedAt)} に確定</span>}
           </header>
           <h2 className="game-name">{g.name}</h2>
           {g.imageUrl && <img className="game-image" src={g.imageUrl} alt="" loading="lazy" />}
@@ -455,13 +457,6 @@ function mergeGames(
 /** 作った順（API の一覧と同じ） */
 function sortGames(games: GameDto[]): GameDto[] {
   return games.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.gameId.localeCompare(b.gameId));
-}
-
-/** 今日なら時刻だけ、別の日（リハーサルなど）なら日付も付ける */
-function formatTime(iso: string) {
-  const d = new Date(iso);
-  const time = `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
-  return d.toDateString() === new Date().toDateString() ? time : `${d.getMonth() + 1}/${d.getDate()} ${time}`;
 }
 
 /** 枠・選択肢の編集中の行。既存のものを直すときだけ id が付く */
@@ -1307,7 +1302,7 @@ function LotteryAnswers(props: { game: GameDto; answers: GameAnswersResponse["an
     );
   }
   const winners = game.drawOrder.flatMap((userId, i) => {
-    const range = game.ranks.find((r) => r.from <= i + 1 && i + 1 <= r.to);
+    const range = rankRangeOf(game.ranks, i + 1);
     return range ? [{ userId, order: i + 1, range }] : [];
   });
   // 参加したのに抽選に入っていない人（紐づけを解除した人と、確定の直前に参加して読み取りに間に合わなかった人）
@@ -1382,8 +1377,8 @@ function KeywordAnswers(props: { game: GameDto; answers: GameAnswersResponse["an
               <td className="num">{i + 1} 番目</td>
               <td>{a.displayName ?? "（不明なユーザ）"}</td>
               <td>{a.text}</td>
-              <td className="num">{formatTime(a.answeredAt)}</td>
-              <td className="num">{game.ranks.find((r) => r.from <= i + 1 && i + 1 <= r.to)?.points ?? 0} 点</td>
+              <td className="num">{formatRecentTime(a.answeredAt)}</td>
+              <td className="num">{rankRangeOf(game.ranks, i + 1)?.points ?? 0} 点</td>
             </tr>
           ))}
         </tbody>
