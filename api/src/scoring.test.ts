@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildRanking, toParticipantRanking } from "./app.js";
 import { DEFAULT_SETTINGS, type UserRecord } from "./repository.js";
+import { buildRanking, toParticipantRanking } from "./scoring.js";
 
 describe("buildRanking", () => {
   const user = (userId: string, name: string, counts: Partial<UserRecord> = {}): UserRecord => ({

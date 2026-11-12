@@ -83,7 +83,7 @@ flowchart LR
 
 | 関数 | トリガ | 役割 |
 |---|---|---|
-| `api` | API Gateway | すべての API。Node.js 22 + [Hono](https://hono.dev/) で 1 関数内ルーティング |
+| `api` | API Gateway | すべての API。Node.js 22 + [Hono](https://hono.dev/) で 1 関数内ルーティング（処理は領域ごとのファイルに分ける。構成は[開発ガイド](development.md#リポジトリ構成)） |
 | `photo-ingest` | S3 `ObjectCreated`（`uploads/*/full.jpg`） | アップロード完了の検証と写真レコード登録、アップロード数加算 |
 | （カスタムリソース） | デプロイ時 | CloudFront 署名用の鍵ペアを生成し、秘密鍵を SSM に保存、公開鍵を CloudFront に登録 |
 
