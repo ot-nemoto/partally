@@ -556,7 +556,7 @@ partally/
 ├── api/             Lambda（api / photo-ingest / reset）
 ├── web/             SPA（Vite + React）
 └── packages/
-    └── shared/      型定義・入力検証（zod）・二つ名単語リスト・景品の順位の計算・景品の ZIP（エクスポート・インポート）
+    └── shared/      型定義・入力検証（zod）・二つ名単語リスト・ゲームの決まり（game-rules: 順位付け・集計・確定の条件など）・景品の順位の計算・景品の ZIP（エクスポート・インポート）
 ```
 
 ---

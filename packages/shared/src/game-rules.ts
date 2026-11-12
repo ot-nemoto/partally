@@ -1,3 +1,7 @@
+/**
+ * ゲームの決まり（形式によらない部分と、形式ごとの集計）。API と画面の両方で使う。
+ * 数値予想の順位付け・投票の集計・合言葉の比べ方・抽選の並べ替え・確定の条件など
+ */
 /** 数値予想・投票の点数の範囲（from 位〜to 位に points） */
 export interface NumberRank {
   from: number;
@@ -12,6 +16,14 @@ export interface NumberResult {
   rank: number;
   /** その順位が入る範囲の点数（どの範囲にも入らなければ 0） */
   points: number;
+}
+
+/** 順位（番目・等）が入る範囲。どの範囲にも入らなければ undefined */
+export function rankRangeOf<T extends Pick<NumberRank, "from" | "to">>(
+  ranks: readonly T[],
+  rank: number,
+): T | undefined {
+  return ranks.find((r) => r.from <= rank && rank <= r.to);
 }
 
 /**
@@ -29,8 +41,7 @@ export function rankNumberAnswers(values: number[], correct: number, ranks: Numb
     });
   return diffs.map((diff) => {
     const rank = rankOf.get(diff)!;
-    const range = ranks.find((r) => r.from <= rank && rank <= r.to);
-    return { diff, rank, points: range?.points ?? 0 };
+    return { diff, rank, points: rankRangeOf(ranks, rank)?.points ?? 0 };
   });
 }
 
@@ -55,8 +66,7 @@ export function tallyVotes(targetUserIds: string[], ranks: NumberRank[]): VoteRe
   let rank = 0;
   return sorted.map(([userId, votes], i) => {
     if (i === 0 || sorted[i - 1]![1] !== votes) rank = i + 1;
-    const range = ranks.find((r) => r.from <= rank && rank <= r.to);
-    return { userId, votes, rank, points: range?.points ?? 0 };
+    return { userId, votes, rank, points: rankRangeOf(ranks, rank)?.points ?? 0 };
   });
 }
 

@@ -2,8 +2,9 @@ import type { PhotoDto, PhotoResponse, PhotoStatus, PhotosResponse, SettingsResp
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../api";
-import { formatTime, Lightbox } from "../../components/Lightbox";
+import { Lightbox } from "../../components/Lightbox";
 import { PageTitle } from "../../components/PageTitle";
+import { formatDateTime } from "../../format";
 import { useOnReload } from "../../hooks/useReload";
 
 const TABS: { status: PhotoStatus; label: string }[] = [
@@ -124,7 +125,7 @@ export function AdminPhotos() {
             )}
             <p className="small">{p.uploaderName ?? "（不明）"}</p>
             <p className="muted small">
-              {formatTime(p.createdAt)}
+              {formatDateTime(p.createdAt)}
               {p.status === "approved" && ` ・ ♥ ${p.favoriteCount}`}
             </p>
             <PhotoActions photo={p} onAct={act} busy={acting.has(p.photoId)} />
