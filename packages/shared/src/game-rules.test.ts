@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   formatRankRange,
+  GAME_FORMAT_RULES,
+  hasGameAnswers,
+  hasGameRanks,
   normalizeKeyword,
   rankNumberAnswers,
   rankRangeOf,
+  rankUnit,
   shuffle,
   tallyVotes,
 } from "./game-rules.js";
+import { GAME_FORMATS, gameAnswerRequestSchema } from "./schemas.js";
 
 describe("数値予想の順位", () => {
   const ranks = [
@@ -110,5 +115,30 @@ describe("順位が入る範囲", () => {
     expect(rankRangeOf(ranks, 6)).toBeUndefined();
     expect(rankRangeOf(ranks, 0)).toBeUndefined();
     expect(rankRangeOf([], 1)).toBeUndefined();
+  });
+});
+
+describe("形式ごとの決まり", () => {
+  it("すべての形式に決まりがあり、答えに使う項目は答えの入力の項目", () => {
+    expect(Object.keys(GAME_FORMAT_RULES).sort()).toEqual([...GAME_FORMATS].sort());
+    const answerKeys = Object.keys(gameAnswerRequestSchema.shape);
+    for (const rule of Object.values(GAME_FORMAT_RULES)) {
+      if (rule.answerField) expect(answerKeys).toContain(rule.answerField);
+    }
+    // 形式ごとに別の項目で答える
+    const fields = Object.values(GAME_FORMAT_RULES).flatMap((r) => (r.answerField ? [r.answerField] : []));
+    expect(new Set(fields).size).toBe(fields.length);
+  });
+
+  it("答える形式・順位の範囲を使う形式・順位の単位", () => {
+    expect(GAME_FORMATS.filter((format) => hasGameAnswers({ format }))).toEqual([
+      "quiz",
+      "number",
+      "vote",
+      "keyword",
+      "lottery",
+    ]);
+    expect(GAME_FORMATS.filter((format) => hasGameRanks({ format }))).toEqual(["number", "vote", "keyword", "lottery"]);
+    expect(GAME_FORMATS.map(rankUnit)).toEqual(["位", "位", "位", "位", "番目", "等"]);
   });
 });

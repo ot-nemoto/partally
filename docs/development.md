@@ -78,6 +78,7 @@ PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`
 - `style/noNonNullAssertion` は無効にしています。`noUncheckedIndexedAccess` を有効にしているため、添字アクセスの後の `!` を意図して使います。テストでは `any` を許可しています。
 - コメントと画面の文言は日本語で書きます。
 - 設定（`Settings`）に項目を足すときは、`updateSettingsRequestSchema` で省略可にし、`DEFAULT_SETTINGS` に既定値を入れます。保存済みの設定に無い項目は既定値で補われます（古い画面から保存されても 400 にしないため）。
+- ゲームの形式ごとの決まりは表にまとめています。答えに使う項目と順位の単位は `packages/shared/src/game-rules.ts` の `GAME_FORMAT_RULES`、点数の数え方は `api/src/scoring.ts` の `GAME_SCORING` に書きます。形式を足すときは、`GAME_FORMATS` と、この 2 つの表と、形式ごとの名前・表示の表（`GAME_FORMAT_LABEL`、お知らせの `game-banner.ts`、管理画面の `FORMAT_ICON`）と、画面（`GameView`・管理画面のゲーム）を直します。足し忘れた表は型チェックで分かります。
 - 個人や環境の情報（AWS アカウント ID、ロール ARN、メールアドレス、パスワード、実際のドメインなど）はリポジトリに書きません。
 
 ## ブランチ・PR・リリース

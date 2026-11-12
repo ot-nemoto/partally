@@ -1,5 +1,6 @@
 import {
   formatDisplayName,
+  GAME_FORMAT_RULES,
   type GameRequest,
   gameAnswerRequestSchema,
   gameConfirmProblem,
@@ -30,7 +31,19 @@ function sortRanks(ranks: GameRank[]): GameRank[] {
 }
 
 export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
-  const { repo, storage, now, rand, newId, settle, imageUrlOf, gamesWithAnswers, requireUser, removePrizeImage } = ctx;
+  const {
+    repo,
+    now,
+    rand,
+    newId,
+    settle,
+    imageUrlOf,
+    gamesWithAnswers,
+    requireUser,
+    removePrizeImage,
+    createImageUpload,
+    attachImages,
+  } = ctx;
 
   // 参加者の画面が数秒ごとに呼ぶので、読み込みは最小限にする
   app.get("/game/current", requireUser, async (c) => {
@@ -48,17 +61,9 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
     if (!game) return fail(c, 404, "not_found");
     const { choiceId, value, targetUserId, text, entry } = body.data;
     const userId = c.get("user").userId;
-    // クイズは選択肢、数値予想は数、投票は人で答える（形式に合わない答えや、結果入力への答えは受け付けない）
-    const fits =
-      game.format === "quiz"
-        ? choiceId !== undefined
-        : game.format === "number"
-          ? value !== undefined
-          : game.format === "vote"
-            ? targetUserId !== undefined
-            : game.format === "keyword"
-              ? text !== undefined
-              : game.format === "lottery" && entry !== undefined;
+    // 形式ごとに決まった項目で答える（形式に合わない答えや、結果入力への答えは受け付けない）
+    const field = GAME_FORMAT_RULES[game.format].answerField;
+    const fits = field !== undefined && body.data[field] !== undefined;
     if (!fits) return fail(c, 400, "bad_request", "このゲームには、その形では答えられません");
     if (game.status !== "open") return fail(c, 409, "game_closed");
     if (choiceId !== undefined && !game.choices.some((ch) => ch.choiceId === choiceId)) {
@@ -124,26 +129,7 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
   const gameImageIds = (game: Pick<GameRecord, "imageId" | "choices">) =>
     [game.imageId, ...game.choices.map((ch) => ch.imageId)].filter((id): id is string => id !== undefined);
 
-  /**
-   * ゲームに新しく付ける画像（current に無いもの）を、受け口から配信する領域へ移す。
-   * 1 つでも受け口に無ければ、移した分を消して 400 のレスポンスを返す
-   */
-  const attachGameImages = async (c: Context, imageIds: string[], current: string[] = []) => {
-    const attached: string[] = [];
-    for (const imageId of imageIds.filter((id) => !current.includes(id))) {
-      if (!(await storage.attachPrizeImage(imageId))) {
-        for (const id of attached) await removePrizeImage(id);
-        return { response: fail(c, 400, "bad_request", "画像がアップロードされていないか、ほかで使われています") };
-      }
-      attached.push(imageId);
-    }
-    return { attached };
-  };
-
-  app.post("/admin/games/image-upload", async (c) => {
-    const imageId = newId();
-    return c.json({ imageId, upload: await storage.createPrizeImageUpload(imageId) });
-  });
+  app.post("/admin/games/image-upload", createImageUpload);
 
   app.get("/admin/games", async (c) => {
     const entries = await gamesWithAnswers();
@@ -246,7 +232,7 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
       createdAt: timestamp,
       updatedAt: timestamp,
     };
-    const images = await attachGameImages(c, gameImageIds(game));
+    const images = await attachImages(c, gameImageIds(game));
     if (images.response) return images.response;
     try {
       await repo.createGame(game);
@@ -312,7 +298,7 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
     };
     const before = gameImageIds(game);
     const after = gameImageIds(changes);
-    const images = await attachGameImages(c, after, before);
+    const images = await attachImages(c, after, before);
     if (images.response) return images.response;
     try {
       const updated = await repo.updateGame(game.gameId, changes, now().toISOString(), body.data.baseUpdatedAt);

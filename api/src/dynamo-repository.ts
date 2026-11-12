@@ -15,6 +15,7 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import {
+  GAME_FORMATS,
   type GameFormat,
   type GameStatus,
   type PhotoStatus,
@@ -1068,8 +1069,9 @@ function toPrizeRecord(item: Record<string, unknown>): PrizeRecord {
 function toGameRecord(item: Record<string, unknown>): GameRecord {
   return {
     gameId: item.gameId as string,
-    // 形式を持つ前に作ったゲームは結果入力
-    format: (item.format as GameFormat | undefined) ?? "result",
+    // 形式を持つ前に作ったゲームと、この版が知らない形式（新しい版で作った後に戻したとき）は結果入力として読む。
+    // 形式ごとの表（GAME_FORMAT_RULES・GAME_SCORING）に無い形式で、点数の計算や一覧が失敗しないように
+    format: GAME_FORMATS.includes(item.format as GameFormat) ? (item.format as GameFormat) : "result",
     name: item.name as string,
     description: (item.description as string | undefined) ?? "",
     status: item.status as GameStatus,

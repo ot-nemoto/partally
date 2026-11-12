@@ -2,6 +2,7 @@ import {
   formatDisplayName,
   formatRankRange,
   type GameAwardDto,
+  type GameFormat,
   normalizeKeyword,
   type ParticipantRankingResponse,
   type PointKey,
@@ -41,13 +42,114 @@ interface GameAward extends GameAwardDto {
   at: string;
 }
 
+/** 形式ごとの点数の付け方で、1 件ごとに返すもの（確定した時刻とゲームの名前は gameAwards で付ける） */
+type FormatAward = Omit<GameAward, "at" | "gameName">;
+
+/**
+ * 形式ごとの点数の数え方。形式の共通の決まり（答えに使う項目・順位の単位）は @partally/shared の GAME_FORMAT_RULES
+ */
+interface GameScoring {
+  /** 確定したゲームで、誰に何点入るか。answers は数える答え（countedAnswers）だけ */
+  awards: (game: GameRecord, answers: GameAnswerRecord[]) => FormatAward[];
+  /**
+   * 1 人分の点数を出すのに、全員の答えを読むか。順位が他の人の答えで決まる形式は、自分が答えたときだけ読む（answered）。
+   * 投票は自分が投票していなくても選ばれていることがあるので、いつも読む（always）
+   */
+  readsAllAnswers: "never" | "answered" | "always";
+  /** ゲームごとの、数える答えかの判定（確定より後に届いた答えは、形式によらず countedAnswers で除く） */
+  countsOf?: (game: GameRecord) => (answer: GameAnswerRecord) => boolean;
+}
+
+export const GAME_SCORING: Record<GameFormat, GameScoring> = {
+  // 枠に入った人に枠の点数
+  result: {
+    readsAllAnswers: "never",
+    awards: (game) =>
+      game.slots.flatMap((slot) =>
+        slot.userIds.map((userId) => ({ userId, slotName: slot.name, points: slot.points })),
+      ),
+  },
+  // 選んだ選択肢の点数
+  quiz: {
+    readsAllAnswers: "never",
+    awards: (game, answers) => {
+      const choices = new Map(game.choices.map((ch) => [ch.choiceId, ch]));
+      return answers.flatMap((answer) => {
+        const choice = answer.choiceId === undefined ? undefined : choices.get(answer.choiceId);
+        return choice ? [{ userId: answer.userId, slotName: choice.text, points: choice.points }] : [];
+      });
+    },
+  },
+  // 正解に近い順の順位が入る範囲の点数
+  number: {
+    readsAllAnswers: "answered",
+    awards: (game, answers) => {
+      if (game.correctNumber === undefined) return [];
+      const counted = answers.filter((a): a is GameAnswerRecord & { value: number } => a.value !== undefined);
+      const results = rankNumberAnswers(
+        counted.map((a) => a.value),
+        game.correctNumber,
+        game.ranks,
+      );
+      return counted.map((answer, i) => {
+        const { rank, points } = results[i]!;
+        return { userId: answer.userId, slotName: `${rank} 位（予想 ${answer.value}）`, points };
+      });
+    },
+  },
+  // 得票の順位が入る範囲の点数（選ばれた人）と、投票した人の点数
+  vote: {
+    readsAllAnswers: "always",
+    awards: (game, answers) => {
+      const counted = answers.filter(
+        (a): a is GameAnswerRecord & { targetUserId: string } => a.targetUserId !== undefined,
+      );
+      const voted: FormatAward[] = tallyVotes(
+        counted.map((a) => a.targetUserId),
+        game.ranks,
+      ).map(({ userId, votes, rank, points }) => ({ userId, slotName: `${rank} 位（${votes} 票）`, points }));
+      const voters: FormatAward[] =
+        game.voterPoints > 0
+          ? counted.map((answer) => ({ userId: answer.userId, slotName: "投票", points: game.voterPoints }))
+          : [];
+      return [...voted, ...voters];
+    },
+  },
+  // 正解した順が入る範囲の点数。今の合言葉に合う答えだけを数える
+  keyword: {
+    readsAllAnswers: "answered",
+    countsOf: (game) => (answer) => isKeywordCorrect(game, answer.text),
+    awards: (game, answers) =>
+      // 正解した時刻の順に並べる（同じ時刻は userId の順）
+      answers
+        .slice()
+        .sort((a, b) => a.answeredAt.localeCompare(b.answeredAt) || a.userId.localeCompare(b.userId))
+        .map((answer, i) => ({
+          userId: answer.userId,
+          slotName: `${i + 1} 番目に正解`,
+          points: rankRangeOf(game.ranks, i + 1)?.points ?? 0,
+        })),
+  },
+  // 確定したときに決めた順番で、範囲に入った人に点数。確定したら、抽選に入った人（drawOrder）だけを数える
+  lottery: {
+    readsAllAnswers: "never",
+    countsOf: (game) => {
+      if (!game.drawOrder) return () => true;
+      const drawn = new Set(game.drawOrder);
+      return (answer) => drawn.has(answer.userId);
+    },
+    awards: (game) =>
+      (game.drawOrder ?? []).flatMap((userId, i) => {
+        const range = rankRangeOf(game.ranks, i + 1);
+        return range ? [{ userId, slotName: `${formatRankRange(range, "等")}に当選`, points: range.points }] : [];
+      }),
+  },
+};
+
 /**
  * 確定したゲームで、誰に何点入ったか（確定した順）。下書き・開催中のゲームは数えない
- * （クイズを選び直して、点数の変化から正解が分からないように）。
- * 結果入力は枠に入った人に枠の点数、クイズは選んだ選択肢の点数、数値予想は正解に近い順の順位が入る範囲の点数、
- * 投票は得票の順位が入る範囲の点数（選ばれた人）と、投票した人の点数、合言葉は正解した順が入る範囲の点数、
- * 抽選は確定したときに決めた順番が入る範囲の点数。確定の直前に受け付けて確定の後に保存された答え
- * （answeredAt > confirmedAt）は数えない
+ * （クイズを選び直して、点数の変化から正解が分からないように）。形式ごとの点数の付け方は GAME_SCORING。
+ * 確定の直前に受け付けて確定の後に保存された答え（answeredAt > confirmedAt）は数えない
  */
 export function gameAwards(entries: GameWithAnswers[]): GameAward[] {
   const awards: GameAward[] = [];
@@ -58,82 +160,10 @@ export function gameAwards(entries: GameWithAnswers[]): GameAward[] {
     )
     .sort((a, b) => a.game.confirmedAt.localeCompare(b.game.confirmedAt));
   for (const { game, answers: all } of confirmed) {
-    const at = game.confirmedAt;
     // 数える答え（確定より後に届いた答えと、今の合言葉に合わない答えを除く）。管理画面の回答数と同じ数え方
     const answers = countedAnswers(game, all);
-    if (game.format === "result") {
-      for (const slot of game.slots) {
-        for (const userId of slot.userIds) {
-          awards.push({ userId, at, gameName: game.name, slotName: slot.name, points: slot.points });
-        }
-      }
-    } else if (game.format === "quiz") {
-      const choices = new Map(game.choices.map((ch) => [ch.choiceId, ch]));
-      for (const answer of answers) {
-        const choice = answer.choiceId === undefined ? undefined : choices.get(answer.choiceId);
-        if (!choice) continue;
-        awards.push({ userId: answer.userId, at, gameName: game.name, slotName: choice.text, points: choice.points });
-      }
-    } else if (game.correctNumber !== undefined) {
-      const counted = answers.filter((a): a is GameAnswerRecord & { value: number } => a.value !== undefined);
-      const results = rankNumberAnswers(
-        counted.map((a) => a.value),
-        game.correctNumber,
-        game.ranks,
-      );
-      counted.forEach((answer, i) => {
-        const { rank, points } = results[i]!;
-        awards.push({
-          userId: answer.userId,
-          at,
-          gameName: game.name,
-          slotName: `${rank} 位（予想 ${answer.value}）`,
-          points,
-        });
-      });
-    } else if (game.format === "vote") {
-      const counted = answers.filter(
-        (a): a is GameAnswerRecord & { targetUserId: string } => a.targetUserId !== undefined,
-      );
-      for (const { userId, votes, rank, points } of tallyVotes(
-        counted.map((a) => a.targetUserId),
-        game.ranks,
-      )) {
-        awards.push({ userId, at, gameName: game.name, slotName: `${rank} 位（${votes} 票）`, points });
-      }
-      if (game.voterPoints > 0) {
-        for (const answer of counted) {
-          awards.push({ userId: answer.userId, at, gameName: game.name, slotName: "投票", points: game.voterPoints });
-        }
-      }
-    } else if (game.format === "keyword") {
-      // 今の合言葉に合う答えを、正解した時刻の順に並べる（同じ時刻は userId の順）
-      const correct = answers
-        .slice()
-        .sort((a, b) => a.answeredAt.localeCompare(b.answeredAt) || a.userId.localeCompare(b.userId));
-      correct.forEach((answer, i) => {
-        const range = rankRangeOf(game.ranks, i + 1);
-        awards.push({
-          userId: answer.userId,
-          at,
-          gameName: game.name,
-          slotName: `${i + 1} 番目に正解`,
-          points: range?.points ?? 0,
-        });
-      });
-    } else if (game.format === "lottery") {
-      // 確定したときに決めた順番で、範囲に入った人に点数を入れる
-      (game.drawOrder ?? []).forEach((userId, i) => {
-        const range = rankRangeOf(game.ranks, i + 1);
-        if (!range) return;
-        awards.push({
-          userId,
-          at,
-          gameName: game.name,
-          slotName: `${formatRankRange(range, "等")}に当選`,
-          points: range.points,
-        });
-      });
+    for (const award of GAME_SCORING[game.format].awards(game, answers)) {
+      awards.push({ ...award, at: game.confirmedAt, gameName: game.name });
     }
   }
   return awards;
@@ -314,12 +344,6 @@ export function isKeywordCorrect(game: Pick<GameRecord, "keyword">, text: string
  */
 export function countedAnswers(game: GameRecord, answers: GameAnswerRecord[]): GameAnswerRecord[] {
   const at = game.status === "confirmed" ? game.confirmedAt : undefined;
-  // 抽選は確定したら、抽選に入った人（drawOrder）だけを数える
-  const drawn = game.format === "lottery" && game.drawOrder ? new Set(game.drawOrder) : undefined;
-  return answers.filter(
-    (a) =>
-      (at === undefined || a.answeredAt <= at) &&
-      (game.format !== "keyword" || isKeywordCorrect(game, a.text)) &&
-      (drawn === undefined || drawn.has(a.userId)),
-  );
+  const counts = GAME_SCORING[game.format].countsOf?.(game);
+  return answers.filter((a) => (at === undefined || a.answeredAt <= at) && (counts?.(a) ?? true));
 }
