@@ -77,11 +77,6 @@ function rankProblem(ranks: RankDraft[], unit: string): string | undefined {
 
 const newRow = (points = 10): RowDraft => ({ key: `new-${++draftKey}`, name: "", points, userIds: [], image: {} });
 
-/** 新しく選んだ画像をアップロードし、付ける imageId を返す（そのままなら保存済みの imageId） */
-async function imageIdOf(image: ImageDraft): Promise<string | undefined> {
-  return image.blob ? uploadGameImage(image.blob) : image.imageId;
-}
-
 const SLOT_PLACEHOLDERS = ["例: 優勝", "例: 準優勝", "例: ベスト 4"];
 
 export function GameFormDialog(props: {
@@ -150,7 +145,7 @@ export function GameFormDialog(props: {
   const canChangeRows = !quiz || !game || (game.status === "draft" && game.storedAnswerCount === 0);
   const maxRows = quiz ? GAME_CHOICES_MAX : GAME_SLOTS_MAX;
   // 確定した結果入力は、最後の枠を消せない（入ったポイントが消えないように）
-  const lastSlotLocked = !quiz && game?.status === "confirmed";
+  const lastSlotLocked = format === "result" && game?.status === "confirmed";
   const minRows = quiz ? GAME_CHOICES_MIN : lastSlotLocked ? 1 : 0;
 
   function update(key: string, changes: Partial<RowDraft>) {
@@ -166,41 +161,69 @@ export function GameFormDialog(props: {
     });
   }
 
+  /** 新しく選んだ画像の、アップロードした imageId。保存に失敗して保存し直すときに、同じ画像をアップロードし直さない */
+  const uploaded = useRef(new Map<Blob, string>());
+
+  /** 新しく選んだ画像をアップロードし、付ける imageId を返す（そのままなら保存済みの imageId） */
+  async function imageIdOf(draft: ImageDraft): Promise<string | undefined> {
+    if (!draft.blob) return draft.imageId;
+    let imageId = uploaded.current.get(draft.blob);
+    if (!imageId) {
+      imageId = await uploadGameImage(draft.blob);
+      uploaded.current.set(draft.blob, imageId);
+    }
+    return imageId;
+  }
+
+  async function save() {
+    // 新しく選んだ画像を先にアップロードする（保存したときに、サーバが受け口から移す）
+    const body = {
+      format,
+      name,
+      description,
+      imageId: await imageIdOf(image),
+      slots:
+        format !== "result"
+          ? []
+          : slots.map((s) => ({ slotId: s.id, name: s.name, points: s.points, userIds: s.userIds })),
+      choices: quiz
+        ? await Promise.all(
+            choices.map(async (ch) => ({
+              choiceId: ch.id,
+              text: ch.name,
+              points: ch.points,
+              imageId: await imageIdOf(ch.image),
+            })),
+          )
+        : [],
+      ranks: ranked ? ranks.map(({ from, to, points }) => ({ from, to, points })) : [],
+      correctNumber: numberGame && !Number.isNaN(correctNumber) ? correctNumber : undefined,
+      voterPoints: voteGame ? voterPoints : undefined,
+      keyword: keywordGame ? keyword : undefined,
+      // 開いた後にほかで直されていたら、上書きせずに知らせる
+      baseUpdatedAt: game?.updatedAt,
+    };
+    return game
+      ? await api<GameResponse>("PUT", `/admin/games/${game.gameId}`, body)
+      : await api<GameResponse>("POST", "/admin/games", body);
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setSaving(true);
     setError(undefined);
     try {
-      // 新しく選んだ画像を先にアップロードする（保存したときに、サーバが受け口から移す）
-      const body = {
-        format,
-        name,
-        description,
-        imageId: await imageIdOf(image),
-        slots:
-          format !== "result"
-            ? []
-            : slots.map((s) => ({ slotId: s.id, name: s.name, points: s.points, userIds: s.userIds })),
-        choices: quiz
-          ? await Promise.all(
-              choices.map(async (ch) => ({
-                choiceId: ch.id,
-                text: ch.name,
-                points: ch.points,
-                imageId: await imageIdOf(ch.image),
-              })),
-            )
-          : [],
-        ranks: ranked ? ranks.map(({ from, to, points }) => ({ from, to, points })) : [],
-        correctNumber: numberGame && !Number.isNaN(correctNumber) ? correctNumber : undefined,
-        voterPoints: voteGame ? voterPoints : undefined,
-        keyword: keywordGame ? keyword : undefined,
-        // 開いた後にほかで直されていたら、上書きせずに知らせる
-        baseUpdatedAt: game?.updatedAt,
-      };
-      const res = game
-        ? await api<GameResponse>("PUT", `/admin/games/${game.gameId}`, body)
-        : await api<GameResponse>("POST", "/admin/games", body);
+      const reused = uploaded.current.size > 0;
+      let res: GameResponse;
+      try {
+        res = await save();
+      } catch (err) {
+        // 前の保存の失敗で、使い回した画像がサーバで片付けられていることがある（保存できなかったとき、移した画像は消す）。
+        // そのときは 400 になるので、アップロードし直してもう一度だけ送る
+        if (!(reused && err instanceof ApiError && err.status === 400)) throw err;
+        uploaded.current.clear();
+        res = await save();
+      }
       props.onSaved(res.game);
     } catch (err) {
       setError(errorMessage(err));
