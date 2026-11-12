@@ -2,8 +2,8 @@
  * ゲームの決まり（形式によらない部分と、形式ごとの集計）。API と画面の両方で使う。
  * 数値予想の順位付け・投票の集計・合言葉の比べ方・抽選の並べ替え・確定の条件など
  */
-/** 数値予想・投票の点数の範囲（from 位〜to 位に points） */
-export interface NumberRank {
+/** 順位（位・番目・等）の範囲と点数（from〜to に points）。数値予想・投票・合言葉・抽選で使う */
+export interface RankRange {
   from: number;
   to: number;
   points: number;
@@ -19,7 +19,7 @@ export interface NumberResult {
 }
 
 /** 順位（番目・等）が入る範囲。どの範囲にも入らなければ undefined */
-export function rankRangeOf<T extends Pick<NumberRank, "from" | "to">>(
+export function rankRangeOf<T extends Pick<RankRange, "from" | "to">>(
   ranks: readonly T[],
   rank: number,
 ): T | undefined {
@@ -30,7 +30,7 @@ export function rankRangeOf<T extends Pick<NumberRank, "from" | "to">>(
  * 数値予想の答えを順位付けする。答えの順はそのままで、それぞれの差・順位・点数を返す。
  * 順位は「自分より差の小さい人の数 + 1」（同じ差の人は同じ順位で、次はその人数分飛ばす）
  */
-export function rankNumberAnswers(values: number[], correct: number, ranks: NumberRank[]): NumberResult[] {
+export function rankNumberAnswers(values: number[], correct: number, ranks: RankRange[]): NumberResult[] {
   const diffs = values.map((v) => Math.abs(v - correct));
   // 差ごとの順位（並べたときに、その差が最初に出る位置）
   const rankOf = new Map<number, number>();
@@ -59,7 +59,7 @@ export interface VoteResult {
  * 投票を数える。票を集めた人（0 票の人は含めない）を票の多い順に、順位と点数を付けて返す。
  * 順位は「自分より票の多い人の数 + 1」。同じ票数の人は userId の順に並べる
  */
-export function tallyVotes(targetUserIds: string[], ranks: NumberRank[]): VoteResult[] {
+export function tallyVotes(targetUserIds: string[], ranks: RankRange[]): VoteResult[] {
   const counts = new Map<string, number>();
   for (const id of targetUserIds) counts.set(id, (counts.get(id) ?? 0) + 1);
   const sorted = [...counts].sort(([a, x], [b, y]) => y - x || a.localeCompare(b));
@@ -76,7 +76,7 @@ export function rankUnit(format: string): string {
 }
 
 /** 「1〜5 位」「3 位」のように書く */
-export function formatRankRange(range: Pick<NumberRank, "from" | "to">, unit = "位"): string {
+export function formatRankRange(range: Pick<RankRange, "from" | "to">, unit = "位"): string {
   return range.from === range.to ? `${range.from} ${unit}` : `${range.from}〜${range.to} ${unit}`;
 }
 
