@@ -1,14 +1,12 @@
 import { adminLoginRequestSchema, qrLoginRequestSchema, randomEpithet, registerRequestSchema } from "@partally/shared";
 import type { Hono } from "hono";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { deleteCookie, setCookie } from "hono/cookie";
 import { toRules } from "../dto.js";
 import { type Env, fail, parseBody } from "../http.js";
 import { EpithetTakenError, TokenNotAvailableError, type UserRecord } from "../repository.js";
-import { ADMIN_SESSION_MAX_AGE, type AdminSession, safeEqual, sign, verify } from "../session.js";
-import { type AppContext, USER_COOKIE } from "./context.js";
+import { ADMIN_SESSION_MAX_AGE, type AdminSession, safeEqual, sign } from "../session.js";
+import { ADMIN_COOKIE, ADMIN_COOKIE_PATH, type AppContext, USER_COOKIE } from "./context.js";
 
-const ADMIN_COOKIE = "admin_session";
-const ADMIN_COOKIE_PATH = "/api/admin";
 const EPITHET_ATTEMPTS = 10;
 
 export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
@@ -113,20 +111,6 @@ export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
   app.post("/admin/logout", (c) => {
     deleteCookie(c, ADMIN_COOKIE, { path: ADMIN_COOKIE_PATH, secure: secureCookies });
     return c.json({});
-  });
-
-  app.use("/admin/*", async (c, next) => {
-    if (c.req.path === `${ADMIN_COOKIE_PATH}/login` || c.req.path === `${ADMIN_COOKIE_PATH}/logout`) {
-      return next();
-    }
-    const session = verify<AdminSession>(
-      getCookie(c, ADMIN_COOKIE),
-      sessionSecret,
-      ADMIN_SESSION_MAX_AGE,
-      nowSeconds(),
-    );
-    if (!session?.adm) return fail(c, 401, "unauthorized");
-    await next();
   });
 
   app.get("/admin/me", (c) => c.json({}));

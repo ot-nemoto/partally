@@ -22,7 +22,14 @@ import {
   NO_GAME_STATS,
   withAnswers,
 } from "../scoring.js";
-import { sign, USER_SESSION_MAX_AGE, type UserSession, verify } from "../session.js";
+import {
+  ADMIN_SESSION_MAX_AGE,
+  type AdminSession,
+  sign,
+  USER_SESSION_MAX_AGE,
+  type UserSession,
+  verify,
+} from "../session.js";
 import type { UrlSigner } from "../url-signer.js";
 
 export interface AppDeps {
@@ -42,6 +49,8 @@ export interface AppDeps {
 }
 
 export const USER_COOKIE = "session";
+export const ADMIN_COOKIE = "admin_session";
+export const ADMIN_COOKIE_PATH = "/api/admin";
 const PHOTO_COOKIE_PATH = "/photos/approved/";
 /** 公開済み写真を見るための CloudFront 署名付き Cookie の有効期間 */
 const PHOTO_COOKIE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -219,6 +228,21 @@ export function createContext(deps: AppDeps) {
     return toUserDto(user, settings, scores);
   };
 
+  /** 管理者の API（/admin/*）の認証。ログイン・ログアウトだけは通す */
+  const requireAdmin = async (c: Context<Env>, next: () => Promise<void>) => {
+    if (c.req.path === `${ADMIN_COOKIE_PATH}/login` || c.req.path === `${ADMIN_COOKIE_PATH}/logout`) {
+      return next();
+    }
+    const session = verify<AdminSession>(
+      getCookie(c, ADMIN_COOKIE),
+      sessionSecret,
+      ADMIN_SESSION_MAX_AGE,
+      nowSeconds(),
+    );
+    if (!session?.adm) return fail(c, 401, "unauthorized");
+    await next();
+  };
+
   const requireUser = async (c: Context<Env>, next: () => Promise<void>) => {
     const session = verify<UserSession>(getCookie(c, USER_COOKIE), sessionSecret, USER_SESSION_MAX_AGE, nowSeconds());
     const user = session && (await repo.getUser(session.uid));
@@ -278,6 +302,7 @@ export function createContext(deps: AppDeps) {
     adminUser,
     loadRanking,
     requireUser,
+    requireAdmin,
     removePrizeImage,
   };
 }

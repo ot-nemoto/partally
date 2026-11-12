@@ -19,8 +19,8 @@ API（`api/src`）の主なファイル:
 
 | ファイル | 内容 |
 |---|---|
-| `app.ts` | `createApp()`。共通のミドルウェアを付け、`routes/` の処理を登録する |
-| `routes/context.ts` | 処理の間で共有する依存と部品（Cookie、署名付き URL、点数の読み込み、`requireUser` など） |
+| `app.ts` | `createApp()`。共通のミドルウェアと管理者の認証（`/admin/*`）を付けてから、`routes/` の処理を登録する |
+| `routes/context.ts` | 処理の間で共有する依存と部品（Cookie、署名付き URL、点数の読み込み、`requireUser`・`requireAdmin` など） |
 | `routes/<領域>.ts` | API の処理（`auth`・`admin`・`ranking`・`photos`・`prizes`・`schedule`・`games`） |
 | `scoring.ts` | ゲームの点数・ポイント・ランキングの計算（保存せず、毎回データから数える） |
 | `dto.ts` / `http.ts` | 応答の形への変換 / エラーの応答と入力の検証 |

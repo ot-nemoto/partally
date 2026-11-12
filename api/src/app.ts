@@ -35,7 +35,9 @@ export function createApp(deps: AppDeps) {
     await next();
   });
 
-  // 管理者の認証（/admin/*）は、ほかの管理者の処理より先に登録する
+  // 管理者の認証。どの領域の /admin/* の処理よりも先に付ける（Hono は登録した順に通す）
+  app.use("/admin/*", ctx.requireAdmin);
+
   registerAuthRoutes(app, ctx);
   registerAdminRoutes(app, ctx);
   registerRankingRoutes(app, ctx);

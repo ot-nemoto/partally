@@ -20,6 +20,21 @@ describe("API", () => {
       expect((await request("GET", "/api/admin/me")).status).toBe(401);
     });
 
+    it("ログインしていなければ、ログイン・ログアウト以外のすべての管理 API が 401（処理を何も行わない）", async () => {
+      const adminRoutes = t.app.routes.filter(
+        (r) => r.method !== "ALL" && r.path.startsWith("/api/admin/") && !/\/(login|logout)$/.test(r.path),
+      );
+      expect(adminRoutes.length).toBeGreaterThan(30);
+      const request = createClient(t.app);
+      for (const route of adminRoutes) {
+        const res = await request(route.method, route.path.replace(/:\w+/g, "x"), {});
+        expect([route.method, route.path, res.status]).toEqual([route.method, route.path, 401]);
+      }
+      // 何も作られていない
+      expect(await t.repo.listTokens()).toEqual([]);
+      expect(await t.repo.listGames()).toEqual([]);
+    });
+
     it("参加者のセッションでは管理 API を使えない", async () => {
       const token = await t.issueToken();
       const request = createClient(t.app);
