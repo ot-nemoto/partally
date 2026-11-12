@@ -15,6 +15,17 @@ npm workspaces のモノレポです。
 | `docs` | 設計書・手順書・ガイド（一覧は [docs/README.md](README.md)） |
 | `.github` | CI・リリース・初期化のワークフロー、Issue・PR のテンプレート、Dependabot |
 
+API（`api/src`）の主なファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `app.ts` | `createApp()`。共通のミドルウェアを付け、`routes/` の処理を登録する |
+| `routes/context.ts` | 処理の間で共有する依存と部品（Cookie、署名付き URL、点数の読み込み、`requireUser` など） |
+| `routes/<領域>.ts` | API の処理（`auth`・`admin`・`ranking`・`photos`・`prizes`・`schedule`・`games`） |
+| `scoring.ts` | ゲームの点数・ポイント・ランキングの計算（保存せず、毎回データから数える） |
+| `dto.ts` / `http.ts` | 応答の形への変換 / エラーの応答と入力の検証 |
+| `repository.ts` ほか | 保存先（DynamoDB とメモリ）、写真の保存と取り込み、セッション |
+
 ## 必要なもの
 
 - Node.js 22
@@ -58,7 +69,7 @@ npm run build     # 画面のビルド
 PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`・`npm test`・`npm run build`）を手元で通します。
 
 - テストは `packages/shared`・`api` では `src/**/*.test.ts`、`infra` では `test/*.test.ts` にあります。API のテストはメモリ上のリポジトリ・ストレージで動かし、DynamoDB・S3・CloudFront を呼ぶ部分は `aws-sdk-client-mock` で確かめます。
-- API のテストは領域ごとに `api/src/app.<領域>.test.ts`（`app.auth`・`app.admin`・`app.photos`・`app.favorites`・`app.game`・`app.game-<形式>`・`app.prizes`・`app.schedule`・`app.ingest`・`app.ranking`）に分けています。共通の準備は `api/src/test-support.ts` の `useApiTest()` を使います（テストごとにメモリ上のリポジトリとアプリを作り直し、`register()` で参加者の登録、`adminClient()` で管理者のログインまで済ませたクライアントを返します）。
+- API のテストは領域ごとに `api/src/app.<領域>.test.ts`（`app.auth`・`app.admin`・`app.photos`・`app.favorites`・`app.game`・`app.game-<形式>`・`app.prizes`・`app.schedule`・`app.ingest`）に、ランキングの計算は `scoring.test.ts` に分けています。共通の準備は `api/src/test-support.ts` の `useApiTest()` を使います（テストごとにメモリ上のリポジトリとアプリを作り直し、`register()` で参加者の登録、`adminClient()` で管理者のログインまで済ませたクライアントを返します）。
 - 画面（`web`）には自動テストがありません。画面の計算のうち、テストしたいもの（景品の順位の数え方など）は `packages/shared` に置いてテストします。
 
 ## コードの約束事
