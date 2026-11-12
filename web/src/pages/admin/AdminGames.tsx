@@ -18,8 +18,9 @@ import { PageTitle } from "../../components/PageTitle";
 import { StatusFilter, useShownStatuses } from "../../components/StatusFilter";
 import { formatRecentTime } from "../../format";
 import { useOnReload } from "../../hooks/useReload";
+import { FORMAT_ICON } from "./games/formats";
 import { GameAnswersDialog } from "./games/GameAnswersDialog";
-import { FORMAT_ICON, GameFormDialog } from "./games/GameFormDialog";
+import { GameFormDialog } from "./games/GameFormDialog";
 import { GamePreviewDialog } from "./games/GamePreviewDialog";
 import { type Member, MemberPickerDialog } from "./games/MemberPickerDialog";
 
@@ -32,7 +33,7 @@ const STATUSES: GameStatus[] = ["open", "draft", "confirmed"];
 const FRESH_MS = 10_000;
 
 /**
- * ゲーム。形式はクイズ・数値予想・投票・合言葉・抽選・結果入力（説明は FORMAT_TEXT）。
+ * ゲーム。形式はクイズ・数値予想・投票・合言葉・抽選・結果入力（アイコンと説明は games/formats.ts）。
  * 下書き → 開催中（参加者に知らせる。同時に 1 つだけ）→ 確定（その時刻でポイントが入る）と進める
  */
 export function AdminGames() {

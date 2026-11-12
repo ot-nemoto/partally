@@ -12,7 +12,7 @@ import { api, errorMessage } from "../../../api";
 import { Modal } from "../../../components/Modal";
 import { formatRecentTime } from "../../../format";
 
-/** クイズ・数値予想・投票で、だれが何を答えたか */
+/** 参加者が答える形式（クイズ・数値予想・投票・合言葉・抽選）で、だれが何を答えたか */
 export function GameAnswersDialog(props: { game: GameDto; onClose: () => void }) {
   const [data, setData] = useState<GameAnswersResponse>();
   // ポイントの計算と同じく、確定したゲームでは確定より後に届いた答えを数えない
