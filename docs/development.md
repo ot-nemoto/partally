@@ -58,6 +58,7 @@ npm run build     # 画面のビルド
 PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`・`npm test`・`npm run build`）を手元で通します。
 
 - テストは `packages/shared`・`api` では `src/**/*.test.ts`、`infra` では `test/*.test.ts` にあります。API のテストはメモリ上のリポジトリ・ストレージで動かし、DynamoDB・S3・CloudFront を呼ぶ部分は `aws-sdk-client-mock` で確かめます。
+- API のテストは領域ごとに `api/src/app.<領域>.test.ts`（`app.auth`・`app.admin`・`app.photos`・`app.favorites`・`app.game`・`app.game-<形式>`・`app.prizes`・`app.schedule`・`app.ingest`・`app.ranking`）に分けています。共通の準備は `api/src/test-support.ts` の `useApiTest()` を使います（テストごとにメモリ上のリポジトリとアプリを作り直し、`register()` で参加者の登録、`adminClient()` で管理者のログインまで済ませたクライアントを返します）。
 - 画面（`web`）には自動テストがありません。画面の計算のうち、テストしたいもの（景品の順位の数え方など）は `packages/shared` に置いてテストします。
 
 ## コードの約束事
