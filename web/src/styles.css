@@ -112,6 +112,18 @@ h1 {
   font-weight: 400;
 }
 
+/* ログイン前の画面（QR を読み込んでください）。タイトルは管理画面の見出しと同じ書体で中央に寄せる */
+.guest-card {
+  text-align: center;
+}
+
+.guest-title {
+  margin: 0.25rem 0 0.75rem;
+  font-size: 2.4rem;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+}
+
 .page-title-en {
   position: relative;
   padding-bottom: 0.3rem;
@@ -1438,8 +1450,95 @@ textarea {
   color: var(--accent-text);
 }
 
-.admin-quizzes {
-  max-width: 44rem;
+.quiz-choice-text {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* 画像のある選択肢は、画像を上に大きく出したカードを 2 列に並べる */
+.quiz-choices.with-images {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.quiz-choices.with-images .quiz-choice {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  padding: 0.5rem;
+}
+
+.quiz-choice-image {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 0.5rem;
+  object-fit: cover;
+  background: var(--bg);
+}
+
+/* 問題・説明の画像（参加者のゲームの画面・管理画面のカード） */
+.game-image {
+  display: block;
+  max-width: 100%;
+  max-height: 50vh;
+  margin: 0.5rem auto;
+  border-radius: 0.5rem;
+  object-fit: contain;
+}
+
+.game-choice-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.game-choice-thumb {
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.25rem;
+  object-fit: cover;
+}
+
+/* 作る・編集の画面の画像の欄 */
+.game-image-field-body {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.game-image-preview {
+  flex: none;
+  width: 6rem;
+  height: 6rem;
+  border-radius: 0.5rem;
+  object-fit: cover;
+  background: var(--bg);
+}
+
+.game-image-preview.placeholder {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border);
+  font-size: 1.5rem;
+}
+
+.game-image-field.small .game-image-preview {
+  width: 3rem;
+  height: 3rem;
+}
+
+.game-image-field.small .game-image-preview.placeholder {
+  font-size: 1rem;
+}
+
+.game-image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 /* 一覧に出す状態の切り替え（複数選べる）。タイトルの行に置き、押されているものを強調する */
@@ -1483,10 +1582,6 @@ textarea {
   gap: 0.75rem;
 }
 
-.quiz-open {
-  border-color: var(--accent);
-}
-
 .status {
   padding: 0 0.5rem;
   border-radius: 0.25rem;
@@ -1516,35 +1611,6 @@ textarea {
   border-bottom: 1px solid var(--border);
 }
 
-.quiz-dialog {
-  max-width: 34rem;
-}
-
-.quiz-form-choices {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin: 0;
-  padding: 0;
-  border: none;
-}
-
-.quiz-form-choices legend {
-  margin-bottom: 0.5rem;
-  font-weight: 600;
-}
-
-.quiz-form-choice {
-  display: grid;
-  grid-template-columns: 1fr 6rem auto;
-  gap: 0.5rem;
-  align-items: start;
-}
-
-.quiz-form-choice .link {
-  margin-top: 1.9rem;
-}
-
 .quiz-result h3 {
   margin: 0 0 0.25rem;
   font-size: 1rem;
@@ -1561,8 +1627,141 @@ textarea {
 }
 
 .game-name {
-  margin: 0;
+  margin: 0.25rem 0 0;
   font-size: 1.1rem;
+}
+
+.game-open {
+  border-color: var(--accent);
+}
+
+/* ゲームの形式（クイズ・結果入力）の印 */
+.game-format {
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.game-description {
+  margin: 0.5rem 0;
+}
+
+.game-format-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  border: none;
+}
+
+.game-format-choice legend {
+  margin-bottom: 0.25rem;
+  font-weight: 600;
+}
+
+/* 形式を選ぶパネル。ラジオボタンは見えなくして（キーボードでは選べる）、パネル全体を押せるようにする */
+.game-format-panels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+@media (max-width: 480px) {
+  .game-format-panels {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.game-format-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.75rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.game-format-panel:hover {
+  border-color: var(--gold);
+}
+
+.game-format-panel.selected {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--notice-bg);
+}
+
+.game-format-panel input[type="radio"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.game-format-panel:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* :has() が使えないブラウザでは、パネルの中にフォーカスがあるときに枠を出す（キーボードで選ぶ位置が分かるように） */
+@supports not selector(:has(*)) {
+  .game-format-panel:focus-within {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+.game-format-icon {
+  font-size: 1.75rem;
+  line-height: 1.2;
+}
+
+.game-format-about {
+  margin: 0.5rem 0 0;
+}
+
+/* 参加者の画面のプレビュー。スマホの幅の枠に、参加者の画面と同じ部品を出す */
+.game-preview-phone {
+  margin: 0.75rem auto;
+  max-width: 24.5rem;
+  max-height: 65vh;
+  overflow-y: auto;
+  border: 8px solid #1f2328;
+  border-radius: 28px;
+  background: var(--bg);
+}
+
+.game-preview-screen .page {
+  padding: 1rem 0.75rem;
+}
+
+/* 管理者ログイン。タイトルはログイン前の参加者の画面と同じく中央に寄せる */
+.admin-login .admin-login-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.admin-login-sub {
+  font-size: 1.1rem;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+}
+
+.admin-login-note {
+  text-align: center;
 }
 
 .game-confirmed {
@@ -1646,6 +1845,80 @@ textarea {
 .game-form-slot-note {
   grid-column: 1 / -1;
   margin: 0;
+}
+
+/* 数値予想の点数の範囲（何位から・何位まで・点数・削除） */
+.game-form-rank {
+  grid-template-columns: 1fr 1fr 1fr auto;
+}
+
+.game-form-rank-title {
+  grid-column: 1 / -1;
+  font-weight: 600;
+}
+
+/* スマホの幅では、削除ボタンを次の行に回して入力欄を広く取る */
+@media (max-width: 480px) {
+  .game-form-rank {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .game-form-rank .game-form-slot-actions {
+    grid-column: 1 / -1;
+    margin-top: 0;
+    justify-content: flex-end;
+  }
+}
+
+.game-number-form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.game-number-mine {
+  font-size: 1.25rem;
+  margin-right: 0.25rem;
+}
+
+table.game-number-answers {
+  margin: 0.5rem 0 1rem;
+}
+
+table.game-number-answers td.num {
+  text-align: right;
+}
+
+table.game-number-answers td.game-voters {
+  min-width: 10rem;
+  white-space: normal;
+}
+
+.game-vote-search {
+  width: 100%;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.game-vote-mine {
+  margin-right: 0.25rem;
+}
+
+.game-keyword-result.correct {
+  margin: 0;
+  color: var(--gold);
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.game-lottery-entry {
+  width: 100%;
+  min-height: 3.5rem;
+  font-size: 1.25rem;
+}
+
+.game-keyword-result.wrong {
+  color: var(--danger);
+  font-weight: 600;
 }
 
 .member-picker h2 .small {
@@ -1808,6 +2081,50 @@ table.prize-table td {
 }
 
 .prize-table .prize-chips {
+  margin: 0;
+}
+
+.prize-import-dialog {
+  max-width: 40rem;
+}
+
+.prize-import-list {
+  max-height: min(45vh, 22rem);
+  overflow-y: auto;
+}
+
+table.prize-import-table td {
+  vertical-align: middle;
+  white-space: normal;
+}
+
+.prize-import-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.75rem 0;
+  padding: 0;
+  border: none;
+}
+
+.prize-import-mode legend {
+  margin-bottom: 0.25rem;
+  font-weight: 600;
+}
+
+.prize-import-mode label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.prize-import-mode input[type="radio"] {
+  flex: none;
+  width: auto;
+  margin: 0;
+}
+
+.prize-import-mode p {
   margin: 0;
 }
 

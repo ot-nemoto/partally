@@ -11,6 +11,8 @@ export function NumberField(props: {
   /** 案内に出す下限（入力は 0 も受け付け、下限の確認は呼び出し側で行う） */
   min?: number;
   onChange: (value: number) => void;
+  /** 空欄のままでもよい（空欄は NaN） */
+  optional?: boolean;
 }) {
   const hintId = useId();
   const text = Number.isNaN(props.value) ? "" : String(props.value);
@@ -30,7 +32,7 @@ export function NumberField(props: {
           props.onChange(digits === "" ? Number.NaN : Math.min(props.max, Number(digits)));
         }}
         aria-describedby={hintId}
-        required
+        required={!props.optional}
       />
       <span id={hintId} className="muted small">
         {props.min ?? 0}〜{props.max}

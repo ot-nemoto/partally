@@ -15,6 +15,19 @@ npm workspaces のモノレポです。
 | `docs` | 設計書・手順書・ガイド（一覧は [docs/README.md](README.md)） |
 | `.github` | CI・リリース・初期化のワークフロー、Issue・PR のテンプレート、Dependabot |
 
+API（`api/src`）の主なファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `app.ts` | `createApp()`。共通のミドルウェアと管理者の認証（`/admin/*`）を付けてから、`routes/` の処理を登録する |
+| `routes/context.ts` | 処理の間で共有する依存と部品（Cookie、署名付き URL、点数の読み込み、`requireUser`・`requireAdmin` など） |
+| `routes/<領域>.ts` | API の処理（`auth`・`admin`・`ranking`・`photos`・`prizes`・`schedule`・`games`） |
+| `scoring.ts` | ゲームの点数・ポイント・ランキングの計算（保存せず、毎回データから数える） |
+| `dto.ts` / `http.ts` | 応答の形への変換 / エラーの応答と入力の検証 |
+| `repository.ts` ほか | 保存先（DynamoDB とメモリ）、写真の保存と取り込み、セッション |
+
+画面（`web/src`）は、`pages/` に画面ごと（管理画面は `pages/admin/`）、`components/` に参加者の画面と管理画面で共通の部品を置きます。大きな画面のダイアログは、画面の名前のフォルダに分けます（管理画面のゲームは `pages/admin/games/` に、作成・編集・答えの一覧・プレビュー・人を選ぶダイアログと、形式の表）。管理画面の画面どうしで共通の部品は `pages/admin/` に置きます（景品・ゲームの画像の入力 `ImageField`、画像のアップロード `prizeImage.ts`）。
+
 ## 必要なもの
 
 - Node.js 22
@@ -58,6 +71,7 @@ npm run build     # 画面のビルド
 PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`・`npm test`・`npm run build`）を手元で通します。
 
 - テストは `packages/shared`・`api` では `src/**/*.test.ts`、`infra` では `test/*.test.ts` にあります。API のテストはメモリ上のリポジトリ・ストレージで動かし、DynamoDB・S3・CloudFront を呼ぶ部分は `aws-sdk-client-mock` で確かめます。
+- API のテストは領域ごとに `api/src/app.<領域>.test.ts`（`app.auth`・`app.admin`・`app.photos`・`app.favorites`・`app.game`・`app.game-<形式>`・`app.prizes`・`app.schedule`・`app.ingest`）に、ランキングの計算は `scoring.test.ts` に分けています。共通の準備は `api/src/test-support.ts` の `useApiTest()` を使います（テストごとにメモリ上のリポジトリとアプリを作り直し、`register()` で参加者の登録、`adminClient()` で管理者のログインまで済ませたクライアントを返します）。
 - 画面（`web`）には自動テストがありません。画面の計算のうち、テストしたいもの（景品の順位の数え方など）は `packages/shared` に置いてテストします。
 
 ## コードの約束事
@@ -66,6 +80,7 @@ PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`
 - `style/noNonNullAssertion` は無効にしています。`noUncheckedIndexedAccess` を有効にしているため、添字アクセスの後の `!` を意図して使います。テストでは `any` を許可しています。
 - コメントと画面の文言は日本語で書きます。
 - 設定（`Settings`）に項目を足すときは、`updateSettingsRequestSchema` で省略可にし、`DEFAULT_SETTINGS` に既定値を入れます。保存済みの設定に無い項目は既定値で補われます（古い画面から保存されても 400 にしないため）。
+- ゲームの形式ごとの決まりは表にまとめています。答えに使う項目と順位の単位は `packages/shared/src/game-rules.ts` の `GAME_FORMAT_RULES`、点数の数え方は `api/src/scoring.ts` の `GAME_SCORING` に書きます。形式を足すときは、`GAME_FORMATS` と、この 2 つの表と、形式ごとの名前・表示の表（`GAME_FORMAT_LABEL`、お知らせの `game-banner.ts`、管理画面の `web/src/pages/admin/games/formats.ts` のアイコン・説明・並び）と、画面（`GameView`・管理画面のゲーム）を直します。足し忘れた表は型チェックで分かります。
 - 個人や環境の情報（AWS アカウント ID、ロール ARN、メールアドレス、パスワード、実際のドメインなど）はリポジトリに書きません。
 
 ## ブランチ・PR・リリース

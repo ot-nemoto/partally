@@ -1,7 +1,7 @@
 import {
+  type GameFormat,
   type GameStatus,
   type PhotoStatus,
-  type QuizStatus,
   type Settings,
   TIE_BREAK_KEYS,
   type TokenStatus,
@@ -55,31 +55,6 @@ export interface FavoriteRecord {
   createdAt: string;
 }
 
-export interface QuizChoice {
-  choiceId: string;
-  text: string;
-  points: number;
-}
-
-export interface QuizRecord {
-  quizId: string;
-  text: string;
-  choices: QuizChoice[];
-  status: QuizStatus;
-  createdAt: string;
-  updatedAt: string;
-  openedAt?: string;
-  closedAt?: string;
-}
-
-/** クイズへの回答。1 人 1 問につき 1 件で、選び直すと上書きする */
-export interface QuizAnswerRecord {
-  quizId: string;
-  userId: string;
-  choiceId: string;
-  answeredAt: string;
-}
-
 export interface PrizeRecord {
   prizeId: string;
   name: string;
@@ -109,15 +84,73 @@ export interface GameSlot {
   userIds: string[];
 }
 
+/** クイズ形式の選択肢 */
+export interface GameChoice {
+  choiceId: string;
+  text: string;
+  points: number;
+  /** 画像（景品と同じ置き場の `prizes/<imageId>.jpg`）。無ければ画像なし */
+  imageId?: string;
+}
+
+/** 数値予想の点数の範囲 */
+export interface GameRank {
+  from: number;
+  to: number;
+  points: number;
+}
+
 export interface GameRecord {
   gameId: string;
+  format: GameFormat;
   name: string;
+  description: string;
+  /** 問題（ゲーム本体）の画像（景品と同じ置き場の `prizes/<imageId>.jpg`）。無ければ画像なし */
+  imageId?: string;
   status: GameStatus;
+  /** 結果入力形式の枠（クイズ形式では空） */
   slots: GameSlot[];
+  /** クイズ形式の選択肢（ほかの形式では空） */
+  choices: GameChoice[];
+  /** 数値予想・投票の点数の範囲（ほかの形式では空。from の小さい順） */
+  ranks: GameRank[];
+  /** 数値予想の正解の数。まだ決めていなければ無い */
+  correctNumber?: number;
+  /** 投票で、投票した人に入る点数（ほかの形式では 0） */
+  voterPoints: number;
+  /** 合言葉（ほかの形式では無い） */
+  keyword?: string;
+  /** 抽選で、確定したときに決めた順番（userId の並び）。確定を取り消すと消える */
+  drawOrder?: string[];
   createdAt: string;
   updatedAt: string;
+  /** 最後に開催した時刻 */
+  openedAt?: string;
   /** 確定した時刻。確定を取り消すと消える */
   confirmedAt?: string;
+}
+
+/** ゲームを直すときに変える項目（形式・状態・時刻は変えない） */
+export type GameChanges = Pick<
+  GameRecord,
+  "name" | "description" | "imageId" | "slots" | "choices" | "ranks" | "correctNumber" | "voterPoints" | "keyword"
+>;
+
+/** クイズ・数値予想・投票・合言葉のゲームへの答え。1 人 1 ゲームにつき 1 件で、答え直すと上書きする */
+export interface GameAnswerRecord {
+  gameId: string;
+  userId: string;
+  /** クイズで選んだ選択肢 */
+  choiceId?: string;
+  /** 数値予想で答えた数 */
+  value?: number;
+  /** 投票で選んだ人 */
+  targetUserId?: string;
+  /** 合言葉で正解した言葉（正解したときだけ保存する） */
+  text?: string;
+  /** 抽選に参加した */
+  entry?: boolean;
+  answeredAt: string;
 }
 
 export interface Page<T> {
@@ -134,7 +167,6 @@ export const DEFAULT_SETTINGS: Settings = {
   favoritePoints: 1,
   favoriteGivenPoints: 10,
   showPoints: true,
-  showQuizPoints: true,
   showGamePoints: true,
   // 参加者へのランキング・トレンドは、管理者が見せると決めるまで出さない
   rankingVisible: false,
@@ -186,11 +218,19 @@ export class FavoriteLimitError extends Error {
   }
 }
 
-/** 別のクイズが出題中 */
-export class QuizAlreadyOpenError extends Error {
+/** 別のゲームが開催中 */
+export class GameAlreadyOpenError extends Error {
   constructor() {
-    super("another quiz is open");
-    this.name = "QuizAlreadyOpenError";
+    super("another game is open");
+    this.name = "GameAlreadyOpenError";
+  }
+}
+
+/** 一覧の続きを読む位置（cursor）が、この一覧のものとして読めない（壊れている・別の一覧のもの） */
+export class InvalidCursorError extends Error {
+  constructor() {
+    super("invalid cursor");
+    this.name = "InvalidCursorError";
   }
 }
 
@@ -233,9 +273,16 @@ export interface Repository {
 
   // ---- 写真 ----
 
-  getPhoto(photoId: string): Promise<PhotoRecord | undefined>;
+  /**
+   * 写真を読む。consistent を付けると、直前の更新も必ず反映した値を読む
+   * （更新に失敗した直後に、今の状態で後片付けを決めるときに使う）
+   */
+  getPhoto(photoId: string, options?: { consistent?: boolean }): Promise<PhotoRecord | undefined>;
 
-  /** 状態別に新しい順で返す */
+  /**
+   * 状態別に新しい順で返す。
+   * @throws InvalidCursorError cursor が、この状態の一覧の続きとして読めないとき
+   */
   listPhotosByStatus(status: PhotoStatus, limit: number, cursor?: string): Promise<Page<PhotoRecord>>;
 
   /** アップロード者別に新しい順で返す（削除済みも含む） */
@@ -287,54 +334,6 @@ export interface Repository {
   /** photoId へのお気に入りをすべて外す（写真の削除時） */
   clearFavorites(photoId: string): Promise<void>;
 
-  // ---- クイズ ----
-
-  createQuiz(quiz: QuizRecord): Promise<void>;
-  getQuiz(quizId: string): Promise<QuizRecord | undefined>;
-  /** 作成順（古い順）で返す */
-  listQuizzes(): Promise<QuizRecord[]>;
-
-  /**
-   * 問題文と選択肢を差し替える。onlyIfDraft なら下書きのときだけ（選択肢の追加・削除は下書きの間だけにするため）。
-   * @throws NotFoundError / InvalidStateError
-   */
-  updateQuiz(
-    quizId: string,
-    changes: Pick<QuizRecord, "text" | "choices">,
-    updatedAt: string,
-    onlyIfDraft: boolean,
-  ): Promise<QuizRecord>;
-
-  /**
-   * 下書きか締め切り済みのクイズと、その回答を削除する。
-   * @throws NotFoundError / InvalidStateError 出題中
-   */
-  deleteQuiz(quizId: string): Promise<void>;
-
-  /**
-   * draft → open。出題中は同時に 1 問だけ。
-   * @throws NotFoundError / InvalidStateError 下書きでない / QuizAlreadyOpenError 別のクイズが出題中
-   */
-  openQuiz(quizId: string, openedAt: string): Promise<QuizRecord>;
-
-  /**
-   * open → closed。
-   * @throws NotFoundError / InvalidStateError 出題中でない
-   */
-  closeQuiz(quizId: string, closedAt: string): Promise<QuizRecord>;
-
-  /** 出題中のクイズの ID */
-  getOpenQuizId(): Promise<string | undefined>;
-
-  /**
-   * 回答を保存する（選び直しは上書き）。出題中かどうかは呼び出し側が強い整合性で読んで確かめ、
-   * その後に answeredAt を付けて呼ぶ（全員が一斉に答えるため、クイズのアイテムを含むトランザクションにはしない）
-   */
-  putQuizAnswer(answer: QuizAnswerRecord): Promise<void>;
-  getQuizAnswer(userId: string, quizId: string): Promise<QuizAnswerRecord | undefined>;
-  listQuizAnswersByUser(userId: string): Promise<QuizAnswerRecord[]>;
-  listQuizAnswersByQuiz(quizId: string): Promise<QuizAnswerRecord[]>;
-
   // ---- 景品 ----
 
   createPrize(prize: PrizeRecord): Promise<void>;
@@ -374,22 +373,46 @@ export interface Repository {
   /** 作成順（古い順）で返す */
   listGames(): Promise<GameRecord[]>;
   /**
-   * 名前と枠を差し替える（確定済みでも直せる）。expectedUpdatedAt を渡すと、保存済みの updatedAt がそれと同じときだけ差し替える。
+   * 名前・説明・枠・選択肢を差し替える（開催中・確定済みでも直せる）。expectedUpdatedAt を渡すと、保存済みの updatedAt がそれと同じときだけ差し替える。
    * @throws NotFoundError / InvalidStateError ほかで直されていた
    */
-  updateGame(
-    gameId: string,
-    changes: Pick<GameRecord, "name" | "slots">,
-    updatedAt: string,
-    expectedUpdatedAt?: string,
-  ): Promise<GameRecord>;
+  updateGame(gameId: string, changes: GameChanges, updatedAt: string, expectedUpdatedAt?: string): Promise<GameRecord>;
   /**
-   * draft → confirmed（confirmedAt を付ける）、または confirmed → draft（confirmedAt を消す）。
-   * @throws NotFoundError / InvalidStateError 今の状態が前提と合わない
+   * 状態を from から to に変える。開催中（open）は同時に 1 つだけで、開催中の印を一緒に作る・消す。
+   * 確定（confirmed）にすると confirmedAt を付け、確定から戻すと消す。開催すると openedAt を付ける。
+   * @throws NotFoundError / InvalidStateError 今の状態が from でない / GameAlreadyOpenError 別のゲームが開催中
    */
-  setGameStatus(gameId: string, status: GameStatus, at: string): Promise<GameRecord>;
-  /** @throws NotFoundError */
+  changeGameStatus(
+    gameId: string,
+    from: GameStatus,
+    to: GameStatus,
+    at: string,
+    /** 確定するときに保存する抽選の順番（確定から戻すと消える） */
+    drawOrder?: string[],
+  ): Promise<GameRecord>;
+  /** 開催中のゲームの ID */
+  getOpenGameId(): Promise<string | undefined>;
+  /** ゲームと、その答えを削除する。@throws NotFoundError / InvalidStateError 開催中 */
   deleteGame(gameId: string): Promise<void>;
+
+  /**
+   * クイズ形式の答えを保存する（選び直しは上書き）。開催中かどうかは呼び出し側が強い整合性で読んで確かめ、
+   * その後に answeredAt を付けて呼ぶ（全員が一斉に答えるため、ゲームのアイテムを含むトランザクションにはしない）
+   */
+  /**
+   * 答えを保存する（答え直しは上書き）。expected を渡すと、保存済みの答えが読んだときのまま
+   * （answeredAt が同じ。undefined なら答えがまだ無い）のときだけ保存する。
+   * @throws InvalidStateError expected を渡し、保存済みの答えが変わっていたとき
+   */
+  putGameAnswer(answer: GameAnswerRecord, expected?: { answeredAt: string | undefined }): Promise<void>;
+  /** 自分の答えを読む。consistent を付けると、直前の保存も必ず反映した値を読む */
+  getGameAnswer(
+    userId: string,
+    gameId: string,
+    options?: { consistent?: boolean },
+  ): Promise<GameAnswerRecord | undefined>;
+  listGameAnswersByUser(userId: string): Promise<GameAnswerRecord[]>;
+  listGameAnswersByGame(gameId: string): Promise<GameAnswerRecord[]>;
 
   // ---- 設定 ----
 

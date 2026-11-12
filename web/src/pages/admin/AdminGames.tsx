@@ -1,37 +1,40 @@
 import {
-  GAME_NAME_MAX_LENGTH,
-  GAME_SLOT_NAME_MAX_LENGTH,
-  GAME_SLOTS_MAX,
+  formatRankRange,
+  GAME_FORMAT_LABEL,
   type GameDto,
   type GameResponse,
   type GameStatus,
   type GamesResponse,
-  POINTS_MAX,
+  gameConfirmProblem,
+  hasGameAnswers,
+  hasGameRanks,
+  rankUnit,
   type TokensResponse,
-  type UserDto,
   type UsersResponse,
 } from "@partally/shared";
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, api, errorMessage } from "../../api";
-import { Modal } from "../../components/Modal";
-import { NumberField } from "../../components/NumberField";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api, errorMessage } from "../../api";
 import { PageTitle } from "../../components/PageTitle";
+import { StatusFilter, useShownStatuses } from "../../components/StatusFilter";
+import { formatRecentTime } from "../../format";
 import { useOnReload } from "../../hooks/useReload";
+import { FORMAT_ICON } from "./games/formats";
+import { GameAnswersDialog } from "./games/GameAnswersDialog";
+import { GameFormDialog } from "./games/GameFormDialog";
+import { GamePreviewDialog } from "./games/GamePreviewDialog";
+import { type Member, MemberPickerDialog } from "./games/MemberPickerDialog";
 
-const STATUS_LABEL: Record<GameStatus, string> = { draft: "下書き", confirmed: "確定" };
+const STATUS_LABEL: Record<GameStatus, string> = { draft: "下書き", open: "開催中", confirmed: "確定" };
+
+/** 表示・非表示を切り替えるボタンの並び */
+const STATUSES: GameStatus[] = ["open", "draft", "confirmed"];
+
 /** 保存した直後の一覧の取得が古い内容を返しうる間（一覧は少し遅れて反映される） */
 const FRESH_MS = 10_000;
 
-/** 人を選ぶ画面に出す参加者（QR の通し番号つき） */
-interface Member {
-  user: UserDto;
-  /** QR の通し番号。紐づけを解除した人には無い */
-  label?: string;
-}
-
 /**
- * ゲーム（じゃんけん大会など）の結果で、枠（優勝・準優勝など）ごとに選んだ人へポイントを付ける。
- * 下書きの間はポイントに入らず、確定するとその時刻で入る
+ * ゲーム。形式はクイズ・数値予想・投票・合言葉・抽選・結果入力（アイコンと説明は games/formats.ts）。
+ * 下書き → 開催中（参加者に知らせる。同時に 1 つだけ）→ 確定（その時刻でポイントが入る）と進める
  */
 export function AdminGames() {
   const [games, setGames] = useState<GameDto[]>();
@@ -40,7 +43,10 @@ export function AdminGames() {
   const [editing, setEditing] = useState<GameDto | "new">();
   /** 人を選んでいる枠。ゲームは開くたびに今の一覧から引く（古い内容で上書きしないように） */
   const [picking, setPicking] = useState<{ gameId: string; slotId: string }>();
+  const [answers, setAnswers] = useState<GameDto>();
+  const [previewing, setPreviewing] = useState<GameDto>();
   const [busy, setBusy] = useState(false);
+  const { shown, toggle, reveal } = useShownStatuses("partally.admin.gameStatuses", STATUSES);
   /** この画面で削除したゲーム（一覧の読み直しが削除の反映より先に返っても、出し直さない） */
   const deleted = useRef(new Set<string>());
   /** 少し前にこの画面で保存したゲーム（作った直後で一覧にまだ出てこなくても、消さずに残す） */
@@ -81,12 +87,13 @@ export function AdminGames() {
     fresh.current.add(game.gameId);
     setTimeout(() => fresh.current.delete(game.gameId), FRESH_MS);
     setGames((prev) => sortGames([...(prev ?? []).filter((g) => g.gameId !== game.gameId), game]));
+    reveal(game.status);
     void load();
   }
 
   const pickingGame = picking && games?.find((g) => g.gameId === picking.gameId);
 
-  /** 確定・取り消しなど。応答のゲームをすぐ画面に入れてから、一覧を読み直す */
+  /** 開催・確定・取り消しなど。応答のゲームをすぐ画面に入れてから、一覧を読み直す */
   async function run(action: () => Promise<GameResponse | undefined>) {
     setBusy(true);
     try {
@@ -100,17 +107,35 @@ export function AdminGames() {
     }
   }
 
+  const post = (g: GameDto, action: string) =>
+    run(() => api<GameResponse>("POST", `/admin/games/${g.gameId}/${action}`));
   const confirmGame = (g: GameDto) => {
-    const count = g.slots.reduce((n, s) => n + s.userIds.length, 0);
-    if (count === 0 && !confirm("まだ誰も選んでいません。このまま確定しますか？")) return;
-    return run(() => api<GameResponse>("POST", `/admin/games/${g.gameId}/confirm`));
+    if (!confirm(`「${g.name}」を確定します。${confirmNote(g)}よろしいですか？`)) return;
+    return post(g, "confirm");
+  };
+  const stopGame = (g: GameDto) => {
+    if (
+      !confirm(
+        `「${g.name}」の開催をやめて下書きに戻します。${hasGameAnswers(g) ? "答えは残ります。" : ""}よろしいですか？`,
+      )
+    )
+      return;
+    return post(g, "stop");
   };
   const unconfirmGame = (g: GameDto) => {
-    if (!confirm(`「${g.name}」の確定を取り消して下書きに戻します。入ったポイントも消えます。よろしいですか？`)) return;
-    return run(() => api<GameResponse>("POST", `/admin/games/${g.gameId}/unconfirm`));
+    const redraw =
+      g.format === "lottery"
+        ? "\n抽選の結果も消え、もう一度確定すると引き直しになります（発表した後は取り消さないでください）。"
+        : "";
+    if (
+      !confirm(`「${g.name}」の確定を取り消して下書きに戻します。入ったポイントも消えます。${redraw}\nよろしいですか？`)
+    )
+      return;
+    return post(g, "unconfirm");
   };
   const remove = (g: GameDto) => {
-    const note = g.status === "confirmed" ? "\n入ったポイントも消えます。" : "";
+    const note =
+      g.status === "confirmed" ? "\n入ったポイントも消えます。" : g.storedAnswerCount > 0 ? "\n答えも消えます。" : "";
     if (!confirm(`「${g.name}」を削除します。${note}\nよろしいですか？`)) return;
     return run(async () => {
       await api("DELETE", `/admin/games/${g.gameId}`);
@@ -120,30 +145,106 @@ export function AdminGames() {
     });
   };
 
-  // 新しいゲームを上にする
-  const sorted = [...(games ?? [])].reverse();
+  const hasOpen = games?.some((g) => g.status === "open") ?? false;
+  // 「第 N ゲーム」は作成順の番号。新しいゲームを上にし、選んだ状態のゲームだけを出す
+  const numbered = (games ?? []).map((game, i) => ({ game, number: i + 1 }));
+  const sorted = numbered.filter(({ game }) => shown.has(game.status)).reverse();
+  const counts: Record<GameStatus, number> = { open: 0, draft: 0, confirmed: 0 };
+  for (const { game } of numbered) counts[game.status]++;
+  // 前に隠した状態が残っていても気づけるよう、隠しているゲームの数を出す
+  const hiddenCount = numbered.length - sorted.length;
 
   return (
     <section className="admin-games">
       <PageTitle en="Game" ja="ゲーム">
-        <button type="button" className="primary" onClick={() => setEditing("new")}>
-          ゲームを作る
-        </button>
+        <div className="title-actions">
+          {/* 読み込みの前後で固定した行の高さが変わらないよう、ゲームが無くても出しておく */}
+          <StatusFilter statuses={STATUSES} labels={STATUS_LABEL} counts={counts} shown={shown} onToggle={toggle} />
+          <button type="button" className="primary" onClick={() => setEditing("new")}>
+            ゲームを作る
+          </button>
+        </div>
       </PageTitle>
       <p className="muted small">
-        じゃんけん大会のような催しの結果で、枠（優勝・準優勝など）ごとに選んだ人へポイントを付けます。
-        「確定」を押すとポイントが入ります（下書きの間は入りません）。確定した後も直せ、取り消すこともできます。
+        形式は「クイズ」「数値予想」「投票」「合言葉」「抽選」「結果入力」から選べます（それぞれの説明は「ゲームを作る」に出ます）。
+        「開催する」と参加者の画面にお知らせが出ます（開催中にできるのは 1 つだけ）。「確定」でポイントが入ります。
       </p>
       {error && <p className="error">{error}</p>}
       {games?.length === 0 && <p className="muted">まだゲームがありません。</p>}
-      {sorted.map((g) => (
+      {hiddenCount > 0 && <p className="muted small">{hiddenCount} 件を非表示にしています。</p>}
+      {games && games.length > 0 && sorted.length === 0 && (
+        <p className="muted">
+          {shown.size === 0 ? "表示する状態を選んでください。" : "選んだ状態のゲームはありません。"}
+        </p>
+      )}
+      {sorted.map(({ game: g, number }) => (
         <article key={g.gameId} className={`card game-card game-${g.status}`}>
           <header className="quiz-card-header">
-            <h2 className="game-name">{g.name}</h2>
+            <span className="muted small">第 {number} ゲーム</span>
+            <span className="game-format small">
+              <span aria-hidden="true">{FORMAT_ICON[g.format]} </span>
+              {GAME_FORMAT_LABEL[g.format]}
+            </span>
             <span className={`status status-${g.status}`}>{STATUS_LABEL[g.status]}</span>
-            {g.confirmedAt && <span className="muted small">{formatTime(g.confirmedAt)} に確定</span>}
+            {g.status === "open" && hasGameAnswers(g) && (
+              <span className="muted small">
+                {g.format === "keyword" ? "正解" : g.format === "lottery" ? "参加" : "回答"} {g.answerCount} 人
+              </span>
+            )}
+            {g.confirmedAt && <span className="muted small">{formatRecentTime(g.confirmedAt)} に確定</span>}
           </header>
-          {g.slots.length === 0 ? (
+          <h2 className="game-name">{g.name}</h2>
+          {g.imageUrl && <img className="game-image" src={g.imageUrl} alt="" loading="lazy" />}
+          {g.description && <p className="quiz-text game-description">{g.description}</p>}
+          {g.format === "quiz" ? (
+            <ul className="quiz-admin-choices">
+              {g.choices.map((ch) => (
+                <li key={ch.choiceId}>
+                  <span className="game-choice-label">
+                    {ch.imageUrl && <img className="game-choice-thumb" src={ch.imageUrl} alt="" loading="lazy" />}
+                    {ch.text}
+                  </span>
+                  <span className="muted small">{ch.points} 点</span>
+                  <span className="num">{ch.answerCount} 人</span>
+                </li>
+              ))}
+            </ul>
+          ) : hasGameRanks(g) ? (
+            <>
+              {g.format === "number" && (
+                <p className="small game-number-correct">
+                  正解の数:{" "}
+                  {g.correctNumber === undefined ? (
+                    <span className="muted">未設定（「編集」で入れると確定できます）</span>
+                  ) : (
+                    <strong>{g.correctNumber}</strong>
+                  )}
+                </p>
+              )}
+              {g.format === "vote" && (
+                <p className="small game-number-correct">
+                  投票した人に: <strong>{g.voterPoints} 点</strong>
+                </p>
+              )}
+              {g.format === "keyword" && (
+                <p className="small game-number-correct">
+                  合言葉: <strong>{g.keyword}</strong>
+                </p>
+              )}
+              {g.ranks.length === 0 ? (
+                <p className="muted small">まだ点数の範囲がありません。「編集」で追加してください。</p>
+              ) : (
+                <ul className="quiz-admin-choices">
+                  {g.ranks.map((r) => (
+                    <li key={r.from}>
+                      <span>{formatRankRange(r, rankUnit(g.format))}</span>
+                      <span className="muted small">{r.points} 点</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : g.slots.length === 0 ? (
             <p className="muted small">まだ枠がありません。「編集」で枠（優勝・準優勝など）を追加してください。</p>
           ) : (
             <ul className="game-slots">
@@ -175,28 +276,55 @@ export function AdminGames() {
             </ul>
           )}
           <div className="actions">
-            {g.status === "draft" ? (
+            {g.status === "draft" && (
+              <button type="button" className="primary" onClick={() => post(g, "open")} disabled={busy || hasOpen}>
+                開催する
+              </button>
+            )}
+            {g.status !== "confirmed" && (
               <button
                 type="button"
-                className="primary"
+                className={g.status === "open" ? "primary" : undefined}
                 onClick={() => confirmGame(g)}
-                disabled={busy || g.slots.length === 0}
-                title={g.slots.length === 0 ? "枠を追加すると確定できます" : undefined}
+                disabled={busy || gameConfirmProblem(g) !== undefined}
+                title={gameConfirmProblem(g)}
               >
                 確定
               </button>
-            ) : (
+            )}
+            {g.status === "open" && (
+              <button type="button" onClick={() => stopGame(g)} disabled={busy}>
+                開催をやめる
+              </button>
+            )}
+            {g.status === "confirmed" && (
               <button type="button" onClick={() => unconfirmGame(g)} disabled={busy}>
                 確定を取り消す
+              </button>
+            )}
+            <button type="button" onClick={() => setPreviewing(g)}>
+              プレビュー
+            </button>
+            {hasGameAnswers(g) && g.storedAnswerCount > 0 && (
+              <button type="button" onClick={() => setAnswers(g)}>
+                回答者を見る
               </button>
             )}
             <button type="button" onClick={() => setEditing(g)} disabled={busy}>
               編集
             </button>
-            <button type="button" className="danger" onClick={() => remove(g)} disabled={busy}>
-              削除
-            </button>
+            {g.status !== "open" && (
+              <button type="button" className="danger" onClick={() => remove(g)} disabled={busy}>
+                削除
+              </button>
+            )}
           </div>
+          {g.status === "draft" && hasOpen && (
+            <p className="muted small">
+              開催中のゲームを確定するか、開催をやめると開催できます。
+              {!shown.has("open") && "（開催中のゲームは非表示にしています）"}
+            </p>
+          )}
         </article>
       ))}
       {editing && (
@@ -223,8 +351,36 @@ export function AdminGames() {
           onConflict={() => void load()}
         />
       )}
+      {answers && <GameAnswersDialog game={answers} onClose={() => setAnswers(undefined)} />}
+      {previewing && (
+        <GamePreviewDialog
+          game={previewing}
+          members={members.map((m) => m.user)}
+          onClose={() => setPreviewing(undefined)}
+        />
+      )}
     </section>
   );
+}
+
+/** 確定するときの確認の文（何にポイントが入るか） */
+function confirmNote(g: GameDto): string {
+  switch (g.format) {
+    case "quiz":
+      return `確定すると答えの受付が終わり、選んだ答えの点数（${g.answerCount} 人）がポイントに入ります。`;
+    case "number":
+      return `確定すると答えの受付が終わり、正解 ${g.correctNumber} に近い順の順位で点数（${g.answerCount} 人）がポイントに入ります。`;
+    case "vote":
+      return `確定すると投票の受付が終わり、得票の順位で選ばれた人（投票 ${g.answerCount} 人）にポイントが入ります。`;
+    case "keyword":
+      return `確定すると受付が終わり、正解した順で点数（正解 ${g.answerCount} 人）がポイントに入ります。`;
+    case "lottery":
+      return `確定すると受付が終わり、参加した ${g.answerCount} 人から抽選して、当たった人にポイントが入ります。`;
+    default:
+      return g.slots.some((s) => s.userIds.length > 0)
+        ? "確定すると、選んだ人にポイントが入ります。"
+        : "まだ誰も選んでいません。";
+  }
 }
 
 /**
@@ -254,315 +410,4 @@ function mergeGames(
 /** 作った順（API の一覧と同じ） */
 function sortGames(games: GameDto[]): GameDto[] {
   return games.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.gameId.localeCompare(b.gameId));
-}
-
-/** 今日なら時刻だけ、別の日（リハーサルなど）なら日付も付ける */
-function formatTime(iso: string) {
-  const d = new Date(iso);
-  const time = `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
-  return d.toDateString() === new Date().toDateString() ? time : `${d.getMonth() + 1}/${d.getDate()} ${time}`;
-}
-
-interface SlotDraft {
-  /** 既存の枠を直すときだけ付く */
-  slotId?: string;
-  /** 一覧の key 用（新しい枠には slotId が無いため） */
-  key: string;
-  name: string;
-  points: number;
-  userIds: string[];
-}
-
-let draftKey = 0;
-const newSlot = (name = "", points = 10): SlotDraft => ({ key: `new-${++draftKey}`, name, points, userIds: [] });
-
-function GameFormDialog(props: {
-  game?: GameDto;
-  onClose: () => void;
-  onSaved: (game: GameDto) => void;
-  onConflict: () => void;
-}) {
-  const { game } = props;
-  const [name, setName] = useState(game?.name ?? "");
-  const [slots, setSlots] = useState<SlotDraft[]>(
-    // 新しいゲームは名前だけで作れるよう、枠の行なしで始める
-    game?.slots.map((s) => ({ ...s, key: s.slotId })) ?? [],
-  );
-  const [error, setError] = useState<string>();
-  const [saving, setSaving] = useState(false);
-
-  function update(key: string, changes: Partial<SlotDraft>) {
-    setSlots((prev) => prev.map((s) => (s.key === key ? { ...s, ...changes } : s)));
-  }
-
-  function move(from: number, to: number) {
-    setSlots((prev) => {
-      const next = [...prev];
-      const [item] = next.splice(from, 1);
-      next.splice(to, 0, item!);
-      return next;
-    });
-  }
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    setError(undefined);
-    const body = {
-      name,
-      slots: slots.map(({ slotId, name, points, userIds }) => ({ slotId, name, points, userIds })),
-      // 開いた後にほかで直されていたら、上書きせずに知らせる
-      baseUpdatedAt: game?.updatedAt,
-    };
-    try {
-      const res = game
-        ? await api<GameResponse>("PUT", `/admin/games/${game.gameId}`, body)
-        : await api<GameResponse>("POST", "/admin/games", body);
-      props.onSaved(res.game);
-    } catch (err) {
-      setError(errorMessage(err));
-      if (err instanceof ApiError && err.status === 409) props.onConflict();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const incomplete = slots.some((s) => Number.isNaN(s.points));
-  const title = game ? "ゲームの編集" : "ゲームを作る";
-
-  return (
-    <Modal className="dialog game-dialog" label={title} onClose={props.onClose} closable={!saving}>
-      <form className="card" onSubmit={onSubmit}>
-        <h2>{title}</h2>
-        <label className="field">
-          <span>ゲームの名前</span>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={GAME_NAME_MAX_LENGTH}
-            placeholder="例: じゃんけん大会"
-            required
-            data-autofocus
-          />
-        </label>
-        <fieldset className="game-form-slots">
-          <legend>枠と点数</legend>
-          {slots.map((s, i) => (
-            <div key={s.key} className="game-form-slot">
-              <label className="field">
-                <span>枠 {i + 1}</span>
-                <input
-                  value={s.name}
-                  onChange={(e) => update(s.key, { name: e.target.value })}
-                  maxLength={GAME_SLOT_NAME_MAX_LENGTH}
-                  placeholder={["例: 優勝", "例: 準優勝", "例: ベスト 4"][i] ?? "例: 参加賞"}
-                  required
-                />
-              </label>
-              <NumberField
-                label="点数"
-                value={s.points}
-                max={POINTS_MAX}
-                onChange={(points) => update(s.key, { points })}
-              />
-              <div className="game-form-slot-actions">
-                <button
-                  type="button"
-                  onClick={() => move(i, i - 1)}
-                  disabled={i === 0}
-                  aria-label={`枠 ${i + 1} を上へ`}
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  onClick={() => move(i, i + 1)}
-                  disabled={i === slots.length - 1}
-                  aria-label={`枠 ${i + 1} を下へ`}
-                >
-                  ↓
-                </button>
-                <button
-                  type="button"
-                  className="link"
-                  onClick={() => setSlots((prev) => prev.filter((x) => x.key !== s.key))}
-                  aria-label={`枠 ${i + 1} を削除`}
-                >
-                  削除
-                </button>
-              </div>
-              {s.userIds.length > 0 && (
-                <p className="muted small game-form-slot-note">選んだ人: {s.userIds.length} 人</p>
-              )}
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={() => setSlots((prev) => [...prev, newSlot()])}
-            disabled={slots.length >= GAME_SLOTS_MAX}
-          >
-            枠を追加
-          </button>
-        </fieldset>
-        <p className="muted small">
-          枠は後から追加することもできます（枠が無いゲームは確定できません）。人は、保存した後に枠ごとの「人を選ぶ」で選びます。枠を削除すると、その枠で選んだ人も外れます。
-          {game?.status === "confirmed" && "確定済みなので、保存するとすぐにポイントが変わります。"}
-        </p>
-        {error && <p className="error">{error}</p>}
-        {incomplete && <p className="error">点数が空欄の枠があります。</p>}
-        <div className="buttons">
-          <button type="button" onClick={props.onClose} disabled={saving}>
-            キャンセル
-          </button>
-          <button type="submit" className="primary" disabled={saving || incomplete}>
-            保存
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-/**
- * 枠に入る人を選ぶ。名前・二つ名・通し番号で絞り込み、チェックで複数選ぶ。
- * ほかの枠に入っている人を選ぶと、その枠から移す（1 人は 1 つの枠だけ）
- */
-function MemberPickerDialog(props: {
-  game: GameDto;
-  slotId: string;
-  members: Member[];
-  onClose: () => void;
-  onSaved: (game: GameDto) => void;
-  /** ほかで直されていて保存できなかったとき（一覧を読み直す） */
-  onConflict: () => void;
-}) {
-  const { slotId } = props;
-  // 開いたときのゲームで選び、その版（updatedAt）で保存する。開いている間に一覧が読み直されても、
-  // 選び始めた後のほかの変更を、版の確かめをすり抜けて上書きしないように
-  const [game] = useState(props.game);
-  const slot = game.slots.find((s) => s.slotId === slotId)!;
-  const [selected, setSelected] = useState(() => new Set(slot.userIds));
-  const [query, setQuery] = useState("");
-  const [error, setError] = useState<string>();
-  const [saving, setSaving] = useState(false);
-
-  /** ほかの枠に入っている人と、その枠の名前 */
-  const otherSlot = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const s of game.slots) if (s.slotId !== slotId) for (const id of s.userIds) map.set(id, s.name);
-    return map;
-  }, [game, slotId]);
-
-  // 紐づけを解除した人は選べない（この枠に入ったまま解除された人だけは、外せるよう出す）
-  const candidates = props.members.filter((m) => m.user.status === "active" || slot.userIds.includes(m.user.userId));
-  const q = query.normalize("NFKC").trim().toLowerCase();
-  const shown = q
-    ? candidates.filter((m) =>
-        [m.user.name, m.user.epithet, m.label ?? ""].some((text) => text.normalize("NFKC").toLowerCase().includes(q)),
-      )
-    : candidates;
-  const moving = [...selected].filter((id) => otherSlot.has(id)).length;
-
-  function toggle(userId: string, on: boolean) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(userId);
-      else next.delete(userId);
-      return next;
-    });
-  }
-
-  async function save() {
-    setSaving(true);
-    setError(undefined);
-    const slots = game.slots.map((s) => ({
-      slotId: s.slotId,
-      name: s.name,
-      points: s.points,
-      userIds: s.slotId === slotId ? [...selected] : s.userIds.filter((id) => !selected.has(id)),
-    }));
-    try {
-      const res = await api<GameResponse>("PUT", `/admin/games/${game.gameId}`, {
-        name: game.name,
-        slots,
-        baseUpdatedAt: game.updatedAt,
-      });
-      props.onSaved(res.game);
-    } catch (err) {
-      setError(errorMessage(err));
-      if (err instanceof ApiError && err.status === 409) props.onConflict();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const label = `${game.name}・${slot.name}の人を選ぶ`;
-
-  return (
-    <Modal className="dialog game-dialog" label={label} onClose={props.onClose} closable={!saving}>
-      <div className="card member-picker">
-        <h2>
-          {slot.name}
-          <span className="muted small">
-            {" "}
-            {game.name}・{slot.points} 点
-          </span>
-        </h2>
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="名前・二つ名・通し番号で絞り込み"
-          aria-label="絞り込み"
-          data-autofocus
-        />
-        <div className="member-picker-bar">
-          <span className="small member-picker-count">{selected.size} 人を選択中</span>
-          <button
-            type="button"
-            onClick={() => setSelected((prev) => new Set([...prev, ...shown.map((m) => m.user.userId)]))}
-            disabled={shown.length === 0}
-          >
-            {q ? "表示中の人を全員選ぶ" : "全員を選ぶ"}
-          </button>
-          <button type="button" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>
-            選択を外す
-          </button>
-        </div>
-        <ul className="member-list">
-          {shown.map(({ user, label: no }) => (
-            <li key={user.userId}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={selected.has(user.userId)}
-                  onChange={(e) => toggle(user.userId, e.target.checked)}
-                />
-                <span className="member-no muted small">{no ?? "-"}</span>
-                <span className="member-name">{user.displayName}</span>
-                {otherSlot.has(user.userId) && (
-                  <span className="member-other muted small">{otherSlot.get(user.userId)}</span>
-                )}
-                {user.status === "unbound" && <span className="member-other muted small">解除済み</span>}
-              </label>
-            </li>
-          ))}
-          {shown.length === 0 && <li className="muted small">該当する人がいません。</li>}
-        </ul>
-        {moving > 0 && <p className="muted small">ほかの枠に入っている {moving} 人は、この枠に移ります。</p>}
-        {game.status === "confirmed" && (
-          <p className="muted small">確定済みなので、保存するとすぐにポイントが変わります。</p>
-        )}
-        {error && <p className="error">{error}</p>}
-        <div className="buttons">
-          <button type="button" onClick={props.onClose} disabled={saving}>
-            キャンセル
-          </button>
-          <button type="button" className="primary" onClick={save} disabled={saving}>
-            {saving ? "保存中…" : "保存"}
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
 }

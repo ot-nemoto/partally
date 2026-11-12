@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { EPITHET_MAX_LENGTH } from "./epithet.js";
+import { hasGameRanks, normalizeKeyword } from "./game-rules.js";
 import type { TieBreakKey } from "./types.js";
 
 export const NAME_MAX_LENGTH = 20;
@@ -58,7 +59,7 @@ export const photoStatusSchema = z.enum(["pending", "approved", "rejected"]);
 export const POINTS_MAX = 100;
 
 /** ポイントの内訳の項目 */
-export const POINT_KEYS = ["upload", "favoriteGiven", "favoriteReceived", "quiz", "game"] as const;
+export const POINT_KEYS = ["upload", "favoriteGiven", "favoriteReceived", "game"] as const;
 
 /**
  * 同じポイントのときに比べる項目（既定の優先順に並べている）。ポイントの内訳の項目と、登録順（先に登録した人が上）。
@@ -71,7 +72,6 @@ export const TIE_BREAK_LABEL: Record<TieBreakKey, string> = {
   upload: "写真のアップロード",
   favoriteGiven: "お気に入りを選んだ",
   favoriteReceived: "お気に入りに選ばれた",
-  quiz: "クイズ",
   game: "ゲーム",
   registered: "登録順",
 };
@@ -88,7 +88,6 @@ export const updateSettingsRequestSchema = z.object({
   // 以下は後から追加した項目。古い画面から保存されても 400 にせず、今の値を残す
   favoriteGivenPoints: points.optional(),
   showPoints: z.boolean().optional(),
-  showQuizPoints: z.boolean().optional(),
   showGamePoints: z.boolean().optional(),
   rankingVisible: z.boolean().optional(),
   rankingHideNames: z.boolean().optional(),
@@ -112,51 +111,14 @@ export const updateSettingsRequestSchema = z.object({
 
 export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
 
-export const QUIZ_TEXT_MAX_LENGTH = 500;
-export const QUIZ_CHOICE_TEXT_MAX_LENGTH = 100;
-export const QUIZ_CHOICES_MIN = 2;
-export const QUIZ_CHOICES_MAX = 10;
-
-/**
- * 問題文は書いたとおりに残す（前後の空白だけ除き、改行や全角の記号はそのまま）。
- * 選択肢は 1 行なので、連続する空白も 1 つにする
- */
-const quizText = z
-  .string()
-  .transform((s) => s.trim())
-  .pipe(z.string().min(1).max(QUIZ_TEXT_MAX_LENGTH));
-const quizChoiceText = z
-  .string()
-  .transform((s) => s.trim().replace(/\s+/g, " "))
-  .pipe(z.string().min(1).max(QUIZ_CHOICE_TEXT_MAX_LENGTH));
-
-/** choiceId は既存の選択肢を直すときに指定する。新しい選択肢には付けない */
-export const quizRequestSchema = z.object({
-  text: quizText,
-  choices: z
-    .array(
-      z.object({
-        choiceId: z.string().min(1).max(40).optional(),
-        text: quizChoiceText,
-        points,
-      }),
-    )
-    .min(QUIZ_CHOICES_MIN)
-    .max(QUIZ_CHOICES_MAX),
-});
-
-export const quizAnswerRequestSchema = z.object({
-  choiceId: z.string().min(1).max(40),
-});
-
-export type QuizRequest = z.infer<typeof quizRequestSchema>;
-
 export const PRIZE_NAME_MAX_LENGTH = 50;
 export const PRIZE_QUANTITY_MAX = 100;
 /** 割り当てられる順位の上限（参加者は 80 名程度の想定） */
 export const PRIZE_POSITION_MAX = 1000;
 export const PRIZE_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 export const PRIZE_IMAGE_MAX_EDGE = 1200;
+/** クイズの選択肢の画像の長辺（参加者の画面では小さく並べるので、問題の画像より小さくする） */
+export const GAME_CHOICE_IMAGE_MAX_EDGE = 600;
 
 /** サーバが発行する ID（ULID）。画像の ID など、クライアントから受け取るときに形だけ確かめる */
 const idSchema = z.string().regex(/^[0-9A-Za-z]{1,40}$/);
@@ -183,7 +145,6 @@ export const prizeRequestSchema = z
   });
 
 export type PrizeRequest = z.infer<typeof prizeRequestSchema>;
-export type QuizAnswerRequest = z.infer<typeof quizAnswerRequestSchema>;
 
 export const SCHEDULE_TITLE_MAX_LENGTH = 50;
 export const SCHEDULE_DETAIL_MAX_LENGTH = 500;
@@ -218,48 +179,204 @@ export const scheduleItemRequestSchema = z
 export type ScheduleItemRequest = z.infer<typeof scheduleItemRequestSchema>;
 
 export const GAME_NAME_MAX_LENGTH = 50;
+export const GAME_DESCRIPTION_MAX_LENGTH = 500;
 export const GAME_SLOT_NAME_MAX_LENGTH = 30;
 export const GAME_SLOTS_MAX = 20;
+export const GAME_CHOICE_TEXT_MAX_LENGTH = 100;
+export const GAME_CHOICES_MIN = 2;
+export const GAME_CHOICES_MAX = 10;
 /** 1 つのゲームで選べる人数の上限（参加者は 80 名程度の想定） */
 export const GAME_MEMBERS_MAX = 1000;
+/** 数値予想で答えられる数の範囲（整数） */
+export const GAME_NUMBER_MIN = 0;
+export const GAME_NUMBER_MAX = 100;
+/** 数値予想の点数の範囲の数と、順位の上限 */
+export const GAME_RANKS_MAX = 20;
+export const GAME_RANK_MAX = 1000;
 
 /**
- * ゲーム。枠（優勝・準優勝など）ごとに点数と、その枠に入る人を決める。1 人は 1 つの枠にだけ入る。
- * slotId は既存の枠を直すときに指定する。新しい枠には付けない
+ * ゲームの形式。quiz: 参加者が選択肢から選ぶ / result: 幹事が枠（優勝など）ごとに人を選ぶ /
+ * number: 参加者が数を答え、正解に近い順の順位で点数が入る（数値予想・ニアピン） /
+ * vote: 参加者が参加者全員から 1 人に投票し、得票の順位で選ばれた人に点数が入る /
+ * keyword: 参加者が合言葉を入れ、正解した順（先着順）の順位で点数が入る /
+ * lottery: 参加者が「参加する」を押し、確定したときに無作為に決めた順番で点数が入る
+ */
+export const GAME_FORMATS = ["quiz", "result", "number", "vote", "keyword", "lottery"] as const;
+
+/** 形式の名前（管理画面に出す） */
+export const GAME_FORMAT_LABEL: Record<(typeof GAME_FORMATS)[number], string> = {
+  quiz: "クイズ",
+  result: "結果入力",
+  number: "数値予想",
+  vote: "投票",
+  keyword: "合言葉",
+  lottery: "抽選",
+};
+
+/** 合言葉の長さの上限 */
+export const GAME_KEYWORD_MAX_LENGTH = 50;
+const keywordText = z
+  .string()
+  .transform((s) => s.trim())
+  .pipe(z.string().min(1).max(GAME_KEYWORD_MAX_LENGTH));
+
+const gameNumber = z.number().int().min(GAME_NUMBER_MIN).max(GAME_NUMBER_MAX);
+
+/** 選択肢・枠の名前は 1 行なので、連続する空白も 1 つにする */
+const oneLine = (max: number) =>
+  z
+    .string()
+    .transform((s) => s.trim().replace(/\s+/g, " "))
+    .pipe(z.string().min(1).max(max));
+
+/**
+ * ゲーム。形式は作るときに決め、後から変えない（更新で違う形式を送ると 400）。
+ * - quiz: 選択肢（2〜10 個）ごとに点数を決める。slots は送らない
+ * - result: 枠（0〜20 個。名前だけで作り、枠は後から足せる）ごとに点数と人を決める。1 人は 1 つの枠にだけ入る。choices は送らない
+ * - number: 点数の範囲（順位の始まりと終わり・点数。0〜20 個、重ねない）と、正解の数（確定までに入れる）を決める。choices・slots は送らない
+ * - vote: 得票の順位の範囲ごとの点数（number と同じ形）と、投票した人の点数を決める。choices・slots は送らない
+ * - keyword: 合言葉と、正解した順の範囲ごとの点数（number と同じ形）を決める。choices・slots は送らない
+ * - lottery: 引いた順番の範囲ごとの点数（number と同じ形）を決める。choices・slots は送らない
+ * choiceId・slotId は既存の選択肢・枠を直すときに指定する。新しいものには付けない
  */
 export const gameRequestSchema = z
   .object({
+    format: z.enum(GAME_FORMATS),
     name: normalized(GAME_NAME_MAX_LENGTH),
+    /** 説明（クイズなら問題文）。書いたとおりに残す（前後の空白だけ除く）。省くと空 */
+    description: z
+      .string()
+      .transform((s) => s.trim())
+      .pipe(z.string().max(GAME_DESCRIPTION_MAX_LENGTH))
+      .optional(),
+    /** 問題（ゲーム本体）の画像。画像のアップロード URL を発行したときの ID。省くと画像なし */
+    imageId: idSchema.optional(),
+    choices: z
+      .array(
+        z.object({
+          choiceId: idSchema.optional(),
+          text: oneLine(GAME_CHOICE_TEXT_MAX_LENGTH),
+          points,
+          /** 選択肢の画像。省くと画像なし */
+          imageId: idSchema.optional(),
+        }),
+      )
+      .max(GAME_CHOICES_MAX)
+      .optional(),
     slots: z
       .array(
         z.object({
           slotId: idSchema.optional(),
-          name: normalized(GAME_SLOT_NAME_MAX_LENGTH),
+          name: oneLine(GAME_SLOT_NAME_MAX_LENGTH),
           points,
           userIds: z.array(idSchema).max(GAME_MEMBERS_MAX),
         }),
       )
-      // 名前だけで作り、枠は後から足せる（枠が無いゲームは確定できない）
-      .max(GAME_SLOTS_MAX),
+      .max(GAME_SLOTS_MAX)
+      .optional(),
+    /** 数値予想の点数の範囲。from 位〜to 位の人に points を付ける */
+    ranks: z
+      .array(
+        z.object({
+          from: z.number().int().min(1).max(GAME_RANK_MAX),
+          to: z.number().int().min(1).max(GAME_RANK_MAX),
+          points,
+        }),
+      )
+      .max(GAME_RANKS_MAX)
+      .optional(),
+    /** 数値予想の正解の数。省くとまだ決めていない（確定できない） */
+    correctNumber: gameNumber.optional(),
+    /** 投票で、投票した人に入る点数。省くと 0（入らない） */
+    voterPoints: points.optional(),
+    /** 合言葉（参加者には見せない）。合言葉の形式では必須 */
+    keyword: keywordText.optional(),
     /**
      * 更新のとき、画面が持っているゲームの updatedAt。保存済みのものと違えば（ほかで直されていれば）上書きせず 409 にする。
      * 省くと確かめない
      */
     baseUpdatedAt: z.string().max(40).optional(),
   })
+  .refine((v) => v.format !== "quiz" || ((v.choices?.length ?? 0) >= GAME_CHOICES_MIN && !v.slots?.length), {
+    message: `クイズは選択肢を ${GAME_CHOICES_MIN}〜${GAME_CHOICES_MAX} 個にしてください`,
+    path: ["choices"],
+  })
+  .refine((v) => v.format === "quiz" || !v.choices?.length, {
+    message: "選択肢を付けられるのはクイズだけです",
+    path: ["choices"],
+  })
+  .refine((v) => v.format === "result" || !v.slots?.length, {
+    message: "枠を付けられるのは結果入力だけです",
+    path: ["slots"],
+  })
+  .refine((v) => hasGameRanks(v) || !v.ranks?.length, {
+    message: "点数の範囲を付けられるのは数値予想・投票・合言葉・抽選だけです",
+    path: ["ranks"],
+  })
+  .refine((v) => v.format === "number" || v.correctNumber === undefined, {
+    message: "正解の数を付けられるのは数値予想だけです",
+    path: ["correctNumber"],
+  })
+  .refine((v) => (v.format === "keyword") === (v.keyword !== undefined), {
+    message: "合言葉の形式では合言葉を入れてください（ほかの形式には付けられません）",
+    path: ["keyword"],
+  })
+  .refine((v) => v.keyword === undefined || normalizeKeyword(v.keyword) !== "", {
+    message: "合言葉に文字を入れてください",
+    path: ["keyword"],
+  })
+  .refine((v) => v.format === "vote" || !v.voterPoints, {
+    message: "投票した人の点数を付けられるのは投票だけです",
+    path: ["voterPoints"],
+  })
+  .refine((v) => (v.ranks ?? []).every((r) => r.from <= r.to), {
+    message: "点数の範囲は、始まりの順位を終わりの順位以下にしてください",
+    path: ["ranks"],
+  })
   .refine(
     (v) => {
-      const ids = v.slots.flatMap((s) => s.userIds);
+      const sorted = [...(v.ranks ?? [])].sort((a, b) => a.from - b.from);
+      return sorted.every((r, i) => i === 0 || sorted[i - 1]!.to < r.from);
+    },
+    { message: "点数の範囲が重なっています（例: 1〜5 位と 6〜10 位のように分けてください）", path: ["ranks"] },
+  )
+  .refine(
+    (v) => {
+      const ids = (v.slots ?? []).flatMap((s) => s.userIds);
       return new Set(ids).size === ids.length;
     },
     { message: "同じ人が複数の枠に入っています", path: ["slots"] },
   )
   .refine(
     (v) => {
-      const ids = v.slots.flatMap((s) => (s.slotId ? [s.slotId] : []));
+      const ids = [v.imageId, ...(v.choices ?? []).map((c) => c.imageId)].filter((id) => id !== undefined);
       return new Set(ids).size === ids.length;
     },
-    { message: "同じ枠が重複しています", path: ["slots"] },
+    { message: "同じ画像が複数の所で使われています", path: ["choices"] },
+  )
+  .refine(
+    (v) => {
+      const ids = [...(v.slots ?? []).map((s) => s.slotId), ...(v.choices ?? []).map((c) => c.choiceId)].filter(
+        (id) => id !== undefined,
+      );
+      return new Set(ids).size === ids.length;
+    },
+    { message: "同じ枠・選択肢が重複しています", path: ["slots"] },
   );
 
 export type GameRequest = z.infer<typeof gameRequestSchema>;
+
+/** ゲームへの答え。クイズは選んだ選択肢、数値予想は数（0〜100 の整数）、投票は選んだ人、合言葉は言葉、抽選は参加。どれか 1 つ */
+export const gameAnswerRequestSchema = z
+  .object({
+    choiceId: idSchema.optional(),
+    value: gameNumber.optional(),
+    targetUserId: idSchema.optional(),
+    text: keywordText.optional(),
+    /** 抽選に参加する */
+    entry: z.literal(true).optional(),
+  })
+  .refine((v) => [v.choiceId, v.value, v.targetUserId, v.text, v.entry].filter((x) => x !== undefined).length === 1, {
+    message: "選択肢・数・選んだ人・言葉・参加のどれか 1 つを送ってください",
+  });
+export type GameAnswerRequest = z.infer<typeof gameAnswerRequestSchema>;

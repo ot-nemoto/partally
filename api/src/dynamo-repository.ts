@@ -14,22 +14,31 @@ import {
   TransactWriteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { type GameStatus, type PhotoStatus, type Settings, TIE_BREAK_KEYS, type TieBreakKey } from "@partally/shared";
+import {
+  GAME_FORMATS,
+  type GameFormat,
+  type GameStatus,
+  type PhotoStatus,
+  type Settings,
+  TIE_BREAK_KEYS,
+  type TieBreakKey,
+} from "@partally/shared";
 import {
   DEFAULT_SETTINGS,
   EpithetTakenError,
   FavoriteLimitError,
   formatLabel,
+  GameAlreadyOpenError,
+  type GameAnswerRecord,
+  type GameChanges,
   type GameRecord,
+  InvalidCursorError,
   InvalidStateError,
   NotFoundError,
   type Page,
   type PhotoRecord,
   type PhotoRecordStatus,
   type PrizeRecord,
-  QuizAlreadyOpenError,
-  type QuizAnswerRecord,
-  type QuizRecord,
   type Repository,
   type ScheduleItemRecord,
   TokenNotAvailableError,
@@ -45,10 +54,9 @@ export const keys = {
   epithet: (epithet: string) => ({ PK: `EPITHET#${epithet}`, SK: "LOCK" }),
   photo: (photoId: string) => ({ PK: `PHOTO#${photoId}`, SK: "META" }),
   favorite: (userId: string, photoId: string) => ({ PK: `USER#${userId}`, SK: `FAV#${photoId}` }),
-  quiz: (quizId: string) => ({ PK: `QUIZ#${quizId}`, SK: "META" }),
-  quizAnswer: (userId: string, quizId: string) => ({ PK: `USER#${userId}`, SK: `ANSWER#${quizId}` }),
+  gameAnswer: (userId: string, gameId: string) => ({ PK: `USER#${userId}`, SK: `GANSWER#${gameId}` }),
   /** 出題中のクイズ。同時に 1 問だけにするため、このアイテムの有無で排他する */
-  openQuiz: { PK: "QUIZ_STATE", SK: "OPEN" },
+  openGame: { PK: "GAME_STATE", SK: "OPEN" },
   prize: (prizeId: string) => ({ PK: `PRIZE#${prizeId}`, SK: "META" }),
   scheduleItem: (itemId: string) => ({ PK: `SCHEDULE#${itemId}`, SK: "META" }),
   game: (gameId: string) => ({ PK: `GAME#${gameId}`, SK: "META" }),
@@ -283,8 +291,14 @@ export class DynamoRepository implements Repository {
     return { ...rest, status: "unbound" as const, updatedAt };
   }
 
-  async getPhoto(photoId: string) {
-    const { Item } = await this.client.send(new GetCommand({ TableName: this.tableName, Key: keys.photo(photoId) }));
+  async getPhoto(photoId: string, options?: { consistent?: boolean }) {
+    const { Item } = await this.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: keys.photo(photoId),
+        ...(options?.consistent ? { ConsistentRead: true } : {}),
+      }),
+    );
     return Item ? toPhotoRecord(Item) : undefined;
   }
 
@@ -297,7 +311,7 @@ export class DynamoRepository implements Repository {
         ExpressionAttributeValues: { ":pk": `PHOTOS#${status}` },
         ScanIndexForward: false,
         Limit: limit,
-        ExclusiveStartKey: decodeCursor(cursor),
+        ExclusiveStartKey: decodePhotoCursor(cursor, `PHOTOS#${status}`),
       }),
     );
     return { items: (page.Items ?? []).map(toPhotoRecord), cursor: encodeCursor(page.LastEvaluatedKey) };
@@ -505,192 +519,6 @@ export class DynamoRepository implements Repository {
     console.warn(`お気に入りを外しきれませんでした: ${photoId}`);
   }
 
-  async createQuiz(quiz: QuizRecord) {
-    await this.client.send(
-      new PutCommand({
-        TableName: this.tableName,
-        Item: quizItem(quiz),
-        ConditionExpression: "attribute_not_exists(PK)",
-      }),
-    );
-  }
-
-  async getQuiz(quizId: string) {
-    const { Item } = await this.client.send(
-      new GetCommand({ TableName: this.tableName, Key: keys.quiz(quizId), ConsistentRead: true }),
-    );
-    return Item ? toQuizRecord(Item) : undefined;
-  }
-
-  async listQuizzes() {
-    return (await this.queryGsi1("QUIZZES")).map(toQuizRecord);
-  }
-
-  async updateQuiz(
-    quizId: string,
-    changes: Pick<QuizRecord, "text" | "choices">,
-    updatedAt: string,
-    onlyIfDraft: boolean,
-  ) {
-    try {
-      const { Attributes } = await this.client.send(
-        new UpdateCommand({
-          TableName: this.tableName,
-          Key: keys.quiz(quizId),
-          UpdateExpression: "SET #text = :text, choices = :choices, updatedAt = :updatedAt",
-          ConditionExpression: onlyIfDraft ? "attribute_exists(PK) AND #status = :draft" : "attribute_exists(PK)",
-          ExpressionAttributeNames: { "#text": "text", ...(onlyIfDraft ? { "#status": "status" } : {}) },
-          ExpressionAttributeValues: {
-            ":text": changes.text,
-            ":choices": changes.choices,
-            ":updatedAt": updatedAt,
-            ...(onlyIfDraft ? { ":draft": "draft" } : {}),
-          },
-          ReturnValues: "ALL_NEW",
-        }),
-      );
-      return toQuizRecord(Attributes!);
-    } catch (e) {
-      if (isConditionalCheckFailed(e)) throw await this.quizStateError(quizId);
-      throw e;
-    }
-  }
-
-  async deleteQuiz(quizId: string) {
-    try {
-      await this.client.send(
-        new DeleteCommand({
-          TableName: this.tableName,
-          Key: keys.quiz(quizId),
-          ConditionExpression: "attribute_exists(PK) AND #status <> :open",
-          ExpressionAttributeNames: { "#status": "status" },
-          ExpressionAttributeValues: { ":open": "open" },
-        }),
-      );
-    } catch (e) {
-      if (isConditionalCheckFailed(e)) throw await this.quizStateError(quizId);
-      throw e;
-    }
-    // クイズを先に消すので、途中で失敗して回答が残っても点数には数えられない
-    const answers = await this.listQuizAnswersByQuiz(quizId);
-    await this.batchWrite(answers.map((a) => ({ DeleteRequest: { Key: keys.quizAnswer(a.userId, a.quizId) } })));
-  }
-
-  async openQuiz(quizId: string, openedAt: string) {
-    try {
-      await this.transactWithRetry(
-        new TransactWriteCommand({
-          TransactItems: [
-            {
-              Put: {
-                TableName: this.tableName,
-                Item: { ...keys.openQuiz, quizId },
-                ConditionExpression: "attribute_not_exists(PK)",
-              },
-            },
-            {
-              Update: {
-                TableName: this.tableName,
-                Key: keys.quiz(quizId),
-                UpdateExpression: "SET #status = :open, openedAt = :at, updatedAt = :at",
-                ConditionExpression: "#status = :draft",
-                ExpressionAttributeNames: { "#status": "status" },
-                ExpressionAttributeValues: { ":open": "open", ":draft": "draft", ":at": openedAt },
-              },
-            },
-          ],
-        }),
-      );
-    } catch (e) {
-      // 無い・下書きでないを、別の問題が出題中より先に判定する（メモリ実装と同じ順）
-      const failed = conditionFailures(e);
-      if (failed?.[1]) throw await this.quizStateError(quizId);
-      if (failed?.[0]) throw new QuizAlreadyOpenError();
-      throw e;
-    }
-    return (await this.getQuiz(quizId))!;
-  }
-
-  async closeQuiz(quizId: string, closedAt: string) {
-    try {
-      await this.transactWithRetry(
-        new TransactWriteCommand({
-          TransactItems: [
-            {
-              Delete: {
-                TableName: this.tableName,
-                Key: keys.openQuiz,
-                ConditionExpression: "quizId = :quizId",
-                ExpressionAttributeValues: { ":quizId": quizId },
-              },
-            },
-            {
-              Update: {
-                TableName: this.tableName,
-                Key: keys.quiz(quizId),
-                UpdateExpression: "SET #status = :closed, closedAt = :at, updatedAt = :at",
-                ConditionExpression: "#status = :open",
-                ExpressionAttributeNames: { "#status": "status" },
-                ExpressionAttributeValues: { ":closed": "closed", ":open": "open", ":at": closedAt },
-              },
-            },
-          ],
-        }),
-      );
-    } catch (e) {
-      if (conditionFailures(e)) throw await this.quizStateError(quizId);
-      throw e;
-    }
-    return (await this.getQuiz(quizId))!;
-  }
-
-  async getOpenQuizId() {
-    const { Item } = await this.client.send(
-      new GetCommand({ TableName: this.tableName, Key: keys.openQuiz, ConsistentRead: true }),
-    );
-    return Item?.quizId as string | undefined;
-  }
-
-  async putQuizAnswer(answer: QuizAnswerRecord) {
-    // 全員が一斉に答えるので、クイズのアイテムを含むトランザクションにはしない（TransactionConflict が多発する）。
-    // 呼び出し側の確認と保存の間に締め切られた回答は、点数の計算で answeredAt > closedAt として除く
-    await this.client.send(
-      new PutCommand({
-        TableName: this.tableName,
-        Item: {
-          ...keys.quizAnswer(answer.userId, answer.quizId),
-          GSI1PK: `ANSWERS#${answer.quizId}`,
-          GSI1SK: answer.userId,
-          ...answer,
-        },
-      }),
-    );
-  }
-
-  async getQuizAnswer(userId: string, quizId: string) {
-    const { Item } = await this.client.send(
-      new GetCommand({ TableName: this.tableName, Key: keys.quizAnswer(userId, quizId) }),
-    );
-    return Item ? toQuizAnswerRecord(Item) : undefined;
-  }
-
-  async listQuizAnswersByUser(userId: string) {
-    const items = await this.queryAll({
-      KeyConditionExpression: "PK = :pk AND begins_with(SK, :answer)",
-      ExpressionAttributeValues: { ":pk": `USER#${userId}`, ":answer": "ANSWER#" },
-    });
-    return items.map(toQuizAnswerRecord);
-  }
-
-  async listQuizAnswersByQuiz(quizId: string) {
-    return (await this.queryGsi1(`ANSWERS#${quizId}`)).map(toQuizAnswerRecord);
-  }
-
-  /** 条件付き更新に失敗したクイズが、無いのか状態が合わないのかを調べる */
-  private async quizStateError(quizId: string) {
-    return (await this.getQuiz(quizId)) ? new InvalidStateError() : new NotFoundError();
-  }
-
   /** 25 件ずつに分けて書き込み、未処理分は数回まで再送する */
   private async batchWrite(writes: NonNullable<BatchWriteCommandInput["RequestItems"]>[string]) {
     for (let i = 0; i < writes.length; i += BATCH_WRITE_MAX) {
@@ -880,25 +708,44 @@ export class DynamoRepository implements Repository {
     return (await this.queryGsi1("GAMES")).map(toGameRecord);
   }
 
-  async updateGame(
-    gameId: string,
-    changes: Pick<GameRecord, "name" | "slots">,
-    updatedAt: string,
-    expectedUpdatedAt?: string,
-  ) {
+  async updateGame(gameId: string, changes: GameChanges, updatedAt: string, expectedUpdatedAt?: string) {
     const check = expectedUpdatedAt !== undefined;
+    const set = [
+      "#name = :name",
+      "description = :description",
+      "slots = :slots",
+      "choices = :choices",
+      "ranks = :ranks",
+      "voterPoints = :voterPoints",
+      "updatedAt = :updatedAt",
+    ];
+    const remove: string[] = [];
+    // 画像・正解の数・合言葉は、無ければ項目ごと消す
+    if (changes.imageId) set.push("imageId = :imageId");
+    else remove.push("imageId");
+    if (changes.correctNumber !== undefined) set.push("correctNumber = :correctNumber");
+    else remove.push("correctNumber");
+    if (changes.keyword !== undefined) set.push("keyword = :keyword");
+    else remove.push("keyword");
     try {
       const { Attributes } = await this.client.send(
         new UpdateCommand({
           TableName: this.tableName,
           Key: keys.game(gameId),
-          UpdateExpression: "SET #name = :name, slots = :slots, updatedAt = :updatedAt",
+          UpdateExpression: `SET ${set.join(", ")}${remove.length ? ` REMOVE ${remove.join(", ")}` : ""}`,
           ConditionExpression: check ? "attribute_exists(PK) AND updatedAt = :expected" : "attribute_exists(PK)",
           ExpressionAttributeNames: { "#name": "name" },
           ExpressionAttributeValues: {
             ":name": changes.name,
+            ":description": changes.description,
             ":slots": changes.slots,
+            ":choices": changes.choices,
             ":updatedAt": updatedAt,
+            ":ranks": changes.ranks,
+            ":voterPoints": changes.voterPoints,
+            ...(changes.imageId ? { ":imageId": changes.imageId } : {}),
+            ...(changes.correctNumber !== undefined ? { ":correctNumber": changes.correctNumber } : {}),
+            ...(changes.keyword !== undefined ? { ":keyword": changes.keyword } : {}),
             ...(check ? { ":expected": expectedUpdatedAt } : {}),
           },
           ReturnValues: "ALL_NEW",
@@ -913,29 +760,83 @@ export class DynamoRepository implements Repository {
     }
   }
 
-  async setGameStatus(gameId: string, status: GameStatus, at: string) {
-    const confirm = status === "confirmed";
+  async changeGameStatus(gameId: string, from: GameStatus, to: GameStatus, at: string, drawOrder?: string[]) {
+    if (from === to) throw new InvalidStateError();
+    const set = ["#status = :to", "updatedAt = :at"];
+    if (to === "open") set.push("openedAt = :at");
+    if (to === "confirmed") set.push("confirmedAt = :at");
+    const withDraw = to === "confirmed" && drawOrder !== undefined;
+    if (withDraw) set.push("drawOrder = :drawOrder");
+    const update = {
+      TableName: this.tableName,
+      Key: keys.game(gameId),
+      // 確定から戻すときは、確定した時刻と抽選の順番を消す
+      UpdateExpression: `SET ${set.join(", ")}${from === "confirmed" ? " REMOVE confirmedAt, drawOrder" : ""}`,
+      ConditionExpression: "#status = :from",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: {
+        ":to": to,
+        ":from": from,
+        ":at": at,
+        ...(withDraw ? { ":drawOrder": drawOrder } : {}),
+      },
+    };
     try {
-      const { Attributes } = await this.client.send(
-        new UpdateCommand({
-          TableName: this.tableName,
-          Key: keys.game(gameId),
-          UpdateExpression: confirm
-            ? "SET #status = :to, confirmedAt = :at, updatedAt = :at"
-            : "SET #status = :to, updatedAt = :at REMOVE confirmedAt",
-          ConditionExpression: "attribute_exists(PK) AND #status = :from",
-          ExpressionAttributeNames: { "#status": "status" },
-          ExpressionAttributeValues: { ":to": status, ":from": confirm ? "draft" : "confirmed", ":at": at },
-          ReturnValues: "ALL_NEW",
-        }),
-      );
-      return toGameRecord(Attributes!);
+      if (to === "open") {
+        // 開催中の印を「無いこと」を条件に作り、開催中を 1 つに限る（クイズの出題中と同じ）
+        await this.transactWithRetry(
+          new TransactWriteCommand({
+            TransactItems: [
+              {
+                Put: {
+                  TableName: this.tableName,
+                  Item: { ...keys.openGame, gameId },
+                  ConditionExpression: "attribute_not_exists(PK)",
+                },
+              },
+              { Update: update },
+            ],
+          }),
+        );
+      } else if (from === "open") {
+        await this.transactWithRetry(
+          new TransactWriteCommand({
+            TransactItems: [
+              {
+                Delete: {
+                  TableName: this.tableName,
+                  Key: keys.openGame,
+                  ConditionExpression: "gameId = :gameId",
+                  ExpressionAttributeValues: { ":gameId": gameId },
+                },
+              },
+              { Update: update },
+            ],
+          }),
+        );
+      } else {
+        await this.client.send(new UpdateCommand(update));
+      }
     } catch (e) {
-      if (isConditionalCheckFailed(e)) {
-        throw (await this.getGame(gameId)) ? new InvalidStateError() : new NotFoundError();
+      const failed = conditionFailures(e);
+      if (failed || isConditionalCheckFailed(e)) {
+        // 無い・状態が合わないを、別のゲームが開催中より先に判定する（メモリ実装と同じ順）
+        const game = await this.getGame(gameId);
+        if (!game) throw new NotFoundError();
+        if (game.status !== from) throw new InvalidStateError();
+        if (to === "open" && failed?.[0]) throw new GameAlreadyOpenError();
+        throw new InvalidStateError();
       }
       throw e;
     }
+    return (await this.getGame(gameId))!;
+  }
+
+  async getOpenGameId() {
+    const { Item } = await this.client.send(
+      new GetCommand({ TableName: this.tableName, Key: keys.openGame, ConsistentRead: true }),
+    );
+    return Item?.gameId as string | undefined;
   }
 
   async deleteGame(gameId: string) {
@@ -944,13 +845,74 @@ export class DynamoRepository implements Repository {
         new DeleteCommand({
           TableName: this.tableName,
           Key: keys.game(gameId),
-          ConditionExpression: "attribute_exists(PK)",
+          ConditionExpression: "attribute_exists(PK) AND #status <> :open",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: { ":open": "open" },
         }),
       );
     } catch (e) {
-      if (isConditionalCheckFailed(e)) throw new NotFoundError();
+      if (isConditionalCheckFailed(e)) {
+        throw (await this.getGame(gameId)) ? new InvalidStateError() : new NotFoundError();
+      }
       throw e;
     }
+    // ゲームを先に消すので、途中で失敗して答えが残っても点数には数えられない
+    const answers = await this.listGameAnswersByGame(gameId);
+    await this.batchWrite(answers.map((a) => ({ DeleteRequest: { Key: keys.gameAnswer(a.userId, a.gameId) } })));
+  }
+
+  async putGameAnswer(answer: GameAnswerRecord, expected?: { answeredAt: string | undefined }) {
+    // 全員が一斉に答えるので、ゲームのアイテムを含むトランザクションにはしない（TransactionConflict が多発する）。
+    // 呼び出し側の確認と保存の間に確定された答えは、点数の計算で answeredAt > confirmedAt として除く
+    const condition =
+      expected === undefined
+        ? {}
+        : expected.answeredAt === undefined
+          ? { ConditionExpression: "attribute_not_exists(PK)" }
+          : {
+              ConditionExpression: "answeredAt = :expected",
+              ExpressionAttributeValues: { ":expected": expected.answeredAt },
+            };
+    try {
+      await this.client.send(
+        new PutCommand({
+          TableName: this.tableName,
+          Item: {
+            ...keys.gameAnswer(answer.userId, answer.gameId),
+            GSI1PK: `GANSWERS#${answer.gameId}`,
+            GSI1SK: answer.userId,
+            ...answer,
+          },
+          ...condition,
+        }),
+      );
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) throw new InvalidStateError();
+      throw e;
+    }
+  }
+
+  async getGameAnswer(userId: string, gameId: string, options?: { consistent?: boolean }) {
+    const { Item } = await this.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: keys.gameAnswer(userId, gameId),
+        ...(options?.consistent ? { ConsistentRead: true } : {}),
+      }),
+    );
+    return Item ? toGameAnswerRecord(Item) : undefined;
+  }
+
+  async listGameAnswersByUser(userId: string) {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :answer)",
+      ExpressionAttributeValues: { ":pk": `USER#${userId}`, ":answer": "GANSWER#" },
+    });
+    return items.map(toGameAnswerRecord);
+  }
+
+  async listGameAnswersByGame(gameId: string) {
+    return (await this.queryGsi1(`GANSWERS#${gameId}`)).map(toGameAnswerRecord);
   }
 
   async getSettings(): Promise<Settings> {
@@ -960,9 +922,6 @@ export class DynamoRepository implements Repository {
         .filter((key) => Item?.[key] !== undefined)
         .map((key) => [key, Item![key]]),
     );
-    // クイズの点数は以前 showPoints で一緒に伏せていた。別の設定にする前に伏せていたなら、伏せたままにする
-    if (stored.showQuizPoints === undefined && stored.showPoints !== undefined)
-      stored.showQuizPoints = stored.showPoints;
     if (Array.isArray(stored.tieBreakOrder)) stored.tieBreakOrder = normalizeTieBreakOrder(stored.tieBreakOrder);
     return { ...DEFAULT_SETTINGS, ...stored };
   }
@@ -1091,27 +1050,6 @@ function toPhotoRecord(item: Record<string, unknown>): PhotoRecord {
   };
 }
 
-function quizItem(quiz: QuizRecord) {
-  return { ...keys.quiz(quiz.quizId), GSI1PK: "QUIZZES", GSI1SK: `${quiz.createdAt}#${quiz.quizId}`, ...quiz };
-}
-
-function toQuizRecord(item: Record<string, unknown>): QuizRecord {
-  return {
-    quizId: item.quizId as string,
-    text: item.text as string,
-    choices: ((item.choices ?? []) as Record<string, unknown>[]).map((c) => ({
-      choiceId: c.choiceId as string,
-      text: c.text as string,
-      points: Number(c.points ?? 0),
-    })),
-    status: item.status as QuizRecord["status"],
-    createdAt: item.createdAt as string,
-    updatedAt: item.updatedAt as string,
-    openedAt: item.openedAt as string | undefined,
-    closedAt: item.closedAt as string | undefined,
-  };
-}
-
 function prizeItem(prize: PrizeRecord) {
   return { ...keys.prize(prize.prizeId), GSI1PK: "PRIZES", GSI1SK: `${prize.createdAt}#${prize.prizeId}`, ...prize };
 }
@@ -1131,8 +1069,28 @@ function toPrizeRecord(item: Record<string, unknown>): PrizeRecord {
 function toGameRecord(item: Record<string, unknown>): GameRecord {
   return {
     gameId: item.gameId as string,
+    // 形式を持つ前に作ったゲームと、この版が知らない形式（新しい版で作った後に戻したとき）は結果入力として読む。
+    // 形式ごとの表（GAME_FORMAT_RULES・GAME_SCORING）に無い形式で、点数の計算や一覧が失敗しないように
+    format: GAME_FORMATS.includes(item.format as GameFormat) ? (item.format as GameFormat) : "result",
     name: item.name as string,
+    description: (item.description as string | undefined) ?? "",
     status: item.status as GameStatus,
+    imageId: item.imageId as string | undefined,
+    choices: ((item.choices ?? []) as Record<string, unknown>[]).map((c) => ({
+      choiceId: c.choiceId as string,
+      text: c.text as string,
+      points: Number(c.points ?? 0),
+      imageId: c.imageId as string | undefined,
+    })),
+    ranks: ((item.ranks ?? []) as Record<string, unknown>[]).map((r) => ({
+      from: Number(r.from),
+      to: Number(r.to),
+      points: Number(r.points ?? 0),
+    })),
+    correctNumber: item.correctNumber === undefined ? undefined : Number(item.correctNumber),
+    voterPoints: Number(item.voterPoints ?? 0),
+    keyword: item.keyword as string | undefined,
+    drawOrder: item.drawOrder as string[] | undefined,
     slots: ((item.slots ?? []) as Record<string, unknown>[]).map((s) => ({
       slotId: s.slotId as string,
       name: s.name as string,
@@ -1141,7 +1099,21 @@ function toGameRecord(item: Record<string, unknown>): GameRecord {
     })),
     createdAt: item.createdAt as string,
     updatedAt: item.updatedAt as string,
+    openedAt: item.openedAt as string | undefined,
     confirmedAt: item.confirmedAt as string | undefined,
+  };
+}
+
+function toGameAnswerRecord(item: Record<string, unknown>): GameAnswerRecord {
+  return {
+    gameId: item.gameId as string,
+    userId: item.userId as string,
+    choiceId: item.choiceId as string | undefined,
+    value: item.value === undefined ? undefined : Number(item.value),
+    targetUserId: item.targetUserId as string | undefined,
+    text: item.text as string | undefined,
+    entry: item.entry === true ? true : undefined,
+    answeredAt: item.answeredAt as string,
   };
 }
 
@@ -1172,26 +1144,35 @@ function toScheduleItemRecord(item: Record<string, unknown>): ScheduleItemRecord
   };
 }
 
-function toQuizAnswerRecord(item: Record<string, unknown>): QuizAnswerRecord {
-  return {
-    quizId: item.quizId as string,
-    userId: item.userId as string,
-    choiceId: item.choiceId as string,
-    answeredAt: item.answeredAt as string,
-  };
-}
-
 function encodeCursor(key: Record<string, unknown> | undefined): string | undefined {
   return key ? Buffer.from(JSON.stringify(key)).toString("base64url") : undefined;
 }
 
-function decodeCursor(cursor: string | undefined): Record<string, unknown> | undefined {
+/**
+ * 写真の一覧の続きを読む位置（cursor）を DynamoDB の開始キーに戻す。cursor は参加者から送られるので、
+ * 写真のキー（PK が PHOTO#…、SK が META）で、この一覧（GSI1PK）のもので、PK・SK・GSI1PK・GSI1SK の文字列だけでなければ
+ * InvalidCursorError にする
+ */
+function decodePhotoCursor(cursor: string | undefined, gsi1pk: string): Record<string, unknown> | undefined {
   if (!cursor) return undefined;
+  let key: unknown;
   try {
-    return JSON.parse(Buffer.from(cursor, "base64url").toString()) as Record<string, unknown>;
+    key = JSON.parse(Buffer.from(cursor, "base64url").toString());
   } catch {
-    return undefined;
+    throw new InvalidCursorError();
   }
+  const names = ["PK", "SK", "GSI1PK", "GSI1SK"];
+  const valid =
+    typeof key === "object" &&
+    key !== null &&
+    !Array.isArray(key) &&
+    Object.keys(key).length === names.length &&
+    names.every((n) => typeof (key as Record<string, unknown>)[n] === "string") &&
+    String((key as Record<string, unknown>).PK).startsWith("PHOTO#") &&
+    (key as Record<string, unknown>).SK === "META" &&
+    (key as Record<string, unknown>).GSI1PK === gsi1pk;
+  if (!valid) throw new InvalidCursorError();
+  return key as Record<string, unknown>;
 }
 
 function userItem(user: UserRecord) {

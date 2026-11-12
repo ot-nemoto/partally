@@ -156,14 +156,8 @@ export function AdminSettings() {
               onChange={(v) => update("showPoints", v)}
             />
             <SwitchField
-              label="参加者のホーム画面にクイズの点数を表示する"
-              description="オフにすると、参加者には自分のクイズの点数が見えなくなります。合計のポイントにはクイズの点数も含まれます。"
-              checked={settings.showQuizPoints}
-              onChange={(v) => update("showQuizPoints", v)}
-            />
-            <SwitchField
               label="参加者のホーム画面にゲームの点数を表示する"
-              description="オフにすると、参加者には自分のゲームの点数と、入った枠（例: じゃんけん大会 優勝）が見えなくなります。合計のポイントにはゲームの点数も含まれます。"
+              description="オフにすると、参加者には自分のゲーム（クイズを含む）の点数と、点数が入ったもの（例: じゃんけん大会 優勝）が見えなくなります。合計のポイントにはゲームの点数も含まれます。"
               checked={settings.showGamePoints}
               onChange={(v) => update("showGamePoints", v)}
             />
