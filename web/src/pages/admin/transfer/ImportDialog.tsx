@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from "react";
-import { errorMessage } from "../../../api";
+import { ApiError, errorMessage } from "../../../api";
 import { Modal } from "../../../components/Modal";
 
 type Mode = "add" | "replace";
@@ -66,7 +66,12 @@ export function ImportDialog(props: {
         const removers = props.removeCurrent ?? [];
         for (const [i, remove] of removers.entries()) {
           setProgress(`今の${noun}を削除中… ${i + 1} / ${removers.length}`);
-          await remove?.();
+          try {
+            await remove?.();
+          } catch (e) {
+            // ほかの画面で先に消されていたら、消えているのでそのまま続ける
+            if (!(e instanceof ApiError && e.status === 404)) throw e;
+          }
         }
       }
       step = "after";

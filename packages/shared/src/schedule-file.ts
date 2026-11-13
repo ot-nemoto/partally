@@ -3,7 +3,8 @@ import { scheduleItemRequestSchema, updateSettingsRequestSchema } from "./schema
 
 /**
  * スケジュールのエクスポート・インポートに使う JSON ファイル。項目とイベントの日付を入れる
- * （画像が無いので ZIP にせず、手で直しやすい 1 つの JSON にする）
+ * （画像が無いので ZIP にせず、手で直しやすい 1 つの JSON にする）。API は使わないので index からは読み込まない。
+ * 画面から `@partally/shared/schedule-file` で読み込む
  */
 
 /** format。別のアプリの JSON や、景品・ゲームの一覧を取り違えて取り込まないための印 */

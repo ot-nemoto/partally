@@ -17,6 +17,8 @@ export function TransferButtons<T>(props: {
   canImport: boolean;
   /** 選べるファイルの種類（input の accept） */
   accept: string;
+  /** 読めるファイルの大きさ。読む前に確かめる（間違えて大きなファイルを選んでも、画面が固まらないように） */
+  maxBytes: number;
   /** 選んだファイルを読んで確かめる */
   read: (file: File) => Promise<ReadResult<T>>;
   /** 取り込みの画面。close は取りやめ、done は取り込んだ後 */
@@ -42,6 +44,10 @@ export function TransferButtons<T>(props: {
 
   async function pick(file: File | undefined) {
     if (!file) return;
+    if (file.size > props.maxBytes) {
+      alert(`このファイルは取り込めません。\nファイルが大きすぎます（${props.maxBytes / 1024 / 1024}MB まで）。`);
+      return;
+    }
     setReading(true);
     try {
       const result = await props.read(file);

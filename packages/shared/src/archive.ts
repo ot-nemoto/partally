@@ -1,14 +1,13 @@
 import { strFromU8, strToU8, type Unzipped, unzipSync, zipSync } from "fflate";
+import { ARCHIVE_MAX_BYTES } from "./archive-json.js";
 
-export { imagePathOf, isRecord, issueText } from "./archive-json.js";
+export { ARCHIVE_MAX_BYTES, imagePathOf, isRecord, issueText } from "./archive-json.js";
 
 /**
  * エクスポート・インポートの ZIP（景品・ゲームで共通）。いちばん上に一覧の JSON（manifest）を置き、画像を images/ に入れる。
  * API の index からは読み込まない（ZIP のライブラリを API に含めないため）。景品・ゲームの ZIP のモジュールから使う
  */
 
-/** 取り込める ZIP の大きさ */
-export const ARCHIVE_MAX_BYTES = 50 * 1024 * 1024;
 /** 展開した後の 1 ファイルの大きさ（画像は取り込むときに縮小し直すので、元の画像は大きくてもよい） */
 export const ARCHIVE_MAX_FILE_BYTES = 20 * 1024 * 1024;
 /** 展開した後の合計の大きさ（圧縮を悪用した巨大なファイルで画面が固まらないように） */

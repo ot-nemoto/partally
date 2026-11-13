@@ -1,4 +1,5 @@
 import {
+  ARCHIVE_MAX_BYTES,
   GAME_CHOICE_IMAGE_MAX_EDGE,
   GAME_FORMAT_LABEL,
   type GameDto,
@@ -34,8 +35,10 @@ export function GameTransferButtons(props: { games: GameDto[] | undefined; onImp
       api<GamesResponse>("GET", "/admin/games"),
     ]);
     const image = (url: string | undefined, name: string) => (url ? fetchImage(url, name) : undefined);
-    const items: GameArchiveItem[] = await Promise.all(
-      latest.games.map(async (g) => ({
+    // 画像の取得はゲームごとに順に行う（ゲームが多くても、一度に何百も取りに行かないように）
+    const items: GameArchiveItem[] = [];
+    for (const g of latest.games) {
+      items.push({
         format: g.format,
         name: g.name,
         description: g.description,
@@ -53,8 +56,8 @@ export function GameTransferButtons(props: { games: GameDto[] | undefined; onImp
         correctNumber: g.correctNumber,
         voterPoints: g.voterPoints,
         keyword: g.keyword,
-      })),
-    );
+      });
+    }
     const now = new Date();
     const zip = buildGameArchive(items, now.toISOString());
     return {
@@ -73,6 +76,7 @@ export function GameTransferButtons(props: { games: GameDto[] | undefined; onImp
       exportFile={exportFile}
       canImport={!!games}
       accept=".zip,application/zip"
+      maxBytes={ARCHIVE_MAX_BYTES}
       read={async (file) => {
         const { readGameArchive } = await loadArchive();
         const result = readGameArchive(new Uint8Array(await file.arrayBuffer()));

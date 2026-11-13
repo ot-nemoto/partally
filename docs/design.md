@@ -509,12 +509,12 @@ sequenceDiagram
 |---|---|---|---|
 | 景品 | ZIP（`@partally/shared/prize-archive`） | `prizes.json`（`{format: "partally-prizes", version: 1, exportedAt, prizes: [{name, quantity, positions, image?}]}`）と `images/NN.jpg`。景品は作成順 | 追加か置き換え。100 件まで |
 | ゲーム | ZIP（`@partally/shared/game-archive`） | `games.json`（`{format: "partally-games", version: 1, exportedAt, games: [{format, name, description, image?, choices: [{text, points, image?}], slots: [{name, points}], ranks, correctNumber?, voterPoints, keyword?}]}`）と `images/NN.jpg`（問題・選択肢の順に通し番号）。ゲームは作成順。状態・答え・抽選の順番・枠に選んだ人は入れない | 下書きとして追加だけ（置き換えは、確定したゲームのポイントが消えるので無い）。100 件まで |
-| スケジュール | JSON（`@partally/shared` の `schedule-file`） | `{format: "partally-schedule", version: 1, exportedAt, date?, items: [{title, detail, startMinute, durationMinutes}]}`。項目は開始時刻の早い順 | 追加か置き換え。日付は選んだときだけ設定に入れる。200 件まで |
+| スケジュール | JSON（`@partally/shared/schedule-file`） | `{format: "partally-schedule", version: 1, exportedAt, date?, items: [{title, detail, startMinute, durationMinutes}]}`。項目は開始時刻の早い順 | 追加か置き換え。日付は選んだときだけ設定に入れる。200 件まで |
 
 - ZIP のライブラリ fflate は、景品・ゲームの画面で使うときだけ読み込む。ZIP の読み書き（大きさの確かめ、一覧の JSON の探し方）は `packages/shared/src/archive.ts` で共通にする。
 - 画像は今の配信 URL から取る（JPEG は圧縮し直さない）。取り込むときは、作成と同じ流れ（画像を端末で縮小・JPEG にしてから `image-upload` → 署名付き POST → `POST /api/admin/prizes`・`POST /api/admin/games`）で 1 件ずつ作る。
 - 置き換えのときは、すべて取り込めてから今のものを削除する。途中で止まったときは、何件目で止まったかを出し、今のものは消さない。
-- 読む前に大きさを確かめる（ZIP 50MB、展開後は 1 ファイル 20MB・合計 200MB、スケジュールの JSON 1MB）。一覧の JSON は ZIP のいちばん上か 1 つ下のフォルダから探し、macOS の付属ファイルは読まない。各件は作成と同じ決まり（`prizeRequestSchema`・`gameRequestSchema`・`scheduleItemRequestSchema`）で確かめ、1 件でも合わなければ何も取り込まない。
+- 大きさは、ファイルを読む前（ZIP 50MB、スケジュールの JSON 1MB）と、展開するとき（1 ファイル 20MB・合計 200MB）に確かめる。置き換えで今のものを消すとき、ほかの画面で先に消されていたもの（404）は消えているとみなして続ける。一覧の JSON は ZIP のいちばん上か 1 つ下のフォルダから探し、macOS の付属ファイルは読まない。各件は作成と同じ決まり（`prizeRequestSchema`・`gameRequestSchema`・`scheduleItemRequestSchema`）で確かめ、1 件でも合わなければ何も取り込まない。
 - 取り込みの画面（中身の一覧・追加か置き換えか・進み具合）は `web/src/pages/admin/transfer/` で共通にする。
 
 ---

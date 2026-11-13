@@ -5,7 +5,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./prize-archive": "./src/prize-archive.ts",
-    "./game-archive": "./src/game-archive.ts"
+    "./game-archive": "./src/game-archive.ts",
+    "./schedule-file": "./src/schedule-file.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",

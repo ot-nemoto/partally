@@ -1,4 +1,5 @@
 import {
+  ARCHIVE_MAX_BYTES,
   formatPositions,
   PRIZE_IMAGE_MAX_EDGE,
   type PrizeDto,
@@ -52,6 +53,7 @@ export function PrizeTransferButtons(props: { prizes: PrizeDto[] | undefined; on
       exportFile={exportFile}
       canImport={!!prizes}
       accept=".zip,application/zip"
+      maxBytes={ARCHIVE_MAX_BYTES}
       read={async (file) => {
         const { readPrizeArchive } = await loadArchive();
         const result = readPrizeArchive(new Uint8Array(await file.arrayBuffer()));

@@ -1,13 +1,16 @@
 import {
-  buildScheduleFile,
   formatScheduleRange,
-  readScheduleFile,
-  type ScheduleFile,
   type ScheduleItemDto,
   type ScheduleItemResponse,
   type ScheduleResponse,
   type SettingsResponse,
 } from "@partally/shared";
+import {
+  buildScheduleFile,
+  readScheduleFile,
+  SCHEDULE_FILE_MAX_BYTES,
+  type ScheduleFile,
+} from "@partally/shared/schedule-file";
 import { useState } from "react";
 import { api } from "../../api";
 import { dateStamp } from "./transfer/files";
@@ -42,6 +45,7 @@ export function ScheduleTransferButtons(props: {
       exportFile={exportFile}
       canImport={!!items}
       accept=".json,application/json"
+      maxBytes={SCHEDULE_FILE_MAX_BYTES}
       read={async (file) => {
         const result = readScheduleFile(await file.text());
         return result.ok ? { ok: true, value: { date: result.date, items: result.items } } : result;
