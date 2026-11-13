@@ -4,7 +4,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./prize-archive": "./src/prize-archive.ts"
+    "./prize-archive": "./src/prize-archive.ts",
+    "./game-archive": "./src/game-archive.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",

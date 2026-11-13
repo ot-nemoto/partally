@@ -17,6 +17,7 @@ import { api, errorMessage } from "../../api";
 import { Modal } from "../../components/Modal";
 import { PageTitle } from "../../components/PageTitle";
 import { useOnReload } from "../../hooks/useReload";
+import { ScheduleTransferButtons } from "./ScheduleTransfer";
 
 /** タイムラインの 1 分の高さ（px）。1 時間 = 120px、10 分 = 20px */
 const PX_PER_MINUTE = 2;
@@ -182,6 +183,7 @@ export function AdminSchedule() {
             日付
             <input type="date" value={date} onChange={(e) => void saveDate(e.target.value)} />
           </label>
+          <ScheduleTransferButtons items={items} date={date} onImported={() => void load()} />
           <button
             type="button"
             className="primary"
