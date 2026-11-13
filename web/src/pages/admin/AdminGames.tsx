@@ -22,6 +22,7 @@ import { FORMAT_ICON } from "./games/formats";
 import { GameAnswersDialog } from "./games/GameAnswersDialog";
 import { GameFormDialog } from "./games/GameFormDialog";
 import { GamePreviewDialog } from "./games/GamePreviewDialog";
+import { GameTransferButtons } from "./games/GameTransfer";
 import { type Member, MemberPickerDialog } from "./games/MemberPickerDialog";
 
 const STATUS_LABEL: Record<GameStatus, string> = { draft: "下書き", open: "開催中", confirmed: "確定" };
@@ -160,6 +161,7 @@ export function AdminGames() {
         <div className="title-actions">
           {/* 読み込みの前後で固定した行の高さが変わらないよう、ゲームが無くても出しておく */}
           <StatusFilter statuses={STATUSES} labels={STATUS_LABEL} counts={counts} shown={shown} onToggle={toggle} />
+          <GameTransferButtons games={games} onImported={() => void load()} />
           <button type="button" className="primary" onClick={() => setEditing("new")}>
             ゲームを作る
           </button>
