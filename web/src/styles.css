@@ -197,6 +197,29 @@ button:disabled {
   border-color: var(--danger);
 }
 
+/* アイコンだけのボタン（エクスポート・インポートなど）。高さはほかのボタンと同じで、正方形にする */
+button.icon-button {
+  width: 2.5rem;
+  padding: 0;
+}
+
+/* 進んでいる間に回すアイコン（動きを減らす設定では回さない） */
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
 button.link {
   border: none;
   background: none;
