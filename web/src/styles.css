@@ -2084,21 +2084,39 @@ table.prize-table td {
   margin: 0;
 }
 
-.prize-import-dialog {
+.import-dialog {
   max-width: 40rem;
 }
 
-.prize-import-list {
+.import-list {
   max-height: min(45vh, 22rem);
   overflow-y: auto;
 }
 
-table.prize-import-table td {
+table.import-table td {
   vertical-align: middle;
   white-space: normal;
 }
 
-.prize-import-mode {
+table.import-table td.nowrap {
+  white-space: nowrap;
+}
+
+/* 取り込みで、追加・置き換えのほかに選ぶこと（スケジュールの日付） */
+.import-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+}
+
+.import-option input[type="checkbox"] {
+  flex: none;
+  width: auto;
+  margin: 0;
+}
+
+.import-mode {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -2107,24 +2125,24 @@ table.prize-import-table td {
   border: none;
 }
 
-.prize-import-mode legend {
+.import-mode legend {
   margin-bottom: 0.25rem;
   font-weight: 600;
 }
 
-.prize-import-mode label {
+.import-mode label {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-.prize-import-mode input[type="radio"] {
+.import-mode input[type="radio"] {
   flex: none;
   width: auto;
   margin: 0;
 }
 
-.prize-import-mode p {
+.import-mode p {
   margin: 0;
 }
 

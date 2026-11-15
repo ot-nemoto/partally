@@ -1,4 +1,14 @@
-import { strFromU8, strToU8, type Unzipped, unzipSync, zipSync } from "fflate";
+import {
+  ARCHIVE_MAX_BYTES,
+  ARCHIVE_MAX_FILE_BYTES,
+  ARCHIVE_MAX_TOTAL_BYTES,
+  buildArchive,
+  imageNamer,
+  imagePathOf,
+  isRecord,
+  issueText,
+  readArchive,
+} from "./archive.js";
 import { prizeRequestSchema } from "./schemas.js";
 
 /**
@@ -13,12 +23,9 @@ export const PRIZE_ARCHIVE_VERSION = 1;
 export const PRIZE_ARCHIVE_MANIFEST = "prizes.json";
 /** 1 回で取り込める景品の数 */
 export const PRIZE_ARCHIVE_MAX_PRIZES = 100;
-/** 取り込める ZIP の大きさ */
-export const PRIZE_ARCHIVE_MAX_BYTES = 50 * 1024 * 1024;
-/** 展開した後の 1 ファイルの大きさ（画像は取り込むときに縮小し直すので、元の画像は大きくてもよい） */
-export const PRIZE_ARCHIVE_MAX_FILE_BYTES = 20 * 1024 * 1024;
-/** 展開した後の合計の大きさ（圧縮を悪用した巨大なファイルで画面が固まらないように） */
-export const PRIZE_ARCHIVE_MAX_TOTAL_BYTES = 200 * 1024 * 1024;
+export const PRIZE_ARCHIVE_MAX_BYTES = ARCHIVE_MAX_BYTES;
+export const PRIZE_ARCHIVE_MAX_FILE_BYTES = ARCHIVE_MAX_FILE_BYTES;
+export const PRIZE_ARCHIVE_MAX_TOTAL_BYTES = ARCHIVE_MAX_TOTAL_BYTES;
 
 export interface PrizeArchiveItem {
   name: string;
@@ -46,8 +53,8 @@ interface Manifest {
 
 /** 景品を ZIP にする。画像は images/01.jpg のように並び順の番号で入れる（JPEG は圧縮し直さない） */
 export function buildPrizeArchive(prizes: PrizeArchiveItem[], exportedAt: string): Uint8Array {
-  const width = Math.max(2, String(prizes.length).length);
-  const files: Record<string, Uint8Array | [Uint8Array, { level: 0 }]> = {};
+  const imagePath = imageNamer(prizes.length);
+  const images: Record<string, Uint8Array> = {};
   const manifest: Manifest = {
     format: PRIZE_ARCHIVE_FORMAT,
     version: PRIZE_ARCHIVE_VERSION,
@@ -55,14 +62,13 @@ export function buildPrizeArchive(prizes: PrizeArchiveItem[], exportedAt: string
     prizes: prizes.map((p, i) => {
       const entry: ManifestPrize = { name: p.name, quantity: p.quantity, positions: p.positions };
       if (p.image) {
-        entry.image = `images/${String(i + 1).padStart(width, "0")}.jpg`;
-        files[entry.image] = [p.image, { level: 0 }];
+        entry.image = imagePath(i + 1);
+        images[entry.image] = p.image;
       }
       return entry;
     }),
   };
-  files[PRIZE_ARCHIVE_MANIFEST] = strToU8(`${JSON.stringify(manifest, null, 2)}\n`);
-  return zipSync(files);
+  return buildArchive(PRIZE_ARCHIVE_MANIFEST, manifest, images);
 }
 
 export type PrizeArchiveResult = { ok: true; prizes: PrizeArchiveItem[] } | { ok: false; error: string };
@@ -72,43 +78,9 @@ export type PrizeArchiveResult = { ok: true; prizes: PrizeArchiveItem[] } | { ok
  * ZIP を展開し直すと 1 つ上のフォルダに入ることがあるので、prizes.json はいちばん上か、その 1 つ下のフォルダから探す
  */
 export function readPrizeArchive(data: Uint8Array): PrizeArchiveResult {
-  if (data.byteLength > PRIZE_ARCHIVE_MAX_BYTES) {
-    return fail(`ファイルが大きすぎます（${mib(PRIZE_ARCHIVE_MAX_BYTES)} まで）。`);
-  }
-  let total = 0;
-  let tooLarge = false;
-  let files: Unzipped;
-  try {
-    files = unzipSync(data, {
-      filter: (file) => {
-        // macOS が付ける付属ファイルとフォルダは読まない
-        if (file.name.endsWith("/") || file.name.startsWith("__MACOSX/") || /(^|\/)\._/.test(file.name)) return false;
-        total += file.originalSize;
-        if (file.originalSize > PRIZE_ARCHIVE_MAX_FILE_BYTES || total > PRIZE_ARCHIVE_MAX_TOTAL_BYTES) tooLarge = true;
-        return !tooLarge;
-      },
-    });
-  } catch {
-    return fail("ZIP ファイルを読めませんでした。エクスポートした ZIP を選んでください。");
-  }
-  if (tooLarge) {
-    return fail(
-      `中のファイルが大きすぎます（1 つ ${mib(PRIZE_ARCHIVE_MAX_FILE_BYTES)}・合計 ${mib(PRIZE_ARCHIVE_MAX_TOTAL_BYTES)} まで）。`,
-    );
-  }
-
-  const manifestPath = Object.keys(files)
-    .filter((name) => name === PRIZE_ARCHIVE_MANIFEST || /^[^/]+\/prizes\.json$/.test(name))
-    .sort((a, b) => a.length - b.length)[0];
-  if (!manifestPath) return fail(`ZIP の中に ${PRIZE_ARCHIVE_MANIFEST} がありません。`);
-  const base = manifestPath.slice(0, manifestPath.length - PRIZE_ARCHIVE_MANIFEST.length);
-
-  let manifest: unknown;
-  try {
-    manifest = JSON.parse(strFromU8(files[manifestPath]!));
-  } catch {
-    return fail(`${PRIZE_ARCHIVE_MANIFEST} を読めませんでした（JSON の形になっていません）。`);
-  }
+  const archive = readArchive(data, PRIZE_ARCHIVE_MANIFEST);
+  if (!archive.ok) return archive;
+  const { manifest } = archive;
   if (!isRecord(manifest) || manifest.format !== PRIZE_ARCHIVE_FORMAT) {
     return fail(`${PRIZE_ARCHIVE_MANIFEST} が景品のエクスポートの形ではありません。`);
   }
@@ -126,19 +98,17 @@ export function readPrizeArchive(data: Uint8Array): PrizeArchiveResult {
     const label = `${i + 1} 件目`;
     if (!isRecord(raw)) return fail(`${label}: 景品の形になっていません。`);
     const parsed = prizeRequestSchema.safeParse({ name: raw.name, quantity: raw.quantity, positions: raw.positions });
-    if (!parsed.success) {
-      const issue = parsed.error.issues[0];
-      return fail(`${label}: ${issue?.path.join(".") || "内容"} が正しくありません（${issue?.message ?? ""}）。`);
-    }
+    if (!parsed.success) return fail(`${label}: ${issueText(parsed.error.issues)}`);
     const item: PrizeArchiveItem = {
       name: parsed.data.name,
       quantity: parsed.data.quantity,
       positions: [...parsed.data.positions].sort((a, b) => a - b),
     };
-    if (raw.image !== undefined && raw.image !== null && raw.image !== "") {
-      if (typeof raw.image !== "string") return fail(`${label}: 画像のパスが正しくありません。`);
-      const image = files[base + raw.image];
-      if (!image) return fail(`${label}: 画像 ${raw.image} が ZIP の中にありません。`);
+    const path = imagePathOf(raw.image);
+    if (path === false) return fail(`${label}: 画像のパスが正しくありません。`);
+    if (path !== undefined) {
+      const image = archive.file(path);
+      if (!image) return fail(`${label}: 画像 ${path} が ZIP の中にありません。`);
       item.image = image;
     }
     prizes.push(item);
@@ -148,12 +118,4 @@ export function readPrizeArchive(data: Uint8Array): PrizeArchiveResult {
 
 function fail(error: string): PrizeArchiveResult {
   return { ok: false, error };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function mib(bytes: number) {
-  return `${bytes / 1024 / 1024}MB`;
 }
