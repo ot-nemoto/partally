@@ -71,7 +71,7 @@ export function TransferButtons<T>(props: {
         title={exporting ? "書き出し中…" : "エクスポート（ファイルに書き出す）"}
         aria-busy={exporting}
       >
-        <TransferIcon direction="export" />
+        <TransferIcon direction={exporting ? "busy" : "export"} />
       </button>
       <button
         type="button"
@@ -82,7 +82,7 @@ export function TransferButtons<T>(props: {
         title={reading ? "読み込み中…" : "インポート（ファイルから取り込む）"}
         aria-busy={reading}
       >
-        <TransferIcon direction="import" />
+        <TransferIcon direction={reading ? "busy" : "import"} />
       </button>
       <input
         ref={fileRef}
@@ -107,8 +107,28 @@ export function TransferButtons<T>(props: {
   );
 }
 
-/** エクスポート（トレイへ下向きの矢印）・インポート（トレイから上向きの矢印）のアイコン。色は文字の色に合わせる */
-function TransferIcon(props: { direction: "export" | "import" }) {
+/**
+ * エクスポート（トレイへ下向きの矢印）・インポート（トレイから上向きの矢印）のアイコン。色は文字の色に合わせる。
+ * 書き出し中・読み込み中は回る輪にする（説明は乗せないと見えないので、進んでいることを形で見せる）
+ */
+function TransferIcon(props: { direction: "export" | "import" | "busy" }) {
+  if (props.direction === "busy") {
+    return (
+      <svg
+        className="spin"
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        aria-hidden="true"
+      >
+        <path d="M21 12a9 9 0 1 1-6.2-8.56" />
+      </svg>
+    );
+  }
   return (
     <svg
       width="20"
