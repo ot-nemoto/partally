@@ -74,6 +74,7 @@ function AdminNav({ className }: { className: string }) {
       <NavLink to="/admin/prizes">Prize</NavLink>
       <NavLink to="/admin/schedule">Schedule</NavLink>
       <NavLink to="/admin/settings">Setting</NavLink>
+      <NavLink to="/admin/data">Data</NavLink>
     </nav>
   );
 }
