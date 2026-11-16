@@ -21,6 +21,10 @@ export interface ScheduleFileItem {
   /** 0:00 からの分 */
   startMinute: number;
   durationMinutes: number;
+  /** 置く列（0 から）。列を持つ前に書き出したファイルには無い（取り込むと左端の列から置く） */
+  column?: number;
+  /** 参加者に見せない項目（列ごとにそろう）。見せる項目には無い */
+  hidden?: boolean;
 }
 
 export interface ScheduleFile {
@@ -67,7 +71,14 @@ export function readScheduleFile(text: string): ScheduleFileResult {
 export function scheduleManifest(schedule: ScheduleFile): { date?: string; items: ScheduleFileItem[] } {
   const items = [...schedule.items]
     .sort((a, b) => a.startMinute - b.startMinute)
-    .map(({ title, detail, startMinute, durationMinutes }) => ({ title, detail, startMinute, durationMinutes }));
+    .map(({ title, detail, startMinute, durationMinutes, column, hidden }) => ({
+      title,
+      detail,
+      startMinute,
+      durationMinutes,
+      ...(column === undefined ? {} : { column }),
+      ...(hidden ? { hidden: true } : {}),
+    }));
   return { ...(schedule.date ? { date: schedule.date } : {}), items };
 }
 
@@ -98,9 +109,12 @@ export function parseSchedule(raw: unknown): ScheduleFileResult {
       detail: item.detail ?? "",
       startMinute: item.startMinute,
       durationMinutes: item.durationMinutes,
+      column: item.column ?? undefined,
+      hidden: item.hidden ?? undefined,
     });
     if (!parsed.success) return fail(`${label}（${String(item.title ?? "")}）: ${issueText(parsed.error.issues)}`);
-    items.push(parsed.data);
+    const { hidden, ...rest } = parsed.data;
+    items.push({ ...rest, ...(hidden ? { hidden: true } : {}) });
   }
   items.sort((a, b) => a.startMinute - b.startMinute);
   return { ok: true, ...(date ? { date } : {}), items };

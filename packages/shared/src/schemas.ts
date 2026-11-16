@@ -150,6 +150,8 @@ export const SCHEDULE_TITLE_MAX_LENGTH = 50;
 export const SCHEDULE_DETAIL_MAX_LENGTH = 500;
 /** 1 日の分（スケジュールの時刻は 0:00 からの分で持ち、24:00 を越えない） */
 export const DAY_MINUTES = 24 * 60;
+/** スケジュールの列の数の上限 */
+export const SCHEDULE_COLUMNS_MAX = 50;
 /** 所要時間の最小（タイムラインの刻みと同じ 5 分） */
 export const SCHEDULE_MIN_DURATION = 5;
 
@@ -170,6 +172,21 @@ export const scheduleItemRequestSchema = z
       .min(0)
       .max(DAY_MINUTES - SCHEDULE_MIN_DURATION),
     durationMinutes: z.number().int().min(SCHEDULE_MIN_DURATION).max(DAY_MINUTES),
+    /**
+     * 置く列（0 から）。省くと、作るときは左端の列、直すときは今の列のまま。
+     * 同じ列のほかの項目と時間が重なれば、サーバがすぐ右に列を足して移す
+     */
+    column: z
+      .number()
+      .int()
+      .min(0)
+      .max(SCHEDULE_COLUMNS_MAX - 1)
+      .optional(),
+    /**
+     * 参加者に見せないか。省くと、作るときは見せる、直すときは今のまま。
+     * 置いた列にほかの項目があれば、サーバがその列に合わせる（列ごとにそろえる）
+     */
+    hidden: z.boolean().optional(),
   })
   .refine((v) => v.startMinute + v.durationMinutes <= DAY_MINUTES, {
     message: "終わりの時刻が 24:00 を越えています",
@@ -177,6 +194,11 @@ export const scheduleItemRequestSchema = z
   });
 
 export type ScheduleItemRequest = z.infer<typeof scheduleItemRequestSchema>;
+
+/** スケジュールの列を参加者に見せるか（列の項目をまとめて切り替える） */
+export const scheduleColumnRequestSchema = z.object({ hidden: z.boolean() });
+
+export type ScheduleColumnRequest = z.infer<typeof scheduleColumnRequestSchema>;
 
 export const GAME_NAME_MAX_LENGTH = 50;
 export const GAME_DESCRIPTION_MAX_LENGTH = 500;

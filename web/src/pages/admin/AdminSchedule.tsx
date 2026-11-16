@@ -1,16 +1,18 @@
 import {
+  arrangeScheduleColumns,
   DAY_MINUTES,
   formatMinute,
   formatScheduleRange,
+  placedScheduleHidden,
   SCHEDULE_DETAIL_MAX_LENGTH,
   SCHEDULE_MIN_DURATION,
   SCHEDULE_TITLE_MAX_LENGTH,
+  type ScheduleColumnRequest,
   type ScheduleItemDto,
   type ScheduleItemRequest,
   type ScheduleItemResponse,
   type ScheduleResponse,
   type SettingsResponse,
-  scheduleColumns,
 } from "@partally/shared";
 import { type FormEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
@@ -31,7 +33,8 @@ const DRAG_THRESHOLD = 4;
 /** 所要時間のボタン（分） */
 const DURATION_CHOICES = [5, 10, 15, 20, 30, 45, 60, 90, 120];
 
-type Editing = { item?: ScheduleItemDto; startMinute: number; durationMinutes: number };
+/** 編集中の項目。新しく作るときは、置く列（column）も持つ */
+type Editing = { item?: ScheduleItemDto; startMinute: number; durationMinutes: number; column?: number };
 
 interface Drag {
   pointerId: number;
@@ -39,16 +42,37 @@ interface Drag {
   mode: "move" | "resize";
   startY: number;
   dy: number;
+  /** 押したときと今の、指・ポインタの横の位置（列を超えて動かすときに、どの列の上にあるかを決める） */
+  startX: number;
+  x: number;
+  /** 時間軸（列を並べる所）の左端と幅 */
+  gridLeft: number;
+  gridWidth: number;
   moved: boolean;
 }
 
 const snap = (minute: number) => Math.round(minute / SNAP) * SNAP;
+
+/**
+ * 列と見せるかを決め直した一覧（placedId の項目が重なれば右に列を足し、何もない列は詰める。
+ * placedId の項目は置いた列の見せるかに合わせる。サーバと同じ決まり）
+ */
+function arranged(items: ScheduleItemDto[], placedId?: string): ScheduleItemDto[] {
+  const columns = arrangeScheduleColumns(items, placedId);
+  const hidden = placedId === undefined ? undefined : placedScheduleHidden(items, placedId);
+  return items.map((i) => ({
+    ...i,
+    column: columns.get(i.itemId) ?? 0,
+    ...(i.itemId === placedId ? { hidden: hidden! } : {}),
+  }));
+}
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 /**
- * スケジュールの作成。縦の時間軸に項目をブロックで置き、ブロックの中央をドラッグすると開始時刻、
- * 下の端をドラッグすると所要時間を変える（5 分刻み）。空いている所を押すとその時刻に新しい項目を作り、
- * ブロックを押す（Enter）と編集する
+ * スケジュールの作成。縦の時間軸に項目をブロックで置き、ブロックの中央をドラッグすると開始時刻と列、
+ * 下の端をドラッグすると所要時間を変える（5 分刻み）。空いている所を押すとその時刻・列に新しい項目を作り、
+ * ブロックを押す（Enter）と編集する。列は幹事が置いたまま勝手に並べ替えず、同じ列で時間が重なったら
+ * すぐ右に列を足して移し、何もない列は詰める（arrangeScheduleColumns。サーバも同じ決まりで保存する）
  */
 export function AdminSchedule() {
   const [items, setItems] = useState<ScheduleItemDto[]>();
@@ -86,19 +110,38 @@ export function AdminSchedule() {
   }
 
   /**
-   * 時刻・長さだけを変えて保存する。先に画面を変え、失敗したらその項目だけを元に戻す
-   * （続けて動かしたほかの項目まで戻さないように）
+   * 時刻・長さ・列を変えて保存する。先に画面を変え（重なりで足す列・詰める列もサーバと同じ決まりで決める）、
+   * 保存できたらサーバの内容で読み直す。失敗したら読み直して元に戻す
    */
-  async function saveTime(item: ScheduleItemDto, updated: ScheduleItemDto) {
-    const replace = (next: ScheduleItemDto) =>
-      setItems((list) => list?.map((i) => (i.itemId === next.itemId ? next : i)));
-    replace(updated);
+  async function saveMove(updated: ScheduleItemDto) {
+    setItems(
+      (list) =>
+        list &&
+        arranged(
+          list.map((i) => (i.itemId === updated.itemId ? updated : i)),
+          updated.itemId,
+        ),
+    );
     try {
       const { itemId, ...body } = updated;
       await api<ScheduleItemResponse>("PUT", `/admin/schedule/${itemId}`, body satisfies ScheduleItemRequest);
     } catch (e) {
-      replace(item);
       alert(errorMessage(e));
+    }
+    await load();
+  }
+
+  /** 列を参加者に見せるかを切り替える（その列の項目をまとめて）。先に画面を変え、保存できたらサーバの内容にする */
+  async function toggleColumn(column: number, hidden: boolean) {
+    setItems((list) => list?.map((i) => (i.column === column ? { ...i, hidden } : i)));
+    try {
+      const res = await api<ScheduleResponse>("PUT", `/admin/schedule/columns/${column}`, {
+        hidden,
+      } satisfies ScheduleColumnRequest);
+      setItems(res.items);
+    } catch (e) {
+      alert(errorMessage(e));
+      await load();
     }
   }
 
@@ -110,7 +153,6 @@ export function AdminSchedule() {
   const rangeEnd = clamp(Math.ceil((last + 60) / 60) * 60 + extra.after, rangeStart + 60, DAY_MINUTES);
   const hours: number[] = [];
   for (let m = rangeStart; m <= rangeEnd; m += 60) hours.push(m);
-  const columns = scheduleColumns(list);
 
   /**
    * ドラッグで動かした後の時刻と長さ。見えている時間軸の外には出さない（外へ動かしたいときは時間軸を広げる）。
@@ -120,29 +162,68 @@ export function AdminSchedule() {
     if (d.itemId !== item.itemId || !d.moved) return item;
     const delta = snap(d.dy / PX_PER_MINUTE);
     if (d.mode === "move") {
-      return { ...item, startMinute: clamp(item.startMinute + delta, rangeStart, rangeEnd - item.durationMinutes) };
+      // 横は、指・ポインタがどの列の上にあるかで決める（列を超えて動かせる）
+      // 動かしている間は右に空いた列を 1 つ見せ、そこに置くと新しい列になる
+      const slots = columnCount + 1;
+      const column = clamp(Math.floor(((d.x - d.gridLeft) / d.gridWidth) * slots), 0, slots - 1);
+      return {
+        ...item,
+        startMinute: clamp(item.startMinute + delta, rangeStart, rangeEnd - item.durationMinutes),
+        column,
+      };
     }
     return { ...item, durationMinutes: clamp(item.durationMinutes + delta, SNAP, rangeEnd - item.startMinute) };
   }
-  const preview = (item: ScheduleItemDto) => (drag ? moved(item, drag) : item);
+  const columnCount = Math.max(1, ...list.map((i) => i.column + 1));
+  // ドラッグ中は、離したときと同じ決まりで列を決めて見せる（重なれば右に列が足される）
+  const shownList = drag?.moved
+    ? arranged(
+        list.map((i) => moved(i, drag)),
+        drag.itemId,
+      )
+    : list;
+  // 動かしている間は、新しい列を作れるよう右に空いた列を 1 つ足して見せる
+  const dragSlots = drag?.moved && drag.mode === "move" ? columnCount + 1 : 0;
+  const shownColumns = Math.max(1, dragSlots, ...shownList.map((i) => i.column + 1));
+  /** 列ごとに参加者に見せないか（項目の無い列は undefined） */
+  const columnHidden = Array.from({ length: shownColumns }, (_, c) => {
+    const inColumn = shownList.filter((i) => i.column === c);
+    return inColumn.length === 0 ? undefined : inColumn.some((i) => i.hidden);
+  });
 
   function onBlockPointerDown(e: ReactPointerEvent<HTMLElement>, item: ScheduleItemDto, mode: Drag["mode"]) {
     if (e.button !== 0 || drag) return;
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
-    setDrag({ pointerId: e.pointerId, itemId: item.itemId, mode, startY: e.clientY, dy: 0, moved: false });
+    const grid = e.currentTarget.closest(".schedule-grid")?.getBoundingClientRect();
+    setDrag({
+      pointerId: e.pointerId,
+      itemId: item.itemId,
+      mode,
+      startY: e.clientY,
+      dy: 0,
+      startX: e.clientX,
+      x: e.clientX,
+      gridLeft: grid?.left ?? 0,
+      gridWidth: grid?.width || 1,
+      moved: false,
+    });
   }
+
+  /** ドラッグとみなすか（縦・横のどちらかに少し動いたら） */
+  const isMoved = (d: Drag, dy: number, x: number) =>
+    d.moved || Math.abs(dy) >= DRAG_THRESHOLD || (d.mode === "move" && Math.abs(x - d.startX) >= DRAG_THRESHOLD);
 
   function onBlockPointerMove(e: ReactPointerEvent<HTMLElement>) {
     if (drag?.pointerId !== e.pointerId) return;
     const dy = e.clientY - drag.startY;
-    setDrag({ ...drag, dy, moved: drag.moved || Math.abs(dy) >= DRAG_THRESHOLD });
+    setDrag({ ...drag, dy, x: e.clientX, moved: isMoved(drag, dy, e.clientX) });
   }
 
   function onBlockPointerUp(e: ReactPointerEvent<HTMLElement>, item: ScheduleItemDto) {
     if (drag?.pointerId !== e.pointerId) return;
     const dy = e.clientY - drag.startY;
-    const finished = { ...drag, dy, moved: drag.moved || Math.abs(dy) >= DRAG_THRESHOLD };
+    const finished = { ...drag, dy, x: e.clientX, moved: isMoved(drag, dy, e.clientX) };
     setDrag(undefined);
     if (!finished.moved) {
       // 動かさずに離したら編集する
@@ -150,28 +231,38 @@ export function AdminSchedule() {
       return;
     }
     const next = moved(item, finished);
-    if (next.startMinute !== item.startMinute || next.durationMinutes !== item.durationMinutes) {
-      void saveTime(item, next);
+    if (
+      next.startMinute !== item.startMinute ||
+      next.durationMinutes !== item.durationMinutes ||
+      next.column !== item.column
+    ) {
+      void saveMove(next);
     }
   }
 
   // 空いている所を押して（指なら軽く触れて）離したら、その時刻に新しい項目を作る。スクロールしたときは作らない
-  const [press, setPress] = useState<{ pointerId: number; y: number; minute: number }>();
+  const [press, setPress] = useState<{ pointerId: number; y: number; minute: number; column: number }>();
   function onGridPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
     if (e.button !== 0 || e.target !== e.currentTarget) return;
-    const top = e.currentTarget.getBoundingClientRect().top;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const top = rect.top;
+    const column = clamp(Math.floor(((e.clientX - rect.left) / (rect.width || 1)) * columnCount), 0, columnCount - 1);
     const minute = clamp(
       Math.floor((rangeStart + (e.clientY - top) / PX_PER_MINUTE) / SNAP) * SNAP,
       0,
       DAY_MINUTES - SNAP,
     );
-    setPress({ pointerId: e.pointerId, y: e.clientY, minute });
+    setPress({ pointerId: e.pointerId, y: e.clientY, minute, column });
   }
   function onGridPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
     if (press?.pointerId !== e.pointerId) return;
     setPress(undefined);
     if (Math.abs(e.clientY - press.y) >= DRAG_THRESHOLD) return;
-    setEditing({ startMinute: press.minute, durationMinutes: Math.min(NEW_DURATION, DAY_MINUTES - press.minute) });
+    setEditing({
+      startMinute: press.minute,
+      durationMinutes: Math.min(NEW_DURATION, DAY_MINUTES - press.minute),
+      column: press.column,
+    });
   }
 
   return (
@@ -195,9 +286,10 @@ export function AdminSchedule() {
         </div>
       </PageTitle>
       <p className="muted small">
-        空いている所を押すと、その時刻に項目を作ります。項目をドラッグすると開始時刻、下の端をドラッグすると長さが変わります（5
-        分刻み。10 分以下の項目の長さは編集で変えます）。項目を押すと編集できます。参加者に見せるかは Setting
-        で決めます。
+        空いている所を押すと、その時刻・列に項目を作ります。項目を上下にドラッグすると開始時刻、左右にドラッグすると列、下の端をドラッグすると長さが変わります（5
+        分刻み。10
+        分以下の項目の長さは編集で変えます）。同じ列で時間が重なると、すぐ右に列を足して移し、何もない列は消えます。項目を押すと編集できます。列の上のボタンで、列ごとに参加者に見せるかを切り替えられます（見せない列は斜線。項目は置いた列に合わせます）。スケジュール全体を参加者に見せるかは
+        Setting で決めます。
       </p>
       {error && <p className="error">{error}</p>}
       {!items && !error && <p className="muted">読み込み中…</p>}
@@ -211,6 +303,30 @@ export function AdminSchedule() {
           >
             ↑ 前に 1 時間広げる
           </button>
+          {list.length > 0 && (
+            <div className="schedule-column-heads" style={{ gridTemplateColumns: `repeat(${shownColumns}, 1fr)` }}>
+              {columnHidden.map((hidden, c) =>
+                hidden === undefined ? (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 列の番号そのもの
+                  <span key={c} />
+                ) : (
+                  <button
+                    // biome-ignore lint/suspicious/noArrayIndexKey: 列の番号そのもの
+                    key={c}
+                    type="button"
+                    className={`schedule-column-toggle${hidden ? " off" : ""}`}
+                    aria-pressed={!hidden}
+                    aria-label={`列 ${c + 1} を参加者に見せる`}
+                    title={hidden ? "参加者に見せていません（押すと見せる）" : "参加者に見せています（押すと見せない）"}
+                    disabled={drag?.moved}
+                    onClick={() => void toggleColumn(c, !hidden)}
+                  >
+                    {hidden ? "見せない" : "見せる"}
+                  </button>
+                ),
+              )}
+            </div>
+          )}
           <div className="schedule-timeline">
             <div className="schedule-hours" aria-hidden="true">
               {hours.map((m) => (
@@ -229,22 +345,33 @@ export function AdminSchedule() {
               onPointerUp={onGridPointerUp}
               onPointerCancel={() => setPress(undefined)}
             >
-              {list.map((item) => {
-                const shown = preview(item);
-                const col = columns.get(item.itemId) ?? { column: 0, columns: 1 };
+              {columnHidden.map(
+                (hidden, c) =>
+                  hidden && (
+                    <span
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 列の番号そのもの
+                      key={c}
+                      className="schedule-column-shade"
+                      aria-hidden="true"
+                      style={{ left: `${(c / shownColumns) * 100}%`, width: `${100 / shownColumns}%` }}
+                    />
+                  ),
+              )}
+              {shownList.map((shown) => {
+                const item = list.find((i) => i.itemId === shown.itemId)!;
                 const height = shown.durationMinutes * PX_PER_MINUTE;
                 return (
                   <button
                     type="button"
                     key={item.itemId}
-                    className={`schedule-block${drag?.itemId === item.itemId && drag.moved ? " dragging" : ""}${height < 24 ? " tiny" : height < 44 ? " short" : ""}`}
+                    className={`schedule-block${shown.hidden ? " hidden-item" : ""}${drag?.itemId === item.itemId && drag.moved ? " dragging" : ""}${height < 24 ? " tiny" : height < 44 ? " short" : ""}`}
                     style={{
                       top: (shown.startMinute - rangeStart) * PX_PER_MINUTE,
                       height,
-                      left: `${(col.column / col.columns) * 100}%`,
-                      width: `calc(${100 / col.columns}% - 4px)`,
+                      left: `${(shown.column / shownColumns) * 100}%`,
+                      width: `calc(${100 / shownColumns}% - 4px)`,
                     }}
-                    aria-label={`${formatScheduleRange(shown)} ${item.title}（押すと編集）`}
+                    aria-label={`${formatScheduleRange(shown)} ${item.title}${shown.hidden ? "（参加者に見せない）" : ""}（押すと編集）`}
                     onPointerDown={(e) => onBlockPointerDown(e, item, "move")}
                     onPointerMove={onBlockPointerMove}
                     onPointerUp={(e) => onBlockPointerUp(e, item)}
@@ -322,7 +449,8 @@ function ScheduleItemDialog(props: { editing: Editing; onClose: () => void; onSa
     if (problem) return;
     setSaving(true);
     setError(undefined);
-    const body: ScheduleItemRequest = { title, detail, startMinute, durationMinutes };
+    // 新しく作るときは押した所の列に置く。直すときは列を送らない（今の列のまま）
+    const body: ScheduleItemRequest = { title, detail, startMinute, durationMinutes, column: props.editing.column };
     try {
       if (item) await api<ScheduleItemResponse>("PUT", `/admin/schedule/${item.itemId}`, body);
       else await api<ScheduleItemResponse>("POST", "/admin/schedule", body);

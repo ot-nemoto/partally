@@ -2452,30 +2452,6 @@ table.import-table td.nowrap {
   font-weight: 600;
 }
 
-.schedule-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.schedule-item {
-  gap: 0.25rem;
-  margin-bottom: 0.5rem;
-  padding: 0.75rem 1rem;
-}
-
-.schedule-item h3 {
-  margin: 0;
-  font-size: 1.05rem;
-  overflow-wrap: anywhere;
-}
-
-.schedule-item-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
 .schedule-item-time {
   color: var(--muted);
   font-size: 0.85rem;
@@ -2488,15 +2464,6 @@ table.import-table td.nowrap {
   font-size: 0.9rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-
-.schedule-item.now {
-  border-color: var(--accent);
-  border-left-width: 4px;
-}
-
-.schedule-item.past {
-  opacity: 0.55;
 }
 
 .schedule-badge {
@@ -2514,6 +2481,124 @@ table.import-table td.nowrap {
 .schedule-badge.next {
   border: 1px solid var(--accent);
   color: var(--accent);
+}
+
+/* 参加者の時間軸。管理画面のタイムラインと同じ形で、押すと詳細を出す。列が多いときは横にスクロールする */
+.schedule-board {
+  overflow-x: auto;
+  padding: 1rem 0;
+  scroll-margin-top: 4rem;
+}
+
+.schedule-grid.readonly {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  cursor: default;
+  touch-action: auto;
+}
+
+/* 今の線より上に重ねる（線は項目の後ろを通る） */
+.schedule-board-slot {
+  position: absolute;
+  z-index: 1;
+  padding: 0 2px;
+}
+
+.schedule-board-slot .schedule-block {
+  position: static;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.schedule-board .schedule-badge {
+  margin-right: 0.25rem;
+  white-space: nowrap;
+}
+
+/* 終わった項目は薄く、いまの項目は濃く */
+.schedule-board .schedule-block.past {
+  opacity: 0.5;
+}
+
+.schedule-board .schedule-block.now {
+  background: color-mix(in srgb, var(--accent) 24%, var(--surface));
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* 今の時刻の線 */
+.schedule-now-line {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  scroll-margin: 40vh;
+}
+
+.schedule-now-line::before {
+  position: absolute;
+  top: -4px;
+  left: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  content: "";
+}
+
+.schedule-detail .schedule-item-detail {
+  white-space: pre-wrap;
+}
+
+/* 列ごとに参加者に見せるかの切り替え（時間軸の列にそろえる） */
+.schedule-column-heads {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 0.25rem 3.5rem;
+}
+
+.schedule-column-toggle {
+  min-width: 0;
+  padding: 0.15rem 0.25rem;
+  overflow: hidden;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.schedule-column-toggle.off {
+  border-style: dashed;
+  border-color: var(--muted);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+/* 見せない列は斜線、項目は点線で薄く */
+.schedule-column-shade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent 0 6px,
+    color-mix(in srgb, var(--muted) 14%, transparent) 6px 8px
+  );
+  pointer-events: none;
+}
+
+.schedule-block.hidden-item {
+  border-style: dashed;
+  border-color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 10%, var(--surface));
+  color: var(--muted);
 }
 
 /* ---- 参加者の順位 ---- */

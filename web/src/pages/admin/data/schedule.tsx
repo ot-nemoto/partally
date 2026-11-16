@@ -13,13 +13,14 @@ export async function importScheduleItem(item: ScheduleFileItem): Promise<void> 
   await api<ScheduleItemResponse>("POST", "/admin/schedule", item);
 }
 
-/** 取り込む項目の一覧（時刻・タイトル・詳細の 1 行目） */
+/** 取り込む項目の一覧（時刻・列（参加者に見せない列か）・タイトル・詳細の 1 行目） */
 export function SchedulePreview(props: { items: ScheduleFileItem[] }) {
   return (
     <table className="import-table">
       <thead>
         <tr>
           <th>時刻</th>
+          <th className="num">列</th>
           <th>タイトル</th>
           <th>詳細</th>
         </tr>
@@ -29,6 +30,10 @@ export function SchedulePreview(props: { items: ScheduleFileItem[] }) {
           // biome-ignore lint/suspicious/noArrayIndexKey: ファイルの中の並びで、取り込みの間は変わらない
           <tr key={i}>
             <td className="nowrap">{formatScheduleRange(item)}</td>
+            <td className="num nowrap">
+              {(item.column ?? 0) + 1}
+              {item.hidden && <span className="muted small">（見せない）</span>}
+            </td>
             <td>{item.title}</td>
             <td className="muted small">{item.detail.split("\n")[0]}</td>
           </tr>
