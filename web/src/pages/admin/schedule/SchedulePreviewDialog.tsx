@@ -2,7 +2,7 @@ import { formatMinute, type ScheduleItemDto, type SettingsResponse, visibleSched
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../api";
 import { Modal } from "../../../components/Modal";
-import { ScheduleContent } from "../../ScheduleView";
+import { ScheduleContent } from "../../../components/ScheduleTimeline";
 
 /** 今の時刻（0:00 からの分。5 分単位に切り捨て） */
 function currentMinute(): number {
@@ -38,7 +38,7 @@ export function SchedulePreviewDialog(props: { items: ScheduleItemDto[]; date: s
         <h2>プレビュー</h2>
         <p className="muted small">
           参加者のスマホの「イベント情報」に出るスケジュールです。
-          {hiddenCount > 0 && `参加者に見せない列（${hiddenCount} 件）は出ません。`}
+          {hiddenCount > 0 && `参加者に見せない列の項目（${hiddenCount} 件）は出ません。`}
           {visible === false && "今は Setting で参加者に見せない設定なので、参加者には見えません。"}
         </p>
         <div className="schedule-preview-time">
