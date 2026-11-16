@@ -151,6 +151,8 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `approvedCount` | number | 公開済み写真数 |
 | `favoritesGiven` | number | 自分が選んでいるお気に入りの数 |
 | `favoritesReceived` | number | 自分の写真がお気に入りに選ばれている数（全写真の合計） |
+| `pinHash` | string? | 暗証番号のハッシュ（`scrypt$<salt>$<hash>`、base64url。N=16384・r=8・p=1）。決めていなければ無い |
+| `pinFailures` | number? | 暗証番号を続けて間違えた回数。試す前に条件付きの `ADD` で数え（`pinFailures < 5` のときだけ）、合えば 0 に戻す。5 以上ならロック中 |
 | `createdAt` / `updatedAt` | string | |
 
 表示名は `〈二つ名〉名前`（例 `〈疾風の魔術師〉田中`）。
@@ -284,7 +286,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 - 署名鍵を変更すると、発行済みの Cookie はすべて無効になる（全員が再ログイン）。
 - 更新系 API は `Content-Type: application/json` のみ受け付ける。クロスオリジンからの JSON 送信はプリフライトが必要になるため、`SameSite=Lax` と合わせて CSRF 対策とする。
 - 同時に **CloudFront 署名付き Cookie**（`CloudFront-Policy` / `CloudFront-Signature` / `CloudFront-Key-Pair-Id`、`Path=/photos/approved/`、有効期限 12 時間）を発行する。`GET /api/me` を呼ぶたびに再発行する（参加者画面は表示時に必ず呼ぶ）。
-- Cookie を失った場合（ブラウザ変更・アプリ内ブラウザ等）は QR を再度読み込めばログインできる。
+- Cookie を失った場合（ブラウザ変更・アプリ内ブラウザ等）は QR を再度読み込み、暗証番号を入れればログインできる。QR コードだけを見た人はログインできない（暗証番号は 5 回間違えるとロック）。
 
 > **注意（運用）**: LINE 等のアプリ内 QR リーダーで開くとアプリ内ブラウザに Cookie が保存され、Safari/Chrome では未ログインになる。案内で「標準カメラで読み込む」ことを周知し、アプリ内ブラウザを検知した場合は注意文を表示する。
 
@@ -312,14 +314,26 @@ sequenceDiagram
   A->>D: TOKEN#<token> 取得
   alt トークンが存在しない
     A-->>S: 404（無効な QR）
-  else 紐づけ済み
-    A-->>S: 200 {user} + session / CloudFront Cookie
+  else 紐づけ済みで、その人としてログインしたままの端末（session Cookie の uid・tok が一致）
+    A-->>S: 200 {status: "bound", user} + session / CloudFront Cookie
     S-->>U: ホーム画面へ
+  else 紐づけ済みで、ほかの端末
+    A-->>S: 200 {status: "pin_required", setup}
+    S-->>U: 暗証番号の入力（setup なら決める）
+    U->>S: 暗証番号を入力
+    S->>A: POST /api/auth/qr {token, pin}
+    A->>D: pinFailures を 1 つ増やす（5 未満のときだけ）
+    alt 番号が合う
+      A->>D: pinFailures を 0 に戻す
+      A-->>S: 200 {status: "bound", user} + Cookie
+    else 違う
+      A-->>S: 401 pin_invalid（あと N 回）／ 5 回目は 423 pin_locked
+    end
   else 未紐づけ
     A-->>S: 200 {status: "unbound"}
     S-->>U: 名前入力フォーム
     U->>S: 名前を入力
-    S->>A: POST /api/auth/register {token, name}
+    S->>A: POST /api/auth/register {token, name, pin}
     A->>A: 二つ名を抽選
     A->>D: TransactWrite（トークン bound / ユーザ作成 / 二つ名ロック）
     Note over A,D: 二つ名衝突時は再抽選して再試行
@@ -413,8 +427,8 @@ sequenceDiagram
 
 | メソッド | パス | 説明 |
 |---|---|---|
-| POST | `/api/auth/qr` | トークンでログイン。未紐づけなら `unbound` を返す |
-| POST | `/api/auth/register` | 未紐づけトークンに名前を登録（二つ名自動付与） |
+| POST | `/api/auth/qr` | トークンでログイン `{token, pin?}`。未紐づけなら `unbound`。その人としてログインしたままの端末でなければ、`pin` が無いと `pin_required`（`setup` が true なら暗証番号が無いので、送った `pin` を暗証番号にする）、違えば 401 `pin_invalid`、ロック中は 423 `pin_locked` |
+| POST | `/api/auth/register` | 未紐づけトークンに名前と暗証番号（数字 4 桁）を登録（二つ名自動付与） |
 | POST | `/api/auth/logout` | Cookie 削除 |
 | GET | `/api/me` | 自分の情報（表示名・アップロード数・ポイント・お気に入りの数・ゲームの点数と、点数が入ったもの `gameAwards`（ゲーム名・枠の名前かクイズで選んだ答えか数値予想の「N 位（予想 X）」か投票の「N 位（M 票）」「投票」か合言葉の「N 番目に正解」か抽選の「1 等に当選」・点数））とポイントのルール。CloudFront Cookie の再発行 |
 | GET | `/api/game/current` | 開催中のゲーム（形式・名前・説明・画像の署名付き URL と、クイズなら選択肢（画像の URL も）と自分の答え `myChoiceId`、数値予想なら自分の答え `myValue`、投票なら自分が選んだ人 `myTargetUserId`、合言葉なら自分が正解したか `myKeywordCorrect`、抽選なら自分が参加したか `myEntry`）。画像の URL は景品と同じく 1 時間ごとの区切りの期限で、同じ期限の URL はサーバの中で使い回す（5 秒ごとに呼ばれても署名を作り直さない）。無ければ `null`。何をしたら何点か（選択肢・枠・順位の範囲の点数、投票した人の点数）と、数値予想の正解の数・合言葉・誰がどの枠に入ったか・投票の票数は返さない。画面の表示中は 5 秒ごとと、別のアプリから戻ったときに呼ぶ（画面が見えていない間は呼ばない）。開催・確定が自動で反映される |
@@ -442,6 +456,8 @@ sequenceDiagram
 | GET | `/api/admin/ranking` | ポイントの高い順のランキング（同点の決め方は「3.3 ポイントの計算」の順位）と、各ユーザの累計ポイントの推移。推移は保存せず、公開中の写真（公開した時刻）・そのお気に入り（選ばれた時刻）・確定したゲーム（確定した時刻）から現在の設定で組み立てる。削除した写真や外したお気に入りは含めず、最後の点はユーザ一覧と同じポイント |
 | PATCH | `/api/admin/users/{userId}` | 名前・二つ名の変更 |
 | POST | `/api/admin/users/{userId}/unbind` | QR との紐づけ解除 |
+| POST | `/api/admin/users/{userId}/pin/unlock` | 暗証番号のロックを解除（間違えた回数を 0 に戻す） |
+| DELETE | `/api/admin/users/{userId}/pin` | 暗証番号を消す（次にログインしていない端末で読み込んだときに決め直す） |
 | GET | `/api/admin/photos?status=` | 状態別写真一覧（検閲待ちは署名付き URL 付き） |
 | POST | `/api/admin/photos/{photoId}/approve` | 承認 |
 | POST | `/api/admin/photos/{photoId}/reject` | 却下 |
@@ -497,7 +513,7 @@ sequenceDiagram
 | `/admin/login` | ログイン | パスワード入力（タイトル「partally admin」は、ログイン前の参加者の画面と同じく管理画面の見出しの書体で中央に出す） |
 | `/admin/tokens` | QR 管理 | トークン発行、紐づけ状況、印刷用ページ |
 | `/admin/tokens/print` | QR 印刷 | QR と通し番号を並べたページ。ブラウザの印刷機能で PDF 化 |
-| `/admin/users` | ユーザ管理 | 一覧（表示名・ポイント・アップロード数・公開数・選ばれた数・選んだ数・ゲームの点数）、名前／二つ名の編集、紐づけ解除 |
+| `/admin/users` | ユーザ管理 | 一覧（表示名・ポイント・アップロード数・公開数・選ばれた数・選んだ数・ゲームの点数・暗証番号の状態）、名前／二つ名の編集、紐づけ解除、暗証番号のロック解除・消去 |
 | `/admin/ranking` | ランキング（Ranking） | 順位・表示名・ポイントと横棒、「推移を再生」のアニメーション、各行の景品。順位の付け方と見せ方は [機能仕様書 7](spec.md#7-ランキング推移) |
 | `/admin/trend` | ポイントの推移（Trend） | 累計ポイントの推移の折れ線（全員を灰色、選んだ 10 人までを色付き）。表の行にカーソルを合わせた人の線を強調する |
 | `/admin/photos` | 検閲・写真管理 | 検閲待ちの承認／却下、公開済みの削除（送っている間は、その写真のボタンを押せなくする） |

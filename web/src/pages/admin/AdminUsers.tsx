@@ -1,9 +1,11 @@
-import type { UserDto, UserResponse, UsersResponse } from "@partally/shared";
+import type { PinStatus, UserDto, UserResponse, UsersResponse } from "@partally/shared";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
 import { Modal } from "../../components/Modal";
 import { PageTitle } from "../../components/PageTitle";
 import { useOnReload } from "../../hooks/useReload";
+
+const PIN_LABEL: Record<PinStatus, string> = { none: "未設定", set: "設定済み", locked: "ロック中" };
 
 export function AdminUsers() {
   const [users, setUsers] = useState<UserDto[]>();
@@ -42,6 +44,32 @@ export function AdminUsers() {
     }
   }
 
+  /** 暗証番号のロックを解除する（間違えた回数を 0 に戻す） */
+  async function unlockPin(user: UserDto) {
+    if (!confirm(`${user.displayName} の暗証番号のロックを解除します。よろしいですか？`)) return;
+    try {
+      replace((await api<UserResponse>("POST", `/admin/users/${user.userId}/pin/unlock`)).user);
+    } catch (e) {
+      alert(errorMessage(e));
+    }
+  }
+
+  /** 暗証番号を消す（忘れた人。次にほかの端末で QR コードを読み込んだときに決め直す） */
+  async function clearPin(user: UserDto) {
+    if (
+      !confirm(
+        `${user.displayName} の暗証番号を消します。\n次にログインしていない端末で QR コードを読み込んだ人が、新しい暗証番号を決められます。本人がその場で読み込むときに消してください。よろしいですか？`,
+      )
+    ) {
+      return;
+    }
+    try {
+      replace((await api<UserResponse>("DELETE", `/admin/users/${user.userId}/pin`)).user);
+    } catch (e) {
+      alert(errorMessage(e));
+    }
+  }
+
   const active = users?.filter((u) => u.status === "active").length ?? 0;
 
   return (
@@ -65,6 +93,7 @@ export function AdminUsers() {
               <th className="num">選んだ</th>
               <th className="num">ゲーム点</th>
               <th>状態</th>
+              <th>暗証番号</th>
               <th />
             </tr>
           </thead>
@@ -81,11 +110,24 @@ export function AdminUsers() {
                 <td className="num">{u.favoritesGiven}</td>
                 <td className="num">{u.gamePoints}</td>
                 <td>{u.status === "active" ? "登録済み" : "解除済み"}</td>
+                <td className={u.pin === "locked" ? "pin-locked nowrap" : "nowrap"}>
+                  {u.status === "active" && u.pin ? PIN_LABEL[u.pin] : ""}
+                </td>
                 <td>
                   <div className="actions">
                     <button type="button" onClick={() => setEditing(u)}>
                       編集
                     </button>
+                    {u.status === "active" && u.pin === "locked" && (
+                      <button type="button" onClick={() => unlockPin(u)}>
+                        ロック解除
+                      </button>
+                    )}
+                    {u.status === "active" && u.pin !== undefined && u.pin !== "none" && (
+                      <button type="button" onClick={() => clearPin(u)}>
+                        暗証番号を消す
+                      </button>
+                    )}
                     {u.status === "active" && (
                       <button type="button" className="danger" onClick={() => unbind(u)}>
                         紐づけ解除

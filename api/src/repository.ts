@@ -27,6 +27,10 @@ export interface UserRecord {
   approvedCount: number;
   favoritesGiven: number;
   favoritesReceived: number;
+  /** 暗証番号のハッシュ（pin.ts）。決めていなければ無い */
+  pinHash?: string;
+  /** 暗証番号を続けて間違えた回数（試す前に数え、合えば 0 に戻す）。PIN_MAX_FAILURES 以上ならロック中 */
+  pinFailures?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -280,6 +284,24 @@ export interface Repository {
    * @throws NotFoundError ユーザが存在しないか、既に解除済み
    */
   unbindUser(userId: string, updatedAt: string): Promise<UserRecord>;
+
+  /**
+   * 暗証番号を決める（間違えた回数も 0 に戻す）。onlyIfUnset なら、まだ決めていない参加中の人のときだけ決める
+   * （同じ人を 2 つの端末で同時に決めたとき、後の方は決めない）。決めたら true
+   */
+  setUserPin(userId: string, pinHash: string, onlyIfUnset: boolean): Promise<boolean>;
+
+  /**
+   * 暗証番号を 1 回試す分を数える（間違えた回数を 1 つ増やす）。既に max 回に達していれば（ロック中）数えずに false。
+   * 試す前に数えるので、同時に何回送っても max 回までしか試せない
+   */
+  reservePinAttempt(userId: string, max: number): Promise<boolean>;
+
+  /** 暗証番号を間違えた回数を 0 に戻す（合ったとき・幹事がロックを解除したとき）。@throws NotFoundError */
+  resetPinFailures(userId: string): Promise<UserRecord>;
+
+  /** 暗証番号を消す（幹事。次にほかの端末で読み込んだときに決め直す）。@throws NotFoundError */
+  clearUserPin(userId: string): Promise<UserRecord>;
 
   // ---- 写真 ----
 

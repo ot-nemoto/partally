@@ -65,7 +65,7 @@ export function useApiTest() {
       const token = await t.issueToken();
       if (randomInts) t.randomInts = randomInts;
       const request = createClient(t.app);
-      const reg = await request("POST", "/api/auth/register", { token, name });
+      const reg = await request("POST", "/api/auth/register", { token, name, pin: "1234" });
       return { request, userId: reg.body.user.userId as string };
     },
     /** 管理者としてログインした簡易クライアント */

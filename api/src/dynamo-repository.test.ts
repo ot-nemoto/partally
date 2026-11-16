@@ -152,6 +152,64 @@ describe("DynamoRepository", () => {
     });
   });
 
+  describe("暗証番号", () => {
+    const failed = () => new ConditionalCheckFailedException({ message: "failed", $metadata: {} });
+
+    it("試す前に、ロック中でないときだけ回数を 1 つ増やす。ロック中なら false", async () => {
+      ddb.on(UpdateCommand).resolves({});
+      await expect(repo.reservePinAttempt("U1", 5)).resolves.toBe(true);
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input).toMatchObject({
+        Key: { PK: "USER#U1", SK: "PROFILE" },
+        UpdateExpression: "ADD pinFailures :one",
+        ConditionExpression: "attribute_exists(PK) AND (attribute_not_exists(pinFailures) OR pinFailures < :max)",
+        ExpressionAttributeValues: { ":one": 1, ":max": 5 },
+      });
+      ddb.reset();
+      ddb.on(UpdateCommand).rejects(failed());
+      await expect(repo.reservePinAttempt("U1", 5)).resolves.toBe(false);
+    });
+
+    it("決めるときは回数も 0 に戻す。まだ決めていない人だけに決めるときは条件を付け、決まっていれば false", async () => {
+      ddb.on(UpdateCommand).resolves({});
+      await expect(repo.setUserPin("U1", "scrypt$a$b", true)).resolves.toBe(true);
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input).toMatchObject({
+        UpdateExpression: "SET pinHash = :hash, pinFailures = :zero",
+        ConditionExpression: "attribute_exists(PK) AND #status = :active AND attribute_not_exists(pinHash)",
+        ExpressionAttributeValues: { ":hash": "scrypt$a$b", ":zero": 0, ":active": "active" },
+      });
+      ddb.reset();
+      ddb.on(UpdateCommand).rejects(failed());
+      await expect(repo.setUserPin("U1", "scrypt$a$b", true)).resolves.toBe(false);
+    });
+
+    it("回数を戻す・消すと、変えた後のユーザを返す。無いユーザは NotFoundError。読むと番号と回数が入る", async () => {
+      const attrs = {
+        userId: "U1",
+        name: "田中",
+        epithet: "e",
+        status: "active",
+        pinHash: "scrypt$a$b",
+        pinFailures: 0,
+      };
+      ddb.on(UpdateCommand).resolves({ Attributes: attrs });
+      expect(await repo.resetPinFailures("U1")).toMatchObject({ pinHash: "scrypt$a$b", pinFailures: 0 });
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input).toMatchObject({
+        UpdateExpression: "SET pinFailures = :zero",
+        ConditionExpression: "attribute_exists(PK)",
+      });
+      ddb.reset();
+      ddb.on(UpdateCommand).resolves({ Attributes: { userId: "U1", name: "田中", epithet: "e", status: "active" } });
+      const cleared = await repo.clearUserPin("U1");
+      expect(cleared).not.toHaveProperty("pinHash");
+      expect(cleared).not.toHaveProperty("pinFailures");
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input.UpdateExpression).toBe("REMOVE pinHash, pinFailures");
+      ddb.reset();
+      ddb.on(UpdateCommand).rejects(failed());
+      await expect(repo.clearUserPin("U1")).rejects.toBeInstanceOf(NotFoundError);
+      await expect(repo.resetPinFailures("U1")).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+
   describe("createTokens", () => {
     it("カウンタから通し番号を採番し、25 件ずつ書き込む", async () => {
       ddb.on(UpdateCommand).resolves({ Attributes: { value: 40 } });

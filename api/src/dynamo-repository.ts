@@ -248,6 +248,73 @@ export class DynamoRepository implements Repository {
     return { ...current, ...definedOnly(changes), updatedAt };
   }
 
+  async setUserPin(userId: string, pinHash: string, onlyIfUnset: boolean) {
+    try {
+      await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: keys.user(userId),
+          UpdateExpression: "SET pinHash = :hash, pinFailures = :zero",
+          ConditionExpression: onlyIfUnset
+            ? "attribute_exists(PK) AND #status = :active AND attribute_not_exists(pinHash)"
+            : "attribute_exists(PK)",
+          ...(onlyIfUnset ? { ExpressionAttributeNames: { "#status": "status" } } : {}),
+          ExpressionAttributeValues: { ":hash": pinHash, ":zero": 0, ...(onlyIfUnset ? { ":active": "active" } : {}) },
+        }),
+      );
+      return true;
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) return false;
+      throw e;
+    }
+  }
+
+  async reservePinAttempt(userId: string, max: number) {
+    try {
+      await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: keys.user(userId),
+          UpdateExpression: "ADD pinFailures :one",
+          ConditionExpression: "attribute_exists(PK) AND (attribute_not_exists(pinFailures) OR pinFailures < :max)",
+          ExpressionAttributeValues: { ":one": 1, ":max": max },
+        }),
+      );
+      return true;
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) return false;
+      throw e;
+    }
+  }
+
+  async resetPinFailures(userId: string) {
+    return this.updateUserAttributes(userId, "SET pinFailures = :zero", { ":zero": 0 });
+  }
+
+  async clearUserPin(userId: string) {
+    return this.updateUserAttributes(userId, "REMOVE pinHash, pinFailures");
+  }
+
+  /** ユーザの属性を変えて、変えた後のユーザを返す。@throws NotFoundError */
+  private async updateUserAttributes(userId: string, expression: string, values?: Record<string, unknown>) {
+    try {
+      const { Attributes } = await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: keys.user(userId),
+          UpdateExpression: expression,
+          ConditionExpression: "attribute_exists(PK)",
+          ...(values ? { ExpressionAttributeValues: values } : {}),
+          ReturnValues: "ALL_NEW",
+        }),
+      );
+      return toUserRecord(Attributes!);
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) throw new NotFoundError();
+      throw e;
+    }
+  }
+
   async unbindUser(userId: string, updatedAt: string) {
     const current = await this.getUser(userId);
     if (current?.status !== "active" || !current.token) throw new NotFoundError();
@@ -1248,6 +1315,8 @@ function toUserRecord(item: Record<string, unknown>): UserRecord {
     approvedCount: Number(item.approvedCount ?? 0),
     favoritesGiven: Number(item.favoritesGiven ?? 0),
     favoritesReceived: Number(item.favoritesReceived ?? 0),
+    ...(typeof item.pinHash === "string" ? { pinHash: item.pinHash } : {}),
+    ...(item.pinFailures === undefined || item.pinFailures === null ? {} : { pinFailures: Number(item.pinFailures) }),
     createdAt: item.createdAt as string,
     updatedAt: item.updatedAt as string,
   };

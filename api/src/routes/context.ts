@@ -245,8 +245,12 @@ export function createContext(deps: AppDeps) {
     await next();
   };
 
+  /** 参加者のセッション Cookie（署名と期限だけを確かめる。ユーザの状態は呼ぶ側で確かめる） */
+  const userSessionOf = (c: Context) =>
+    verify<UserSession>(getCookie(c, USER_COOKIE), sessionSecret, USER_SESSION_MAX_AGE, nowSeconds());
+
   const requireUser = async (c: Context<Env>, next: () => Promise<void>) => {
-    const session = verify<UserSession>(getCookie(c, USER_COOKIE), sessionSecret, USER_SESSION_MAX_AGE, nowSeconds());
+    const session = userSessionOf(c);
     const user = session && (await repo.getUser(session.uid));
     if (!session || user?.status !== "active" || user.token !== session.tok) {
       deleteCookie(c, USER_COOKIE, { path: "/", secure: secureCookies });
@@ -333,6 +337,7 @@ export function createContext(deps: AppDeps) {
     adminUser,
     loadRanking,
     requireUser,
+    userSessionOf,
     requireAdmin,
     removeImage,
     removeImages,

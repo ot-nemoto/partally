@@ -4,6 +4,7 @@ import {
   formatDisplayName,
   type GameDto,
   type PhotoStatus,
+  PIN_MAX_FAILURES,
   type Rules,
   type ScheduleItemDto,
   type Settings,
@@ -40,6 +41,7 @@ export function toUserDto(user: UserRecord, settings: Settings, game: GameStats)
     favoritesReceived: user.favoritesReceived,
     gamePoints: game.points,
     points: calculatePoints(user, settings, game),
+    pin: !user.pinHash ? "none" : (user.pinFailures ?? 0) >= PIN_MAX_FAILURES ? "locked" : "set",
     createdAt: user.createdAt,
   };
 }
@@ -49,7 +51,8 @@ export function toUserDto(user: UserRecord, settings: Settings, game: GameStats)
  * ゲームの点数を伏せている間は、ゲームの点数と点数が入ったものを含めない
  */
 export function toParticipantUserDto(user: UserRecord, settings: Settings, game: GameStats): UserDto {
-  const { points, favoritesReceived, gamePoints, ...rest } = toUserDto(user, settings, game);
+  // 暗証番号の状態は管理画面だけに返す
+  const { points, favoritesReceived, gamePoints, pin: _pin, ...rest } = toUserDto(user, settings, game);
   return {
     ...rest,
     ...(settings.showPoints ? { points, favoritesReceived } : {}),

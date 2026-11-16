@@ -19,11 +19,27 @@ export const epithetSchema = normalized(EPITHET_MAX_LENGTH);
 /** 128bit 乱数の base64url 表現（22 文字） */
 export const tokenSchema = z.string().regex(/^[A-Za-z0-9_-]{22}$/);
 
-export const qrLoginRequestSchema = z.object({ token: tokenSchema });
+/** 暗証番号の桁数（数字だけ） */
+export const PIN_LENGTH = 4;
+/** 暗証番号を続けて間違えられる回数。これだけ間違えるとロックし、幹事が解除するまでほかの端末でログインできない */
+export const PIN_MAX_FAILURES = 5;
+
+/** 暗証番号。全角の数字は半角にそろえる */
+export const pinSchema = z
+  .string()
+  .transform((s) => s.normalize("NFKC").trim())
+  .pipe(z.string().regex(new RegExp(`^\\d{${PIN_LENGTH}}$`), `暗証番号は ${PIN_LENGTH} 桁の数字にしてください`));
+
+/**
+ * QR コードでのログイン。その人としてログインしたままの端末でなければ、暗証番号（pin）を求める。
+ * 暗証番号の無い人は、送った pin を暗証番号として決める
+ */
+export const qrLoginRequestSchema = z.object({ token: tokenSchema, pin: pinSchema.optional() });
 
 export const registerRequestSchema = z.object({
   token: tokenSchema,
   name: nameSchema,
+  pin: pinSchema,
 });
 
 export const adminLoginRequestSchema = z.object({
