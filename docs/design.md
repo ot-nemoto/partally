@@ -513,7 +513,7 @@ sequenceDiagram
 |---|---|---|
 | `games` | `[{format, name, description, image?, choices: [{text, points, image?}], slots: [{name, points}], ranks, correctNumber?, voterPoints, keyword?}]`（作成順。状態・答え・抽選の順番・枠に選んだ人は入れない） | 下書きとして追加だけ（`POST /api/admin/games`。置き換えは、確定したゲームのポイントが消えるので無い）。100 件まで |
 | `prizes` | `[{name, quantity, positions, image?}]`（作成順。`image` は ZIP の中のパス） | 追加か置き換え（`POST`・`DELETE /api/admin/prizes`）。100 件まで |
-| `schedule` | `{date?, items: [{title, detail, startMinute, durationMinutes, column?}]}`（開始時刻の早い順） | 追加か置き換え（`POST`・`DELETE /api/admin/schedule`）。日付は選んだときだけ設定に入れる。200 件まで |
+| `schedule` | `{date?, items: [{title, detail, startMinute, durationMinutes, column?}]}`（開始時刻の早い順） | 追加か置き換え（`POST`・`DELETE /api/admin/schedule`）。項目は今の列の右に、ファイルの列の並びのまま（列の小さい順に）作る。日付は選んだときだけ設定に入れる。200 件まで |
 | `settings` | 設定（`scheduleDate` を除く） | 今の設定に重ねて `PUT /api/admin/settings`（イベントの日付は今のまま） |
 
 - 以前の形式（景品の ZIP `prizes.json`（`partally-prizes`）、ゲームの ZIP `games.json`（`partally-games`）、スケジュールの JSON（`partally-schedule`））も読む。それぞれの中身は `data.json` の同じ種類と同じ形。

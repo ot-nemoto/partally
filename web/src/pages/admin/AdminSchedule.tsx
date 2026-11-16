@@ -139,7 +139,9 @@ export function AdminSchedule() {
     const delta = snap(d.dy / PX_PER_MINUTE);
     if (d.mode === "move") {
       // 横は、指・ポインタがどの列の上にあるかで決める（列を超えて動かせる）
-      const column = clamp(Math.floor(((d.x - d.gridLeft) / d.gridWidth) * columnCount), 0, columnCount - 1);
+      // 動かしている間は右に空いた列を 1 つ見せ、そこに置くと新しい列になる
+      const slots = columnCount + 1;
+      const column = clamp(Math.floor(((d.x - d.gridLeft) / d.gridWidth) * slots), 0, slots - 1);
       return {
         ...item,
         startMinute: clamp(item.startMinute + delta, rangeStart, rangeEnd - item.durationMinutes),
@@ -156,7 +158,9 @@ export function AdminSchedule() {
         drag.itemId,
       )
     : list;
-  const shownColumns = Math.max(1, ...shownList.map((i) => i.column + 1));
+  // 動かしている間は、新しい列を作れるよう右に空いた列を 1 つ足して見せる
+  const dragSlots = drag?.moved && drag.mode === "move" ? columnCount + 1 : 0;
+  const shownColumns = Math.max(1, dragSlots, ...shownList.map((i) => i.column + 1));
 
   function onBlockPointerDown(e: ReactPointerEvent<HTMLElement>, item: ScheduleItemDto, mode: Drag["mode"]) {
     if (e.button !== 0 || drag) return;

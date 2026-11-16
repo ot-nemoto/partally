@@ -108,7 +108,15 @@ export function DataImportDialog(props: {
           scheduleMode === "replace"
             ? current.scheduleItems.map((item) => () => api("DELETE", `/admin/schedule/${item.itemId}`))
             : [];
-        await step("スケジュール", data.schedule.items, (item) => item.title, importScheduleItem, removers);
+        // 取り込む項目は、今の列の右に、ファイルの列の並びのまま置く（今の項目と重ならないように）。
+        // 置き換えなら、今の項目を消すと左の列が詰まり、ファイルのとおりの列になる。
+        // 左の列から順に作る（列を左から埋めないと、作るたびに空いた列が詰められて、置いた列がずれる）
+        const offset =
+          current.scheduleItems.length > 0 ? Math.max(...current.scheduleItems.map((i) => i.column)) + 1 : 0;
+        const ordered = [...data.schedule.items]
+          .sort((a, b) => (a.column ?? 0) - (b.column ?? 0) || a.startMinute - b.startMinute)
+          .map((item) => ({ ...item, column: (item.column ?? 0) + offset }));
+        await step("スケジュール", ordered, (item) => item.title, importScheduleItem, removers);
       }
       const date = include.schedule && withDate ? data.schedule?.date : undefined;
       if ((include.settings && data.settings) || date) {
@@ -179,7 +187,7 @@ export function DataImportDialog(props: {
               count={current.scheduleItems.length}
               mode={scheduleMode}
               onChange={setScheduleMode}
-              addNote="時間が重なる項目は、横に並べて表示します。"
+              addNote="取り込んだ項目は、今の項目の右の列に、ファイルの列の並びのまま置きます。"
             />
             {data.schedule.date && (
               <label className="import-option">

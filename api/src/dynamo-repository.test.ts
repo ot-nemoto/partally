@@ -451,6 +451,52 @@ describe("DynamoRepository", () => {
       ddb.on(DeleteCommand).rejects(failed);
       await expect(repo.deleteScheduleItem("S1")).rejects.toBeInstanceOf(NotFoundError);
     });
+
+    it("列は、直すときに送れば保存し、列だけを変えるときは消された項目を飛ばす。読んだ列を返す", async () => {
+      ddb
+        .on(UpdateCommand)
+        .resolves({ Attributes: { itemId: "S1", title: "x", startMinute: 0, durationMinutes: 5, column: 2 } });
+      const updated = await repo.updateScheduleItem(
+        "S1",
+        { title: "x", detail: "", startMinute: 0, durationMinutes: 5, column: 2 },
+        "t",
+      );
+      expect(updated.column).toBe(2);
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input).toMatchObject({
+        UpdateExpression: expect.stringContaining(", #column = :column"),
+        ExpressionAttributeNames: { "#column": "column" },
+        ExpressionAttributeValues: { ":column": 2 },
+      });
+      // 列を送らなければ、列は変えない
+      await repo.updateScheduleItem("S1", { title: "x", detail: "", startMinute: 0, durationMinutes: 5 }, "t");
+      const second = ddb.commandCalls(UpdateCommand)[1]!.args[0].input;
+      expect(second.UpdateExpression).not.toContain("#column");
+      expect(second.ExpressionAttributeNames).not.toHaveProperty("#column");
+
+      ddb.reset();
+      const failed = new ConditionalCheckFailedException({ message: "failed", $metadata: {} });
+      ddb.on(UpdateCommand, { Key: { PK: "SCHEDULE#GONE", SK: "META" } }).rejects(failed);
+      ddb.on(UpdateCommand, { Key: { PK: "SCHEDULE#S2", SK: "META" } }).resolves({});
+      await expect(
+        repo.setScheduleColumns([
+          { itemId: "GONE", column: 0 },
+          { itemId: "S2", column: 1 },
+        ]),
+      ).resolves.toBeUndefined();
+      expect(ddb.commandCalls(UpdateCommand).map((c) => c.args[0].input)).toContainEqual(
+        expect.objectContaining({
+          Key: { PK: "SCHEDULE#S2", SK: "META" },
+          UpdateExpression: "SET #column = :column",
+          ConditionExpression: "attribute_exists(PK)",
+          ExpressionAttributeValues: { ":column": 1 },
+        }),
+      );
+      // 列を持たない項目は列なしで読む
+      ddb.on(QueryCommand).resolves({
+        Items: [{ PK: "SCHEDULE#S3", SK: "META", itemId: "S3", title: "古い", createdAt: "t", updatedAt: "t" }],
+      });
+      expect((await repo.listScheduleItems())[0]).not.toHaveProperty("column");
+    });
   });
 
   describe("ゲーム", () => {

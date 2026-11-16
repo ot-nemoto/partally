@@ -55,7 +55,7 @@ export function ScheduleView() {
 
   const statuses = scheduleStatuses(data.items, now, data.date);
   // 幹事が置いた列ごとに並べる（列の中は開始時刻の早い順）。列が 1 つなら今までどおり 1 列の一覧
-  const columns = Math.max(1, ...data.items.map((i) => i.column + 1));
+  const columns = Math.max(1, ...data.items.map((i) => (i.column ?? 0) + 1));
   const list = (items: ScheduleItemDto[]) => (
     <ol className="schedule-list">
       {items.map((item) => {
@@ -87,7 +87,7 @@ export function ScheduleView() {
         <div className="schedule-columns" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
           {Array.from({ length: columns }, (_, column) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: 列の番号そのものが鍵
-            <div key={column}>{list(data.items.filter((i) => i.column === column))}</div>
+            <div key={column}>{list(data.items.filter((i) => (i.column ?? 0) === column))}</div>
           ))}
         </div>
       )}
