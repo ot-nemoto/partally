@@ -3,8 +3,8 @@ import {
   type CurrentGameDto,
   formatDisplayName,
   type GameDto,
+  isPinLocked,
   type PhotoStatus,
-  PIN_MAX_FAILURES,
   type Rules,
   type ScheduleItemDto,
   type Settings,
@@ -41,7 +41,7 @@ export function toUserDto(user: UserRecord, settings: Settings, game: GameStats)
     favoritesReceived: user.favoritesReceived,
     gamePoints: game.points,
     points: calculatePoints(user, settings, game),
-    pin: !user.pinHash ? "none" : (user.pinFailures ?? 0) >= PIN_MAX_FAILURES ? "locked" : "set",
+    pin: !user.pinHash ? "none" : isPinLocked(user.pinFailures) ? "locked" : "set",
     createdAt: user.createdAt,
   };
 }

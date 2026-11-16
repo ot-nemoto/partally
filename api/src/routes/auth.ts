@@ -1,5 +1,6 @@
 import {
   adminLoginRequestSchema,
+  isPinLocked,
   PIN_MAX_FAILURES,
   qrLoginRequestSchema,
   randomEpithet,
@@ -66,7 +67,7 @@ export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
       return login();
     }
 
-    if ((user.pinFailures ?? 0) >= PIN_MAX_FAILURES) return fail(c, 423, "pin_locked");
+    if (isPinLocked(user.pinFailures)) return fail(c, 423, "pin_locked");
     if (pin === undefined) return c.json({ status: "pin_required" as const, setup: false });
     // 試す前に回数を数える（同時に何回送っても、決めた回数までしか試せない）
     if (!(await repo.reservePinAttempt(user.userId, PIN_MAX_FAILURES))) return fail(c, 423, "pin_locked");

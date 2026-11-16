@@ -24,6 +24,11 @@ export const PIN_LENGTH = 4;
 /** 暗証番号を続けて間違えられる回数。これだけ間違えるとロックし、幹事が解除するまでほかの端末でログインできない */
 export const PIN_MAX_FAILURES = 5;
 
+/** 暗証番号を間違えすぎてロック中か（間違えた回数から） */
+export function isPinLocked(failures: number | undefined): boolean {
+  return (failures ?? 0) >= PIN_MAX_FAILURES;
+}
+
 /** 暗証番号。全角の数字は半角にそろえる */
 export const pinSchema = z
   .string()

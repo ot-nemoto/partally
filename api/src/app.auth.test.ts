@@ -103,6 +103,25 @@ describe("API", () => {
       expect((await third("POST", "/api/auth/qr", { token, pin: "5678" })).body).toMatchObject({ status: "bound" });
     });
 
+    it("暗証番号の無い人を 2 つの端末で同時に決めると、先に決めた方だけが残り、後の方はその番号を聞かれる", async () => {
+      const token = await t.issueToken();
+      const reg = await createClient(t.app)("POST", "/api/auth/register", { token, name: "田中", pin: "1234" });
+      const userId = reg.body.user.userId;
+      await t.repo.clearUserPin(userId);
+      // 決める直前に、別の端末が先に決めた
+      const original = t.repo.setUserPin.bind(t.repo);
+      t.repo.setUserPin = async (id, hash, onlyIfUnset) => {
+        t.repo.setUserPin = original;
+        await original(id, (await t.repo.getUser(id))!.pinHash ?? "scrypt$x$y", false);
+        return original(id, hash, onlyIfUnset);
+      };
+      const late = createClient(t.app);
+      const res = await late("POST", "/api/auth/qr", { token, pin: "5678" });
+      expect(res.body).toEqual({ status: "pin_required", setup: false });
+      expect((await late("GET", "/api/me")).status).toBe(401);
+      expect((await t.repo.getUser(userId))!.pinHash).toBe("scrypt$x$y");
+    });
+
     it("登録には 4 桁の数字の暗証番号が要る", async () => {
       const request = createClient(t.app);
       const token = await t.issueToken();
