@@ -260,6 +260,8 @@ export interface ScheduleItemDto {
   durationMinutes: number;
   /** 管理画面・参加者の画面で並べる列（0 から。左から順に、何もない列は無い） */
   column: number;
+  /** 参加者に見せない（列ごとにそろう）。参加者に返す一覧には、見せない項目は入らない */
+  hidden: boolean;
 }
 
 /** スケジュール（開始時刻の早い順）とイベントの日付 */

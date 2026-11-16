@@ -2486,7 +2486,7 @@ table.import-table td.nowrap {
 /* 参加者の時間軸。管理画面のタイムラインと同じ形で、押すと詳細を出す。列が多いときは横にスクロールする */
 .schedule-board {
   overflow-x: auto;
-  padding-top: 1rem;
+  padding: 1rem 0;
   scroll-margin-top: 4rem;
 }
 
@@ -2513,14 +2513,8 @@ table.import-table td.nowrap {
   cursor: pointer;
 }
 
-.schedule-board-slot .schedule-block:not(.tiny) .schedule-block-time {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem;
-}
-
 .schedule-board .schedule-badge {
+  margin-right: 0.25rem;
   white-space: nowrap;
 }
 
@@ -2558,6 +2552,53 @@ table.import-table td.nowrap {
 
 .schedule-detail .schedule-item-detail {
   white-space: pre-wrap;
+}
+
+/* 列ごとに参加者に見せるかの切り替え（時間軸の列にそろえる） */
+.schedule-column-heads {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 0.25rem 3.5rem;
+}
+
+.schedule-column-toggle {
+  min-width: 0;
+  padding: 0.15rem 0.25rem;
+  overflow: hidden;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.schedule-column-toggle.off {
+  border-style: dashed;
+  border-color: var(--muted);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+/* 見せない列は斜線、項目は点線で薄く */
+.schedule-column-shade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent 0 6px,
+    color-mix(in srgb, var(--muted) 14%, transparent) 6px 8px
+  );
+  pointer-events: none;
+}
+
+.schedule-block.hidden-item {
+  border-style: dashed;
+  border-color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 10%, var(--surface));
+  color: var(--muted);
 }
 
 /* ---- 参加者の順位 ---- */

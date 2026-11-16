@@ -140,11 +140,12 @@ function ScheduleBoard(props: {
                     aria-label={`${formatScheduleRange(item)} ${item.title}${label ? `（${label}）` : ""}`}
                     onClick={() => setOpened(item)}
                   >
-                    <span className="schedule-block-time">
-                      {formatScheduleRange(item)}
+                    <span className="schedule-block-time">{formatScheduleRange(item)}</span>
+                    {/* 狭い列・短い項目でもタイトルが隠れないよう、「いま」「つぎ」はタイトルの前に付ける */}
+                    <span className="schedule-block-title">
                       {label && <span className={`schedule-badge ${status}`}>{label}</span>}
+                      {item.title}
                     </span>
-                    <span className="schedule-block-title">{item.title}</span>
                   </button>
                 </li>
               );

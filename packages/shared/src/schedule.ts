@@ -43,6 +43,7 @@ export function localDate(now: Date): string {
 }
 
 type TimedItem = Pick<ScheduleItemDto, "itemId" | "startMinute" | "durationMinutes">;
+type PlacedItem = TimedItem & { column?: number; hidden?: boolean };
 
 /**
  * 時間が重なる項目を横に並べる列を、時刻から決める（列を持つ前に作った項目の並べ方）。重なり合う項目のまとまりごとに、
@@ -86,12 +87,8 @@ function overlaps(a: TimedItem, b: TimedItem): boolean {
  * - 列を持たない項目（列を持つ前に作った項目）は、時刻から決めた以前の並べ方の列に置く
  * 項目ごとの列（0 から）を返す
  */
-export function arrangeScheduleColumns(
-  items: (TimedItem & { column?: number })[],
-  placedId?: string,
-): Map<string, number> {
-  const legacy = scheduleColumns(items.filter((i) => i.column === undefined));
-  const columns = new Map(items.map((i) => [i.itemId, i.column ?? legacy.get(i.itemId)?.column ?? 0]));
+export function arrangeScheduleColumns(items: PlacedItem[], placedId?: string): Map<string, number> {
+  const columns = storedColumns(items);
   const placed = placedId === undefined ? undefined : items.find((i) => i.itemId === placedId);
   if (placed) {
     const column = columns.get(placed.itemId)!;
@@ -110,4 +107,34 @@ export function arrangeScheduleColumns(
   const used = [...new Set(columns.values())].sort((a, b) => a - b);
   const index = new Map(used.map((c, i) => [c, i]));
   return new Map([...columns].map(([itemId, c]) => [itemId, index.get(c)!]));
+}
+
+/** 項目ごとの置いた列（詰める前）。列を持たない項目は、時刻から決めた以前の並べ方の列 */
+function storedColumns(items: PlacedItem[]): Map<string, number> {
+  const legacy = scheduleColumns(items.filter((i) => i.column === undefined));
+  return new Map(items.map((i) => [i.itemId, i.column ?? legacy.get(i.itemId)?.column ?? 0]));
+}
+
+/**
+ * placedId の項目（作った・動かした項目）を参加者に見せないかを決める。見せるかは列ごとにそろえるので、
+ * 置いた列（column。重なりで右へ移す前）にほかの項目があれば、その列に合わせる（1 つでも見せない項目があれば見せない）。
+ * ほかの項目が無ければ、その項目の今の値のまま
+ */
+export function placedScheduleHidden(items: PlacedItem[], placedId: string): boolean {
+  const columns = storedColumns(items);
+  const placed = items.find((i) => i.itemId === placedId);
+  const column = columns.get(placedId);
+  const others = items.filter((i) => i.itemId !== placedId && columns.get(i.itemId) === column);
+  if (others.length === 0) return placed?.hidden === true;
+  return others.some((i) => i.hidden === true);
+}
+
+/**
+ * 参加者に見せる項目だけにする。見せない列を除き、残った列を左から 0, 1, 2… に詰める
+ */
+export function visibleSchedule<T extends { column: number; hidden: boolean }>(items: T[]): T[] {
+  const visible = items.filter((i) => !i.hidden);
+  const used = [...new Set(visible.map((i) => i.column))].sort((a, b) => a - b);
+  const index = new Map(used.map((c, i) => [c, i]));
+  return visible.map((i) => ({ ...i, column: index.get(i.column)! }));
 }

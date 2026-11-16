@@ -16,6 +16,7 @@ import {
   type PrizeRecord,
   type Repository,
   type ScheduleItemRecord,
+  type ScheduleLayoutChange,
   TokenNotAvailableError,
   type TokenRecord,
   type UserChanges,
@@ -264,7 +265,7 @@ export class MemoryRepository implements Repository {
 
   async updateScheduleItem(
     itemId: string,
-    changes: Pick<ScheduleItemRecord, "title" | "detail" | "startMinute" | "durationMinutes" | "column">,
+    changes: Pick<ScheduleItemRecord, "title" | "detail" | "startMinute" | "durationMinutes" | "column" | "hidden">,
     updatedAt: string,
   ) {
     const item = this.scheduleItems.get(itemId);
@@ -273,10 +274,12 @@ export class MemoryRepository implements Repository {
     return clone(item);
   }
 
-  async setScheduleColumns(columns: { itemId: string; column: number }[]) {
-    for (const { itemId, column } of columns) {
+  async setScheduleLayout(changes: ScheduleLayoutChange[]) {
+    for (const { itemId, column, hidden } of changes) {
       const item = this.scheduleItems.get(itemId);
-      if (item) item.column = column;
+      if (!item) continue;
+      if (column !== undefined) item.column = column;
+      if (hidden !== undefined) item.hidden = hidden;
     }
   }
 

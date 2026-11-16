@@ -41,6 +41,7 @@ import {
   type PrizeRecord,
   type Repository,
   type ScheduleItemRecord,
+  type ScheduleLayoutChange,
   TokenNotAvailableError,
   type TokenRecord,
   type UserChanges,
@@ -643,21 +644,24 @@ export class DynamoRepository implements Repository {
 
   async updateScheduleItem(
     itemId: string,
-    changes: Pick<ScheduleItemRecord, "title" | "detail" | "startMinute" | "durationMinutes" | "column">,
+    changes: Pick<ScheduleItemRecord, "title" | "detail" | "startMinute" | "durationMinutes" | "column" | "hidden">,
     updatedAt: string,
   ) {
+    // 列・見せるかは、省いたら今のまま
     const column = changes.column === undefined ? "" : ", #column = :column";
+    const hidden = changes.hidden === undefined ? "" : ", #hidden = :hidden";
     try {
       const { Attributes } = await this.client.send(
         new UpdateCommand({
           TableName: this.tableName,
           Key: keys.scheduleItem(itemId),
-          UpdateExpression: `SET #title = :title, #detail = :detail, startMinute = :start, durationMinutes = :duration, updatedAt = :updatedAt${column}`,
+          UpdateExpression: `SET #title = :title, #detail = :detail, startMinute = :start, durationMinutes = :duration, updatedAt = :updatedAt${column}${hidden}`,
           ConditionExpression: "attribute_exists(PK)",
           ExpressionAttributeNames: {
             "#title": "title",
             "#detail": "detail",
             ...(changes.column === undefined ? {} : { "#column": "column" }),
+            ...(changes.hidden === undefined ? {} : { "#hidden": "hidden" }),
           },
           ExpressionAttributeValues: {
             ":title": changes.title,
@@ -666,6 +670,7 @@ export class DynamoRepository implements Repository {
             ":duration": changes.durationMinutes,
             ":updatedAt": updatedAt,
             ...(changes.column === undefined ? {} : { ":column": changes.column }),
+            ...(changes.hidden === undefined ? {} : { ":hidden": changes.hidden }),
           },
           ReturnValues: "ALL_NEW",
         }),
@@ -677,20 +682,31 @@ export class DynamoRepository implements Repository {
     }
   }
 
-  async setScheduleColumns(columns: { itemId: string; column: number }[]) {
-    // 列だけを変える。並行して少しずつ送る（項目は多くても数十）。消された項目は飛ばす
-    for (let i = 0; i < columns.length; i += 10) {
+  async setScheduleLayout(changes: ScheduleLayoutChange[]) {
+    // 列・見せるかだけを変える。並行して少しずつ送る（項目は多くても数十）。消された項目は飛ばす
+    for (let i = 0; i < changes.length; i += 10) {
       await Promise.all(
-        columns.slice(i, i + 10).map(async ({ itemId, column }) => {
+        changes.slice(i, i + 10).map(async ({ itemId, column, hidden }) => {
+          const sets = [
+            ...(column === undefined ? [] : ["#column = :column"]),
+            ...(hidden === undefined ? [] : ["#hidden = :hidden"]),
+          ];
+          if (sets.length === 0) return;
           try {
             await this.client.send(
               new UpdateCommand({
                 TableName: this.tableName,
                 Key: keys.scheduleItem(itemId),
-                UpdateExpression: "SET #column = :column",
+                UpdateExpression: `SET ${sets.join(", ")}`,
                 ConditionExpression: "attribute_exists(PK)",
-                ExpressionAttributeNames: { "#column": "column" },
-                ExpressionAttributeValues: { ":column": column },
+                ExpressionAttributeNames: {
+                  ...(column === undefined ? {} : { "#column": "column" }),
+                  ...(hidden === undefined ? {} : { "#hidden": "hidden" }),
+                },
+                ExpressionAttributeValues: {
+                  ...(column === undefined ? {} : { ":column": column }),
+                  ...(hidden === undefined ? {} : { ":hidden": hidden }),
+                },
               }),
             );
           } catch (e) {
@@ -1169,6 +1185,7 @@ function toScheduleItemRecord(item: Record<string, unknown>): ScheduleItemRecord
     startMinute: Number(item.startMinute ?? 0),
     durationMinutes: Number(item.durationMinutes ?? 0),
     ...(item.column === undefined || item.column === null ? {} : { column: Number(item.column) }),
+    ...(item.hidden === true ? { hidden: true } : {}),
     createdAt: item.createdAt as string,
     updatedAt: item.updatedAt as string,
   };

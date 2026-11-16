@@ -182,6 +182,11 @@ export const scheduleItemRequestSchema = z
       .min(0)
       .max(SCHEDULE_COLUMNS_MAX - 1)
       .optional(),
+    /**
+     * 参加者に見せないか。省くと、作るときは見せる、直すときは今のまま。
+     * 置いた列にほかの項目があれば、サーバがその列に合わせる（列ごとにそろえる）
+     */
+    hidden: z.boolean().optional(),
   })
   .refine((v) => v.startMinute + v.durationMinutes <= DAY_MINUTES, {
     message: "終わりの時刻が 24:00 を越えています",
@@ -189,6 +194,11 @@ export const scheduleItemRequestSchema = z
   });
 
 export type ScheduleItemRequest = z.infer<typeof scheduleItemRequestSchema>;
+
+/** スケジュールの列を参加者に見せるか（列の項目をまとめて切り替える） */
+export const scheduleColumnRequestSchema = z.object({ hidden: z.boolean() });
+
+export type ScheduleColumnRequest = z.infer<typeof scheduleColumnRequestSchema>;
 
 export const GAME_NAME_MAX_LENGTH = 50;
 export const GAME_DESCRIPTION_MAX_LENGTH = 500;

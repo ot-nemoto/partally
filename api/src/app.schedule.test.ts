@@ -174,6 +174,80 @@ describe("API", () => {
       expect((await post({ title: "" })).status).toBe(400);
     });
 
+    it("列ごとに参加者に見せないようにでき、置いた列に合わせる。参加者には見せない列を除いて詰めて返す", async () => {
+      const admin = await t.adminClient();
+      const post = async (title: string, startMinute: number, column: number, hidden?: boolean) =>
+        (
+          await admin("POST", "/api/admin/schedule", {
+            title,
+            detail: "",
+            startMinute,
+            durationMinutes: 30,
+            column,
+            hidden,
+          })
+        ).body.item;
+      const state = async () =>
+        Object.fromEntries(
+          (await admin("GET", "/api/admin/schedule")).body.items.map((i: any) => [i.title, [i.column, i.hidden]]),
+        );
+      await post("A", 18 * 60, 0);
+      const b = await post("B", 18 * 60, 1);
+      await post("C", 18 * 60, 2);
+      expect(b.hidden).toBe(false);
+
+      // 列 1 を見せない
+      const res = await admin("PUT", "/api/admin/schedule/columns/1", { hidden: true });
+      expect(res.status).toBe(200);
+      expect(res.body.items.find((i: any) => i.title === "B").hidden).toBe(true);
+      expect(await state()).toEqual({ A: [0, false], B: [1, true], C: [2, false] });
+
+      // 見せない列に作ると見せない。重なって右に足した列へ移っても見せないまま
+      await post("D", 19 * 60, 1);
+      await post("E", 18 * 60 + 10, 1);
+      expect(await state()).toEqual({
+        A: [0, false],
+        B: [1, true],
+        E: [2, true],
+        C: [3, false],
+        D: [1, true],
+      });
+      // 見せない列の項目を、見せる列へ動かすと見せる
+      await admin("PUT", `/api/admin/schedule/${b.itemId}`, {
+        title: "B",
+        detail: "",
+        startMinute: 20 * 60,
+        durationMinutes: 30,
+        column: 0,
+      });
+      expect((await state()).B).toEqual([0, false]);
+      // 何もない列に置くときは、送った値（省けば今のまま）
+      const f = await post("F", 21 * 60, 4, true);
+      expect(f).toMatchObject({ column: 4, hidden: true });
+
+      // 参加者には、見せない列（E の列・D の列・F の列）を除き、列を詰めて返す
+      await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, scheduleVisible: true });
+      const user = createClient(t.app);
+      await user("POST", "/api/auth/register", { token: await t.issueToken(), name: "参加者" });
+      const shown = (await user("GET", "/api/schedule")).body.items;
+      expect(Object.fromEntries(shown.map((i: any) => [i.title, i.column]))).toEqual({ A: 0, B: 0, C: 1 });
+
+      // 見せる列に戻す
+      await admin("PUT", "/api/admin/schedule/columns/1", { hidden: false });
+      expect((await state()).D).toEqual([1, false]);
+    });
+
+    it("列の切り替えは、項目のある列だけ。値は真偽", async () => {
+      const admin = await t.adminClient();
+      await admin("POST", "/api/admin/schedule", { title: "A", detail: "", startMinute: 0, durationMinutes: 30 });
+      expect((await admin("PUT", "/api/admin/schedule/columns/1", { hidden: true })).status).toBe(404);
+      expect((await admin("PUT", "/api/admin/schedule/columns/x", { hidden: true })).status).toBe(404);
+      expect((await admin("PUT", "/api/admin/schedule/columns/0", { hidden: "yes" })).status).toBe(400);
+      const user = createClient(t.app);
+      await user("POST", "/api/auth/register", { token: await t.issueToken(), name: "参加者" });
+      expect((await user("PUT", "/api/admin/schedule/columns/0", { hidden: true })).status).toBe(401);
+    });
+
     it("参加者には見せる設定のときだけ、日付と一緒に返す", async () => {
       const admin = await t.adminClient();
       await admin("POST", "/api/admin/schedule", { title: "開場", detail: "", startMinute: 1080, durationMinutes: 15 });

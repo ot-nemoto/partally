@@ -237,6 +237,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `detail` | string | 詳細（前後の空白だけ除く、0〜500 文字、改行可） |
 | `startMinute` / `durationMinutes` | number | 開始時刻（0:00 からの分）と長さ（分、5 以上）。終わりは 1440（24:00）まで |
 | `column` | number | 置いた列（0 から）。列を持つ前に作った項目には無く、時刻から決めた以前の並べ方の列で返す（次にスケジュールを書き換えたときに保存する）。応答の `column` は何もない列を詰めた値 |
+| `hidden` | boolean? | 参加者に見せない（列ごとにそろえる）。無ければ見せる。参加者の一覧（`GET /api/schedule`）には入れない |
 | `createdAt` / `updatedAt` | string | |
 
 ### 3.3 ポイントの計算
@@ -420,7 +421,7 @@ sequenceDiagram
 | GET | `/api/ranking` | ランキング（推移なし）。設定 `rankingVisible` がオフなら 404。紐づけを解除した人は除き、順位を付け直す。名前を伏せるときは全員の名前・称号・表示名を `???` にし、ユーザ ID を順番の番号（`r1`…）に置き換え、推移の始まり（登録した時刻）も全員そろえる。ポイントを伏せるときは、最大値を 100 とした割合（小数第 1 位まで）だけを返す。応答に `hideNames`・`hidePoints` を含む |
 | GET | `/api/trend` | ランキングと累計ポイントの推移。`trendVisible` がオフなら 404。伏せ方は `/api/ranking` と同じ（`trendHideNames`・`trendHidePoints` に従う） |
 | GET | `/api/prizes` | 景品の一覧（名前・数量・渡す順位・画像の署名付き URL）。`prizesVisible` がオフなら 404 |
-| GET | `/api/schedule` | スケジュール（開始時刻の早い順）とイベントの日付。`scheduleVisible` がオフなら 404 |
+| GET | `/api/schedule` | スケジュール（開始時刻の早い順）とイベントの日付。見せない列（`hidden`）の項目は除き、残った列を詰める（`visibleSchedule`）。`scheduleVisible` がオフなら 404 |
 | PUT | `/api/game/{gameId}/answer` | ゲームに答える。クイズは `{choiceId}`、数値予想は `{value}`（0〜100 の整数）、投票は `{targetUserId}`、合言葉は `{text}`（応答に正解か `correct` を含める。不正解は保存せず、正解した後は上書きしない）、抽選は `{entry: true}`。答え直しは上書き。開催中でなければ 409 `game_closed`、形式に合わない答え・結果入力のゲーム・自分や登録されていない人や紐づけを解除した人への投票は 400 |
 | GET | `/api/game/{gameId}/candidates` | 投票で選べる人 `{userId, displayName}` の一覧（自分と紐づけを解除した人を除き、名前の順）。ゲームの画面を開いたとき・アプリに戻ったとき・「一覧を読み直す」で呼ぶ（5 秒ごとの確認には含めない）。投票でなければ 400、開催中でなければ 409 `game_closed` |
 | POST | `/api/photos/upload-url` | アップロード用署名付き POST を発行 |
@@ -461,8 +462,9 @@ sequenceDiagram
 | PUT | `/api/admin/prizes/{prizeId}` | 景品を直す（登録と同じ形）。`imageId` を省くと画像を外す。差し替え・外した画像は消す |
 | DELETE | `/api/admin/prizes/{prizeId}` | 景品を削除（画像も消す） |
 | GET | `/api/admin/schedule` | スケジュール（開始時刻の早い順）とイベントの日付 |
-| POST | `/api/admin/schedule` | 項目を作る `{title, detail, startMinute, durationMinutes, column?}`（時刻は 0:00 からの分。長さは 5 分以上、終わりは 24:00 まで。列は 0〜49 で、省くと左端。違えば 400）。同じ列のほかの項目と重なれば、すぐ右に列を足して移し、何もない列は詰める（`arrangeScheduleColumns`。列が変わった項目は `column` だけを保存し直す） |
-| PUT | `/api/admin/schedule/{itemId}` | 項目を直す（作るときと同じ形。タイムラインのドラッグでも使う。`column` を省くと今の列のまま）。重なり・空いた列の扱いは作るときと同じ |
+| POST | `/api/admin/schedule` | 項目を作る `{title, detail, startMinute, durationMinutes, column?, hidden?}`（時刻は 0:00 からの分。長さは 5 分以上、終わりは 24:00 まで。列は 0〜49 で、省くと左端。違えば 400）。同じ列のほかの項目と重なれば、すぐ右に列を足して移し、何もない列は詰める（`arrangeScheduleColumns`）。置いた列にほかの項目があれば、`hidden` はその列に合わせる（`placedScheduleHidden`。省いて新しい列なら見せる）。列・`hidden` が変わった項目は、その値だけを保存し直す（`setScheduleLayout`） |
+| PUT | `/api/admin/schedule/{itemId}` | 項目を直す（作るときと同じ形。タイムラインのドラッグでも使う。`column`・`hidden` を省くと今のまま）。重なり・空いた列・見せるかの扱いは作るときと同じ |
+| PUT | `/api/admin/schedule/columns/{column}` | 列を参加者に見せるか `{hidden}`。今の並びでその列にある項目をまとめて切り替え、スケジュール全体を返す（`GET` と同じ形）。項目の無い列は 404 |
 | DELETE | `/api/admin/schedule/{itemId}` | 項目を削除（何もなくなった列は詰める） |
 | GET / PUT | `/api/admin/settings` | 設定（公開方法・ポイント・お気に入り）の取得・更新。PUT は全項目を送る（後から追加した `showPoints`・`showGamePoints`・`favoriteGivenPoints`・参加者への公開の項目（`prizesVisible` を含む）・`tieBreakOrder` は省略可で、省略時は今の値を残す。`tieBreakOrder` は 5 項目を 1 回ずつ並べたものでなければ 400） |
 
@@ -501,7 +503,7 @@ sequenceDiagram
 | `/admin/photos` | 検閲・写真管理 | 検閲待ちの承認／却下、公開済みの削除（送っている間は、その写真のボタンを押せなくする） |
 | `/admin/games` | ゲーム（Game） | ゲームの作成（形式をアイコン付きのパネルから選ぶ）、参加者の画面のプレビュー（スマホの大きさの枠に、お知らせとゲームの画面を参加者の画面と同じ部品で出す。答えは試せるが保存しない。点数・正解・合言葉は出さない）・編集・削除（名前・説明と、クイズは選択肢、数値予想は順位の範囲と正解の数、投票は順位の範囲と投票した人の点数、合言葉は合言葉と正解した順の範囲、抽選は等の範囲、結果入力は枠の名前・点数・並び）、開催・開催をやめる・確定・確定の取り消し、クイズの選択肢ごとの回答数と回答者の一覧、数値予想の回答者の一覧（正解の数があれば近い順に順位・差・点数）、投票の集計（票の多い順に順位・票数・点数・投票した人）、合言葉の正解した人の一覧（正解した順に名前・入れた言葉・時刻・点数）、抽選の参加者と当選者の一覧（確定後は順番どおり）、結果入力の枠ごとに人を選ぶ（名前・二つ名・通し番号で絞り込み、チェックで複数選択、全員を選ぶ・選択を外す）。ゲームは番号（第 N ゲーム）の新しい順に並べ、状態（開催中・下書き・確定）ごとに表示・非表示を選べる（このブラウザに覚える）。以前の `/admin/quizzes` はここへ移す。操作は [機能仕様書 6](spec.md#6-ゲーム) |
 | `/admin/prizes` | 景品（Prize） | 景品の登録・編集（画像・名前・数量・渡す順位を「1, 3, 5-10」のように指定）・削除と、順位ごとの景品の一覧 |
-| `/admin/schedule` | スケジュール（Schedule） | 縦の時間軸のタイムラインで項目を作る・動かす（上下で時刻、左右で列）・長さを変える・編集する・削除する、イベントの日付。操作は [機能仕様書 9](spec.md#9-スケジュール) |
+| `/admin/schedule` | スケジュール（Schedule） | 縦の時間軸のタイムラインで項目を作る・動かす（上下で時刻、左右で列）・長さを変える・編集する・削除する、イベントの日付。列ごとに参加者に見せるかの切り替え。操作は [機能仕様書 9](spec.md#9-スケジュール) |
 | `/admin/settings` | 設定 | 検閲モード（事前承認／即時公開）、ポイント、お気に入りの受付・上限、同じポイントのときの順位（各項目の左の ⋮⋮ をドラッグするか ↑↓ で並べ替え。ドラッグ中は Esc で取り消し）、参加者への公開（ランキング・推移・景品） |
 | `/admin/data` | データの移行（Data） | ゲーム・景品・スケジュール・設定のうち選んだものを 1 つの ZIP にエクスポート・インポート（下記）。操作は [機能仕様書 11](spec.md#11-データの移行) |
 
@@ -513,7 +515,7 @@ sequenceDiagram
 |---|---|---|
 | `games` | `[{format, name, description, image?, choices: [{text, points, image?}], slots: [{name, points}], ranks, correctNumber?, voterPoints, keyword?}]`（作成順。状態・答え・抽選の順番・枠に選んだ人は入れない） | 下書きとして追加だけ（`POST /api/admin/games`。置き換えは、確定したゲームのポイントが消えるので無い）。100 件まで |
 | `prizes` | `[{name, quantity, positions, image?}]`（作成順。`image` は ZIP の中のパス） | 追加か置き換え（`POST`・`DELETE /api/admin/prizes`）。100 件まで |
-| `schedule` | `{date?, items: [{title, detail, startMinute, durationMinutes, column?}]}`（開始時刻の早い順） | 追加か置き換え（`POST`・`DELETE /api/admin/schedule`）。項目は今の列の右に、ファイルの列の並びのまま（列の小さい順に）作る。日付は選んだときだけ設定に入れる。200 件まで |
+| `schedule` | `{date?, items: [{title, detail, startMinute, durationMinutes, column?, hidden?}]}`（`hidden` は見せない項目だけ `true`）（開始時刻の早い順） | 追加か置き換え（`POST`・`DELETE /api/admin/schedule`）。項目は今の列の右に、ファイルの列の並びのまま（列の小さい順に）作る。日付は選んだときだけ設定に入れる。200 件まで |
 | `settings` | 設定（`scheduleDate` を除く） | 今の設定に重ねて `PUT /api/admin/settings`（イベントの日付は今のまま） |
 
 - 以前の形式（景品の ZIP `prizes.json`（`partally-prizes`）、ゲームの ZIP `games.json`（`partally-games`）、スケジュールの JSON（`partally-schedule`））も読む。それぞれの中身は `data.json` の同じ種類と同じ形。

@@ -3,15 +3,17 @@ import {
   arrangeScheduleColumns,
   formatMinute,
   formatScheduleRange,
+  placedScheduleHidden,
   type ScheduleItemDto,
   scheduleColumns,
   scheduleItemRequestSchema,
   scheduleStatuses,
+  visibleSchedule,
 } from "./index.js";
 
 const item = (itemId: string, start: string, durationMinutes: number): ScheduleItemDto => {
   const [h, m] = start.split(":").map(Number);
-  return { itemId, title: itemId, detail: "", startMinute: h! * 60 + m!, durationMinutes, column: 0 };
+  return { itemId, title: itemId, detail: "", startMinute: h! * 60 + m!, durationMinutes, column: 0, hidden: false };
 };
 
 describe("formatMinute / formatScheduleRange", () => {
@@ -128,5 +130,38 @@ describe("arrangeScheduleColumns（幹事が置く列）", () => {
       b: 1,
       c: 0,
     });
+  });
+});
+
+describe("placedScheduleHidden（列ごとに見せるか）", () => {
+  const at = (id: string, start: string, len: number, column: number, hidden = false) => ({
+    ...item(id, start, len),
+    column,
+    hidden,
+  });
+
+  it("置いた列にほかの項目があれば、その列に合わせる（重なって右へ移す前の列）", () => {
+    const items = [at("a", "18:00", 30, 0, true), at("b", "18:00", 30, 1), at("p", "18:10", 10, 0)];
+    expect(placedScheduleHidden(items, "p")).toBe(true);
+    expect(placedScheduleHidden([...items.slice(0, 2), at("p", "19:00", 10, 1, true)], "p")).toBe(false);
+  });
+
+  it("ほかの項目が無い列（新しい列）なら、その項目の今の値のまま", () => {
+    expect(placedScheduleHidden([at("a", "18:00", 30, 0), at("p", "18:00", 10, 1, true)], "p")).toBe(true);
+    expect(placedScheduleHidden([at("a", "18:00", 30, 0, true), at("p", "18:00", 10, 1)], "p")).toBe(false);
+  });
+});
+
+describe("visibleSchedule（参加者に見せる項目）", () => {
+  it("見せない項目を除き、残った列を詰める", () => {
+    const items = [
+      { ...item("a", "18:00", 30), column: 0 },
+      { ...item("b", "18:00", 30), column: 1, hidden: true },
+      { ...item("c", "18:00", 30), column: 2 },
+    ];
+    expect(visibleSchedule(items).map((i) => [i.itemId, i.column])).toEqual([
+      ["a", 0],
+      ["c", 1],
+    ]);
   });
 });

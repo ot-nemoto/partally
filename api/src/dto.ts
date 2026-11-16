@@ -65,6 +65,7 @@ export function toScheduleItemDto(item: ScheduleItemRecord, column: number): Sch
     startMinute: item.startMinute,
     durationMinutes: item.durationMinutes,
     column,
+    hidden: item.hidden === true,
   };
 }
 

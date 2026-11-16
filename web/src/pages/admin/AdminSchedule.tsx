@@ -3,9 +3,11 @@ import {
   DAY_MINUTES,
   formatMinute,
   formatScheduleRange,
+  placedScheduleHidden,
   SCHEDULE_DETAIL_MAX_LENGTH,
   SCHEDULE_MIN_DURATION,
   SCHEDULE_TITLE_MAX_LENGTH,
+  type ScheduleColumnRequest,
   type ScheduleItemDto,
   type ScheduleItemRequest,
   type ScheduleItemResponse,
@@ -51,10 +53,18 @@ interface Drag {
 
 const snap = (minute: number) => Math.round(minute / SNAP) * SNAP;
 
-/** 列を決め直した一覧（placedId の項目が重なれば右に列を足し、何もない列は詰める。サーバと同じ決まり） */
+/**
+ * 列と見せるかを決め直した一覧（placedId の項目が重なれば右に列を足し、何もない列は詰める。
+ * placedId の項目は置いた列の見せるかに合わせる。サーバと同じ決まり）
+ */
 function arranged(items: ScheduleItemDto[], placedId?: string): ScheduleItemDto[] {
   const columns = arrangeScheduleColumns(items, placedId);
-  return items.map((i) => ({ ...i, column: columns.get(i.itemId) ?? 0 }));
+  const hidden = placedId === undefined ? undefined : placedScheduleHidden(items, placedId);
+  return items.map((i) => ({
+    ...i,
+    column: columns.get(i.itemId) ?? 0,
+    ...(i.itemId === placedId ? { hidden: hidden! } : {}),
+  }));
 }
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
@@ -121,6 +131,20 @@ export function AdminSchedule() {
     await load();
   }
 
+  /** 列を参加者に見せるかを切り替える（その列の項目をまとめて）。先に画面を変え、保存できたらサーバの内容にする */
+  async function toggleColumn(column: number, hidden: boolean) {
+    setItems((list) => list?.map((i) => (i.column === column ? { ...i, hidden } : i)));
+    try {
+      const res = await api<ScheduleResponse>("PUT", `/admin/schedule/columns/${column}`, {
+        hidden,
+      } satisfies ScheduleColumnRequest);
+      setItems(res.items);
+    } catch (e) {
+      alert(errorMessage(e));
+      await load();
+    }
+  }
+
   const list = items ?? [];
   // 見せる時間帯は、項目の前後に 1 時間の余白を取り、時間の区切りにそろえる
   const first = list.length ? Math.min(...list.map((i) => i.startMinute)) : DEFAULT_RANGE.start;
@@ -161,6 +185,11 @@ export function AdminSchedule() {
   // 動かしている間は、新しい列を作れるよう右に空いた列を 1 つ足して見せる
   const dragSlots = drag?.moved && drag.mode === "move" ? columnCount + 1 : 0;
   const shownColumns = Math.max(1, dragSlots, ...shownList.map((i) => i.column + 1));
+  /** 列ごとに参加者に見せないか（項目の無い列は undefined） */
+  const columnHidden = Array.from({ length: shownColumns }, (_, c) => {
+    const inColumn = shownList.filter((i) => i.column === c);
+    return inColumn.length === 0 ? undefined : inColumn.some((i) => i.hidden);
+  });
 
   function onBlockPointerDown(e: ReactPointerEvent<HTMLElement>, item: ScheduleItemDto, mode: Drag["mode"]) {
     if (e.button !== 0 || drag) return;
@@ -259,7 +288,7 @@ export function AdminSchedule() {
       <p className="muted small">
         空いている所を押すと、その時刻・列に項目を作ります。項目を上下にドラッグすると開始時刻、左右にドラッグすると列、下の端をドラッグすると長さが変わります（5
         分刻み。10
-        分以下の項目の長さは編集で変えます）。同じ列で時間が重なると、すぐ右に列を足して移し、何もない列は消えます。項目を押すと編集できます。参加者に見せるかは
+        分以下の項目の長さは編集で変えます）。同じ列で時間が重なると、すぐ右に列を足して移し、何もない列は消えます。項目を押すと編集できます。列の上のボタンで、列ごとに参加者に見せるかを切り替えられます（見せない列は斜線。項目は置いた列に合わせます）。スケジュール全体を参加者に見せるかは
         Setting で決めます。
       </p>
       {error && <p className="error">{error}</p>}
@@ -274,6 +303,30 @@ export function AdminSchedule() {
           >
             ↑ 前に 1 時間広げる
           </button>
+          {list.length > 0 && (
+            <div className="schedule-column-heads" style={{ gridTemplateColumns: `repeat(${shownColumns}, 1fr)` }}>
+              {columnHidden.map((hidden, c) =>
+                hidden === undefined ? (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 列の番号そのもの
+                  <span key={c} />
+                ) : (
+                  <button
+                    // biome-ignore lint/suspicious/noArrayIndexKey: 列の番号そのもの
+                    key={c}
+                    type="button"
+                    className={`schedule-column-toggle${hidden ? " off" : ""}`}
+                    aria-pressed={!hidden}
+                    aria-label={`列 ${c + 1} を参加者に見せる`}
+                    title={hidden ? "参加者に見せていません（押すと見せる）" : "参加者に見せています（押すと見せない）"}
+                    disabled={drag?.moved}
+                    onClick={() => void toggleColumn(c, !hidden)}
+                  >
+                    {hidden ? "見せない" : "見せる"}
+                  </button>
+                ),
+              )}
+            </div>
+          )}
           <div className="schedule-timeline">
             <div className="schedule-hours" aria-hidden="true">
               {hours.map((m) => (
@@ -292,6 +345,18 @@ export function AdminSchedule() {
               onPointerUp={onGridPointerUp}
               onPointerCancel={() => setPress(undefined)}
             >
+              {columnHidden.map(
+                (hidden, c) =>
+                  hidden && (
+                    <span
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 列の番号そのもの
+                      key={c}
+                      className="schedule-column-shade"
+                      aria-hidden="true"
+                      style={{ left: `${(c / shownColumns) * 100}%`, width: `${100 / shownColumns}%` }}
+                    />
+                  ),
+              )}
               {shownList.map((shown) => {
                 const item = list.find((i) => i.itemId === shown.itemId)!;
                 const height = shown.durationMinutes * PX_PER_MINUTE;
@@ -299,14 +364,14 @@ export function AdminSchedule() {
                   <button
                     type="button"
                     key={item.itemId}
-                    className={`schedule-block${drag?.itemId === item.itemId && drag.moved ? " dragging" : ""}${height < 24 ? " tiny" : height < 44 ? " short" : ""}`}
+                    className={`schedule-block${shown.hidden ? " hidden-item" : ""}${drag?.itemId === item.itemId && drag.moved ? " dragging" : ""}${height < 24 ? " tiny" : height < 44 ? " short" : ""}`}
                     style={{
                       top: (shown.startMinute - rangeStart) * PX_PER_MINUTE,
                       height,
                       left: `${(shown.column / shownColumns) * 100}%`,
                       width: `calc(${100 / shownColumns}% - 4px)`,
                     }}
-                    aria-label={`${formatScheduleRange(shown)} ${item.title}（押すと編集）`}
+                    aria-label={`${formatScheduleRange(shown)} ${item.title}${shown.hidden ? "（参加者に見せない）" : ""}（押すと編集）`}
                     onPointerDown={(e) => onBlockPointerDown(e, item, "move")}
                     onPointerMove={onBlockPointerMove}
                     onPointerUp={(e) => onBlockPointerUp(e, item)}
