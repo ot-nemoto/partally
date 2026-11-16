@@ -34,7 +34,8 @@ export function DataImportDialog(props: {
     prizes: !!data.prizes,
     games: !!data.games,
     schedule: !!data.schedule,
-    settings: !!data.settings,
+    // 設定は写真の公開方法や参加者への公開まで変わるので、選んだときだけ取り込む
+    settings: false,
   });
   const [prizeMode, setPrizeMode] = useState<Mode>("add");
   const [scheduleMode, setScheduleMode] = useState<Mode>("add");
@@ -64,6 +65,8 @@ export function DataImportDialog(props: {
     setError(undefined);
     /** 今していること（止まったときの表示に使う） */
     let doing = "";
+    /** 置き換えで、今のものを消している途中か（止まったときに、残っている分があると知らせる） */
+    let removingNow = false;
     const done: string[] = [];
     /** items を 1 件ずつ取り込む。置き換えのときは、取り込めてから今のものを消す（ほかの画面で消されていたら飛ばす） */
     async function step<T>(
@@ -78,6 +81,7 @@ export function DataImportDialog(props: {
         setProgress(`${label}を取り込み中… ${i + 1} / ${items.length}`);
         await importOne(item);
       }
+      removingNow = removers.length > 0;
       for (const [i, remove] of removers.entries()) {
         doing = `今の${label}の削除`;
         setProgress(`今の${label}を削除中… ${i + 1} / ${removers.length}`);
@@ -87,6 +91,7 @@ export function DataImportDialog(props: {
           if (!(e instanceof ApiError && e.status === 404)) throw e;
         }
       }
+      removingNow = false;
       done.push(`${label} ${items.length} 件`);
     }
     try {
@@ -114,7 +119,8 @@ export function DataImportDialog(props: {
       props.onDone();
     } catch (e) {
       const before = done.length > 0 ? `（${done.join("・")}は取り込み済み）` : "";
-      setError(`${doing}で止まりました${before}。置き換えの、まだ消していない分は残っています。${errorMessage(e)}`);
+      const left = removingNow ? "今のもののうち、まだ消していない分は残っています。" : "";
+      setError(`${doing}で止まりました${before}。${left}${errorMessage(e)}`);
       setFinished(true);
     } finally {
       setRunning(false);
@@ -192,7 +198,9 @@ export function DataImportDialog(props: {
             disabled={locked}
             preview={<SettingsPreview settings={data.settings} />}
           >
-            <p className="muted small">今の設定を、取り込んだ内容に置き換えます（イベントの日付はそのまま）。</p>
+            <p className="muted small">
+              今の設定を、取り込んだ内容に置き換えます（イベントの日付はそのまま）。写真の公開方法や参加者への公開も変わるので、選んだときだけ取り込みます。
+            </p>
           </Section>
         )}
         {progress && <p className="small">{progress}</p>}

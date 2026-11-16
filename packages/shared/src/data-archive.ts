@@ -73,17 +73,24 @@ export type DataArchiveResult = { ok: true; data: DataArchive } | { ok: false; e
 export function readDataArchive(bytes: Uint8Array): DataArchiveResult {
   // ZIP は先頭が "PK"。それ以外は以前のスケジュールの JSON として読む
   if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
+    const text = new TextDecoder().decode(bytes.subarray(0, Math.min(bytes.byteLength, SCHEDULE_FILE_MAX_BYTES + 1)));
+    const json = text
+      .replace(/^\uFEFF/, "")
+      .trimStart()
+      .startsWith("{");
     if (bytes.byteLength > SCHEDULE_FILE_MAX_BYTES) {
-      return { ok: false, error: "ZIP ファイルではありません。エクスポートした ZIP を選んでください。" };
+      return {
+        ok: false,
+        error: json
+          ? `ファイルが大きすぎます（スケジュールの JSON は ${SCHEDULE_FILE_MAX_BYTES / 1024 / 1024}MB まで）。`
+          : "ZIP ファイルではありません。エクスポートした ZIP を選んでください。",
+      };
     }
-    const text = new TextDecoder().decode(bytes);
     const schedule = readScheduleFile(text);
     if (schedule.ok) return { ok: true, data: { schedule: { date: schedule.date, items: schedule.items } } };
     return {
       ok: false,
-      error: text.trimStart().startsWith("{")
-        ? schedule.error
-        : "ZIP ファイルではありません。エクスポートした ZIP を選んでください。",
+      error: json ? schedule.error : "ZIP ファイルではありません。エクスポートした ZIP を選んでください。",
     };
   }
 

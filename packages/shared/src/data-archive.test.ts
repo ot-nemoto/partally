@@ -105,6 +105,9 @@ describe("まとめた ZIP（Data タブ）", () => {
 
   it("形の違うファイルや、決まりに合わない中身は、種類と理由を出して何も取り込まない", () => {
     expect(errorOf(strToU8("こんにちは"))).toContain("ZIP ファイルではありません");
+    expect(errorOf(strToU8(`{"format": "partally-schedule", "pad": "${"x".repeat(1024 * 1024)}"}`))).toContain(
+      "ファイルが大きすぎます（スケジュールの JSON は 1MB まで）",
+    );
     expect(errorOf(strToU8('{"format": "x"}'))).toContain("スケジュールのエクスポートの形ではありません");
     expect(errorOf(zipSync({ "a.txt": strToU8("x") }))).toContain("data.json・prizes.json・games.json がありません");
     expect(errorOf(zipOf({ format: "partally-prizes" }))).toContain("エクスポートの形ではありません");

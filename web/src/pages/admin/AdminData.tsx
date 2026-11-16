@@ -151,7 +151,12 @@ export function AdminData() {
           ゲームは作り直すのに要るもの（形式・名前・説明・画像・選択肢・枠・点数の範囲・正解の数・合言葉など）を入れ、開催・確定の状態、答え、抽選の順番、結果入力の枠に選んだ人は入れません。
         </p>
         <div className="buttons">
-          <button type="button" className="primary" onClick={exportNow} disabled={exporting || chosen.length === 0}>
+          <button
+            type="button"
+            className="primary"
+            onClick={exportNow}
+            disabled={exporting || !current || chosen.length === 0}
+          >
             {exporting ? "書き出し中…" : "エクスポート"}
           </button>
         </div>
