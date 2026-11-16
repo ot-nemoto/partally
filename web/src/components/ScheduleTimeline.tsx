@@ -166,17 +166,35 @@ function scrollToCenter(el: HTMLElement) {
   window.scrollBy({ top: el.getBoundingClientRect().top - window.innerHeight / 2 });
 }
 
-/** 項目の中で、時刻・タイトル・上下の余白が使う高さ（px）と、詳細の 1 行の高さ（px） */
-const BLOCK_HEADER_HEIGHT = 46;
-const DETAIL_LINE_HEIGHT = 16;
+/**
+ * 項目の中で、時刻・タイトル・上下の余白が使う高さと、詳細の 1 行の高さ（rem。CSS の .schedule-block-detail の
+ * line-height と同じ）。文字の大きさの設定に合わせて px にする
+ */
+const BLOCK_HEADER_REM = 2.875;
+const DETAIL_LINE_REM = 1;
+/** 時刻とタイトルを 1 行に並べる短い項目の高さ（px。これより低い項目には詳細も「詳細あり」も出さない） */
+const SHORT_BLOCK_HEIGHT = 44;
+
+function remPx(): number {
+  return Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+}
 
 /**
  * 項目の中に出す詳細（改行もそのまま）。項目の高さに入る行数だけ出し、入りきらなければ「…」で切る。
- * 1 行も入らない短い項目には出さない（全文は、参加者の画面は押して出る詳細、管理画面は編集画面で見る）
+ * 1 行も入らない項目には、詳細があることだけを右下に小さく出す（全文は、参加者の画面は押して出る詳細、
+ * 管理画面は編集画面で見る）。reserved は下に空ける高さ（px。管理画面の長さを変える持ち手）
  */
 export function ScheduleBlockDetail(props: { detail: string; height: number; reserved?: number }) {
-  const lines = Math.floor((props.height - BLOCK_HEADER_HEIGHT - (props.reserved ?? 0)) / DETAIL_LINE_HEIGHT);
-  if (!props.detail || lines < 1) return null;
+  if (!props.detail || props.height < SHORT_BLOCK_HEIGHT) return null;
+  const rem = remPx();
+  const lines = Math.floor((props.height - BLOCK_HEADER_REM * rem - (props.reserved ?? 0)) / (DETAIL_LINE_REM * rem));
+  if (lines < 1) {
+    return (
+      <span className="schedule-block-more" aria-hidden="true">
+        詳細あり
+      </span>
+    );
+  }
   return (
     <span className="schedule-block-detail" style={{ WebkitLineClamp: lines }}>
       {props.detail}
