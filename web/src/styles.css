@@ -197,29 +197,6 @@ button:disabled {
   border-color: var(--danger);
 }
 
-/* アイコンだけのボタン（エクスポート・インポートなど）。高さはほかのボタンと同じで、正方形にする */
-button.icon-button {
-  width: 2.5rem;
-  padding: 0;
-}
-
-/* 進んでいる間に回すアイコン（動きを減らす設定では回さない） */
-.spin {
-  animation: spin 0.9s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .spin {
-    animation: none;
-  }
-}
-
 button.link {
   border: none;
   background: none;
@@ -2167,6 +2144,46 @@ table.import-table td.nowrap {
 
 .import-mode p {
   margin: 0;
+}
+
+/* データの移行（Data） */
+.data-card {
+  margin-top: 1rem;
+}
+
+.data-card h2 {
+  margin-top: 0;
+}
+
+.data-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+}
+
+.data-kinds .import-option {
+  margin: 0.25rem 0;
+}
+
+/* 取り込みの画面の、種類ごとの欄 */
+.data-import-section {
+  margin: 0.75rem 0;
+  padding: 0.25rem 0.75rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.data-import-section legend {
+  padding: 0 0.25rem;
+  font-weight: 600;
+}
+
+.data-import-section legend .import-option {
+  margin: 0;
+}
+
+.data-import-section .import-mode {
+  margin: 0.5rem 0 0;
 }
 
 .prize-dialog {

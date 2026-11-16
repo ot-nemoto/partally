@@ -1,5 +1,6 @@
 import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { ParticipantLayout } from "./components/ParticipantLayout";
+import { AdminData } from "./pages/admin/AdminData";
 import { AdminGames } from "./pages/admin/AdminGames";
 import { AdminLayout } from "./pages/admin/AdminLayout";
 import { AdminLogin } from "./pages/admin/AdminLogin";
@@ -49,6 +50,7 @@ export function App() {
         <Route path="prizes" element={<AdminPrizes />} />
         <Route path="schedule" element={<AdminSchedule />} />
         <Route path="settings" element={<AdminSettings />} />
+        <Route path="data" element={<AdminData />} />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>

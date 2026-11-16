@@ -19,6 +19,24 @@ export function imageNamer(count: number): (n: number) => string {
   return (n) => `images/${String(n).padStart(width, "0")}.jpg`;
 }
 
+/** 画像を ZIP に入れ、ZIP の中のパスを返す（景品・ゲームをまとめた ZIP では、画像の番号を通しにする） */
+export type AddImage = (image: Uint8Array | undefined) => string | undefined;
+
+/** 画像を images/01.jpg のように、入れた順の通し番号で入れる */
+export function imageCollector(count: number): { addImage: AddImage; images: Record<string, Uint8Array> } {
+  const imagePath = imageNamer(count);
+  const images: Record<string, Uint8Array> = {};
+  return {
+    images,
+    addImage: (image) => {
+      if (!image) return undefined;
+      const path = imagePath(Object.keys(images).length + 1);
+      images[path] = image;
+      return path;
+    },
+  };
+}
+
 /** 一覧の JSON と画像を ZIP にする（JPEG は圧縮し直さない） */
 export function buildArchive(manifestName: string, manifest: unknown, images: Record<string, Uint8Array>): Uint8Array {
   const files: Record<string, Uint8Array | [Uint8Array, { level: 0 }]> = {};
@@ -30,6 +48,8 @@ export function buildArchive(manifestName: string, manifest: unknown, images: Re
 export type ArchiveContents =
   | {
       ok: true;
+      /** 見つかった一覧の JSON の名前（manifestName に複数渡したときに、どれが入っていたか） */
+      manifestName: string;
       /** 一覧の JSON（形はまだ確かめていない） */
       manifest: unknown;
       /** 一覧の JSON からの相対パスで、ZIP の中のファイルを取る */
@@ -39,9 +59,11 @@ export type ArchiveContents =
 
 /**
  * ZIP を展開し、一覧の JSON を読む。大きさを確かめ、macOS が付ける付属ファイルとフォルダは読まない。
- * ZIP を展開し直すと 1 つ上のフォルダに入ることがあるので、一覧の JSON はいちばん上か、その 1 つ下のフォルダから探す
+ * ZIP を展開し直すと 1 つ上のフォルダに入ることがあるので、一覧の JSON はいちばん上か、その 1 つ下のフォルダから探す。
+ * 一覧の JSON の名前を複数渡すと、先に書いたものから探す（まとめた ZIP と、以前の ZIP のどちらも読むため）
  */
-export function readArchive(data: Uint8Array, manifestName: string): ArchiveContents {
+export function readArchive(data: Uint8Array, manifestNames: string | readonly string[]): ArchiveContents {
+  const names = typeof manifestNames === "string" ? [manifestNames] : manifestNames;
   if (data.byteLength > ARCHIVE_MAX_BYTES) {
     return { ok: false, error: `ファイルが大きすぎます（${mib(ARCHIVE_MAX_BYTES)} まで）。` };
   }
@@ -67,10 +89,13 @@ export function readArchive(data: Uint8Array, manifestName: string): ArchiveCont
     };
   }
 
-  const manifestPath = Object.keys(files)
-    .filter((name) => name === manifestName || (name.endsWith(`/${manifestName}`) && name.split("/").length === 2))
-    .sort((a, b) => a.length - b.length)[0];
-  if (!manifestPath) return { ok: false, error: `ZIP の中に ${manifestName} がありません。` };
+  const find = (manifestName: string) =>
+    Object.keys(files)
+      .filter((name) => name === manifestName || (name.endsWith(`/${manifestName}`) && name.split("/").length === 2))
+      .sort((a, b) => a.length - b.length)[0];
+  const manifestName = names.find((name) => find(name) !== undefined);
+  const manifestPath = manifestName && find(manifestName);
+  if (!manifestName || !manifestPath) return { ok: false, error: `ZIP の中に ${names.join("・")} がありません。` };
   const base = manifestPath.slice(0, manifestPath.length - manifestName.length);
 
   let manifest: unknown;
@@ -79,7 +104,7 @@ export function readArchive(data: Uint8Array, manifestName: string): ArchiveCont
   } catch {
     return { ok: false, error: `${manifestName} を読めませんでした（JSON の形になっていません）。` };
   }
-  return { ok: true, manifest, file: (path) => files[base + path] };
+  return { ok: true, manifestName, manifest, file: (path) => files[base + path] };
 }
 
 function mib(bytes: number) {

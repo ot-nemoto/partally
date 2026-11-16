@@ -1,9 +1,10 @@
 import {
+  type AddImage,
   ARCHIVE_MAX_BYTES,
   ARCHIVE_MAX_FILE_BYTES,
   ARCHIVE_MAX_TOTAL_BYTES,
   buildArchive,
-  imageNamer,
+  imageCollector,
   imagePathOf,
   isRecord,
   issueText,
@@ -36,7 +37,7 @@ export interface PrizeArchiveItem {
   image?: Uint8Array;
 }
 
-interface ManifestPrize {
+export interface ManifestPrize {
   name: string;
   quantity: number;
   positions: number[];
@@ -51,22 +52,24 @@ interface Manifest {
   prizes: ManifestPrize[];
 }
 
+/** 景品の一覧を、ZIP の一覧の JSON に書く形にする */
+export function prizeManifest(prizes: PrizeArchiveItem[], addImage: AddImage): ManifestPrize[] {
+  return prizes.map((p) => {
+    const entry: ManifestPrize = { name: p.name, quantity: p.quantity, positions: p.positions };
+    const image = addImage(p.image);
+    if (image) entry.image = image;
+    return entry;
+  });
+}
+
 /** 景品を ZIP にする。画像は images/01.jpg のように並び順の番号で入れる（JPEG は圧縮し直さない） */
 export function buildPrizeArchive(prizes: PrizeArchiveItem[], exportedAt: string): Uint8Array {
-  const imagePath = imageNamer(prizes.length);
-  const images: Record<string, Uint8Array> = {};
+  const { addImage, images } = imageCollector(prizes.filter((p) => p.image).length);
   const manifest: Manifest = {
     format: PRIZE_ARCHIVE_FORMAT,
     version: PRIZE_ARCHIVE_VERSION,
     exportedAt,
-    prizes: prizes.map((p, i) => {
-      const entry: ManifestPrize = { name: p.name, quantity: p.quantity, positions: p.positions };
-      if (p.image) {
-        entry.image = imagePath(i + 1);
-        images[entry.image] = p.image;
-      }
-      return entry;
-    }),
+    prizes: prizeManifest(prizes, addImage),
   };
   return buildArchive(PRIZE_ARCHIVE_MANIFEST, manifest, images);
 }
@@ -80,7 +83,14 @@ export type PrizeArchiveResult = { ok: true; prizes: PrizeArchiveItem[] } | { ok
 export function readPrizeArchive(data: Uint8Array): PrizeArchiveResult {
   const archive = readArchive(data, PRIZE_ARCHIVE_MANIFEST);
   if (!archive.ok) return archive;
-  const { manifest } = archive;
+  return parsePrizeArchive(archive.manifest, archive.file);
+}
+
+/** 景品の ZIP の一覧の JSON（prizes.json）を確かめる */
+export function parsePrizeArchive(
+  manifest: unknown,
+  file: (path: string) => Uint8Array | undefined,
+): PrizeArchiveResult {
   if (!isRecord(manifest) || manifest.format !== PRIZE_ARCHIVE_FORMAT) {
     return fail(`${PRIZE_ARCHIVE_MANIFEST} が景品のエクスポートの形ではありません。`);
   }
@@ -88,13 +98,17 @@ export function readPrizeArchive(data: Uint8Array): PrizeArchiveResult {
     return fail(`対応していない版の ZIP です（${String(manifest.version)}）。`);
   }
   if (!Array.isArray(manifest.prizes)) return fail(`${PRIZE_ARCHIVE_MANIFEST} に景品の一覧（prizes）がありません。`);
-  if (manifest.prizes.length === 0) return fail("景品が 1 つも入っていません。");
-  if (manifest.prizes.length > PRIZE_ARCHIVE_MAX_PRIZES) {
+  return parsePrizes(manifest.prizes, file);
+}
+
+/** 景品の一覧を確かめる。各件は景品の登録と同じ決まり（prizeRequestSchema）で確かめ、1 件でも合わなければ全体を失敗にする */
+export function parsePrizes(list: unknown[], file: (path: string) => Uint8Array | undefined): PrizeArchiveResult {
+  if (list.length === 0) return fail("景品が 1 つも入っていません。");
+  if (list.length > PRIZE_ARCHIVE_MAX_PRIZES) {
     return fail(`景品が多すぎます（1 回に ${PRIZE_ARCHIVE_MAX_PRIZES} 件まで）。`);
   }
-
   const prizes: PrizeArchiveItem[] = [];
-  for (const [i, raw] of manifest.prizes.entries()) {
+  for (const [i, raw] of list.entries()) {
     const label = `${i + 1} 件目`;
     if (!isRecord(raw)) return fail(`${label}: 景品の形になっていません。`);
     const parsed = prizeRequestSchema.safeParse({ name: raw.name, quantity: raw.quantity, positions: raw.positions });
@@ -107,7 +121,7 @@ export function readPrizeArchive(data: Uint8Array): PrizeArchiveResult {
     const path = imagePathOf(raw.image);
     if (path === false) return fail(`${label}: 画像のパスが正しくありません。`);
     if (path !== undefined) {
-      const image = archive.file(path);
+      const image = file(path);
       if (!image) return fail(`${label}: 画像 ${path} が ZIP の中にありません。`);
       item.image = image;
     }

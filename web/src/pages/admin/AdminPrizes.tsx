@@ -16,7 +16,6 @@ import { PageTitle } from "../../components/PageTitle";
 import { PrizeChips, PrizeImage } from "../../components/PrizeChips";
 import { useOnReload } from "../../hooks/useReload";
 import { type ImageDraft, ImageField } from "./ImageField";
-import { PrizeTransferButtons } from "./PrizeTransfer";
 import { ImageUploads, uploadPrizeImage } from "./prizeImage";
 
 /**
@@ -62,7 +61,6 @@ export function AdminPrizes() {
     <section className="admin-prizes">
       <PageTitle en="Prize" ja="景品">
         <div className="title-actions">
-          <PrizeTransferButtons prizes={prizes} onImported={() => void load()} />
           <button type="button" className="primary" onClick={() => setEditing("new")}>
             景品を登録
           </button>

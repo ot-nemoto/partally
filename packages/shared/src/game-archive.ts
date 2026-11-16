@@ -1,4 +1,12 @@
-import { buildArchive, imageNamer, imagePathOf, isRecord, issueText, readArchive } from "./archive.js";
+import {
+  type AddImage,
+  buildArchive,
+  imageCollector,
+  imagePathOf,
+  isRecord,
+  issueText,
+  readArchive,
+} from "./archive.js";
 import type { RankRange } from "./game-rules.js";
 import { gameRequestSchema } from "./schemas.js";
 import type { GameFormat } from "./types.js";
@@ -40,7 +48,7 @@ export interface GameArchiveItem {
   keyword?: string;
 }
 
-interface ManifestGame extends Omit<GameArchiveItem, "image" | "choices"> {
+export interface ManifestGame extends Omit<GameArchiveItem, "image" | "choices"> {
   /** ZIP の中の画像のパス（games.json からの相対） */
   image?: string;
   choices: (Omit<GameArchiveChoice, "image"> & { image?: string })[];
@@ -53,26 +61,28 @@ interface Manifest {
   games: ManifestGame[];
 }
 
+/** ゲームの一覧を、ZIP の一覧の JSON に書く形にする（画像は問題・選択肢の順に addImage で入れる） */
+export function gameManifest(games: GameArchiveItem[], addImage: AddImage): ManifestGame[] {
+  return games.map(({ image, choices, ...game }) => ({
+    ...game,
+    image: addImage(image),
+    choices: choices.map(({ image: choiceImage, ...choice }) => ({ ...choice, image: addImage(choiceImage) })),
+  }));
+}
+
+/** ゲームの画像の数（問題と選択肢） */
+export function gameImageCount(games: GameArchiveItem[]): number {
+  return games.reduce((n, g) => n + (g.image ? 1 : 0) + g.choices.filter((ch) => ch.image).length, 0);
+}
+
 /** ゲームを ZIP にする。画像は images/01.jpg のように、問題・選択肢の順に通し番号で入れる */
 export function buildGameArchive(games: GameArchiveItem[], exportedAt: string): Uint8Array {
-  const count = games.reduce((n, g) => n + (g.image ? 1 : 0) + g.choices.filter((ch) => ch.image).length, 0);
-  const imagePath = imageNamer(count);
-  const images: Record<string, Uint8Array> = {};
-  const add = (image: Uint8Array | undefined) => {
-    if (!image) return undefined;
-    const path = imagePath(Object.keys(images).length + 1);
-    images[path] = image;
-    return path;
-  };
+  const { addImage, images } = imageCollector(gameImageCount(games));
   const manifest: Manifest = {
     format: GAME_ARCHIVE_FORMAT,
     version: GAME_ARCHIVE_VERSION,
     exportedAt,
-    games: games.map(({ image, choices, ...game }) => ({
-      ...game,
-      image: add(image),
-      choices: choices.map(({ image: choiceImage, ...choice }) => ({ ...choice, image: add(choiceImage) })),
-    })),
+    games: gameManifest(games, addImage),
   };
   return buildArchive(GAME_ARCHIVE_MANIFEST, manifest, images);
 }
@@ -86,7 +96,11 @@ export type GameArchiveResult = { ok: true; games: GameArchiveItem[] } | { ok: f
 export function readGameArchive(data: Uint8Array): GameArchiveResult {
   const archive = readArchive(data, GAME_ARCHIVE_MANIFEST);
   if (!archive.ok) return archive;
-  const { manifest } = archive;
+  return parseGameArchive(archive.manifest, archive.file);
+}
+
+/** ゲームの ZIP の一覧の JSON（games.json）を確かめる */
+export function parseGameArchive(manifest: unknown, file: (path: string) => Uint8Array | undefined): GameArchiveResult {
   if (!isRecord(manifest) || manifest.format !== GAME_ARCHIVE_FORMAT) {
     return fail(`${GAME_ARCHIVE_MANIFEST} がゲームのエクスポートの形ではありません。`);
   }
@@ -94,13 +108,20 @@ export function readGameArchive(data: Uint8Array): GameArchiveResult {
     return fail(`対応していない版の ZIP です（${String(manifest.version)}）。`);
   }
   if (!Array.isArray(manifest.games)) return fail(`${GAME_ARCHIVE_MANIFEST} にゲームの一覧（games）がありません。`);
-  if (manifest.games.length === 0) return fail("ゲームが 1 つも入っていません。");
-  if (manifest.games.length > GAME_ARCHIVE_MAX_GAMES) {
+  return parseGames(manifest.games, file);
+}
+
+/**
+ * ゲームの一覧を確かめる。各ゲームはゲームの作成と同じ決まり（gameRequestSchema）で確かめ、
+ * 1 つでも問題があれば、何も取り込まないよう全体を失敗にする
+ */
+export function parseGames(list: unknown[], file: (path: string) => Uint8Array | undefined): GameArchiveResult {
+  if (list.length === 0) return fail("ゲームが 1 つも入っていません。");
+  if (list.length > GAME_ARCHIVE_MAX_GAMES) {
     return fail(`ゲームが多すぎます（1 回に ${GAME_ARCHIVE_MAX_GAMES} 件まで）。`);
   }
-
   const games: GameArchiveItem[] = [];
-  for (const [i, raw] of manifest.games.entries()) {
+  for (const [i, raw] of list.entries()) {
     const label = `${i + 1} 件目`;
     if (!isRecord(raw)) return fail(`${label}: ゲームの形になっていません。`);
     const rawChoices = raw.choices ?? [];
@@ -125,7 +146,7 @@ export function readGameArchive(data: Uint8Array): GameArchiveResult {
       const path = imagePathOf(value);
       if (path === false) return `${label}: ${where}の画像のパスが正しくありません。`;
       if (path === undefined) return undefined;
-      return archive.file(path) ?? `${label}: ${where}の画像 ${path} が ZIP の中にありません。`;
+      return file(path) ?? `${label}: ${where}の画像 ${path} が ZIP の中にありません。`;
     };
     const gameImage = image(raw.image, "問題");
     if (typeof gameImage === "string") return fail(gameImage);

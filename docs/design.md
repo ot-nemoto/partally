@@ -498,24 +498,29 @@ sequenceDiagram
 | `/admin/ranking` | ランキング（Ranking） | 順位・表示名・ポイントと横棒、「推移を再生」のアニメーション、各行の景品。順位の付け方と見せ方は [機能仕様書 7](spec.md#7-ランキング推移) |
 | `/admin/trend` | ポイントの推移（Trend） | 累計ポイントの推移の折れ線（全員を灰色、選んだ 10 人までを色付き）。表の行にカーソルを合わせた人の線を強調する |
 | `/admin/photos` | 検閲・写真管理 | 検閲待ちの承認／却下、公開済みの削除（送っている間は、その写真のボタンを押せなくする） |
-| `/admin/games` | ゲーム（Game） | ゲームの作成（形式をアイコン付きのパネルから選ぶ）、参加者の画面のプレビュー（スマホの大きさの枠に、お知らせとゲームの画面を参加者の画面と同じ部品で出す。答えは試せるが保存しない。点数・正解・合言葉は出さない）・編集・削除（名前・説明と、クイズは選択肢、数値予想は順位の範囲と正解の数、投票は順位の範囲と投票した人の点数、合言葉は合言葉と正解した順の範囲、抽選は等の範囲、結果入力は枠の名前・点数・並び）、開催・開催をやめる・確定・確定の取り消し、クイズの選択肢ごとの回答数と回答者の一覧、数値予想の回答者の一覧（正解の数があれば近い順に順位・差・点数）、投票の集計（票の多い順に順位・票数・点数・投票した人）、合言葉の正解した人の一覧（正解した順に名前・入れた言葉・時刻・点数）、抽選の参加者と当選者の一覧（確定後は順番どおり）、結果入力の枠ごとに人を選ぶ（名前・二つ名・通し番号で絞り込み、チェックで複数選択、全員を選ぶ・選択を外す）。ゲームは番号（第 N ゲーム）の新しい順に並べ、状態（開催中・下書き・確定）ごとに表示・非表示を選べる（このブラウザに覚える）。以前の `/admin/quizzes` はここへ移す。エクスポート・インポート（下記）。操作は [機能仕様書 6](spec.md#6-ゲーム) |
-| `/admin/prizes` | 景品（Prize） | 景品の登録・編集（画像・名前・数量・渡す順位を「1, 3, 5-10」のように指定）・削除と、順位ごとの景品の一覧。エクスポート・インポート（下記） |
-| `/admin/schedule` | スケジュール（Schedule） | 縦の時間軸のタイムラインで項目を作る・動かす・長さを変える・編集する・削除する、イベントの日付。エクスポート・インポート（下記）。操作は [機能仕様書 9](spec.md#9-スケジュール) |
+| `/admin/games` | ゲーム（Game） | ゲームの作成（形式をアイコン付きのパネルから選ぶ）、参加者の画面のプレビュー（スマホの大きさの枠に、お知らせとゲームの画面を参加者の画面と同じ部品で出す。答えは試せるが保存しない。点数・正解・合言葉は出さない）・編集・削除（名前・説明と、クイズは選択肢、数値予想は順位の範囲と正解の数、投票は順位の範囲と投票した人の点数、合言葉は合言葉と正解した順の範囲、抽選は等の範囲、結果入力は枠の名前・点数・並び）、開催・開催をやめる・確定・確定の取り消し、クイズの選択肢ごとの回答数と回答者の一覧、数値予想の回答者の一覧（正解の数があれば近い順に順位・差・点数）、投票の集計（票の多い順に順位・票数・点数・投票した人）、合言葉の正解した人の一覧（正解した順に名前・入れた言葉・時刻・点数）、抽選の参加者と当選者の一覧（確定後は順番どおり）、結果入力の枠ごとに人を選ぶ（名前・二つ名・通し番号で絞り込み、チェックで複数選択、全員を選ぶ・選択を外す）。ゲームは番号（第 N ゲーム）の新しい順に並べ、状態（開催中・下書き・確定）ごとに表示・非表示を選べる（このブラウザに覚える）。以前の `/admin/quizzes` はここへ移す。操作は [機能仕様書 6](spec.md#6-ゲーム) |
+| `/admin/prizes` | 景品（Prize） | 景品の登録・編集（画像・名前・数量・渡す順位を「1, 3, 5-10」のように指定）・削除と、順位ごとの景品の一覧 |
+| `/admin/schedule` | スケジュール（Schedule） | 縦の時間軸のタイムラインで項目を作る・動かす・長さを変える・編集する・削除する、イベントの日付。操作は [機能仕様書 9](spec.md#9-スケジュール) |
 | `/admin/settings` | 設定 | 検閲モード（事前承認／即時公開）、ポイント、お気に入りの受付・上限、同じポイントのときの順位（各項目の左の ⋮⋮ をドラッグするか ↑↓ で並べ替え。ドラッグ中は Esc で取り消し）、参加者への公開（ランキング・推移・景品） |
+| `/admin/data` | データの移行（Data） | ゲーム・景品・スケジュール・設定のうち選んだものを 1 つの ZIP にエクスポート・インポート（下記）。操作は [機能仕様書 11](spec.md#11-データの移行) |
 
-**エクスポート・インポート（景品・ゲーム・スケジュール）**: API は増やさず、画面でファイルを作る・読む。取り込みは、今の作成と同じ API で 1 件ずつ行う。
+**データの移行（エクスポート・インポート）**: API は増やさず、画面（`/admin/data`）でファイルを作る・読む。取り込みは、今の作成と同じ API で 1 件ずつ行う。
 
-| | ファイル | 中身 | 取り込み |
-|---|---|---|---|
-| 景品 | ZIP（`@partally/shared/prize-archive`） | `prizes.json`（`{format: "partally-prizes", version: 1, exportedAt, prizes: [{name, quantity, positions, image?}]}`）と `images/NN.jpg`。景品は作成順 | 追加か置き換え。100 件まで |
-| ゲーム | ZIP（`@partally/shared/game-archive`） | `games.json`（`{format: "partally-games", version: 1, exportedAt, games: [{format, name, description, image?, choices: [{text, points, image?}], slots: [{name, points}], ranks, correctNumber?, voterPoints, keyword?}]}`）と `images/NN.jpg`（問題・選択肢の順に通し番号）。ゲームは作成順。状態・答え・抽選の順番・枠に選んだ人は入れない | 下書きとして追加だけ（置き換えは、確定したゲームのポイントが消えるので無い）。100 件まで |
-| スケジュール | JSON（`@partally/shared/schedule-file`） | `{format: "partally-schedule", version: 1, exportedAt, date?, items: [{title, detail, startMinute, durationMinutes}]}`。項目は開始時刻の早い順 | 追加か置き換え。日付は選んだときだけ設定に入れる。200 件まで |
+- ZIP（`@partally/shared/data-archive`）は `data.json` と `images/NN.jpg`（ゲームの問題・選択肢、景品の順に通し番号）を入れる。`data.json` は `{format: "partally-data", version: 1, exportedAt, games?, prizes?, schedule?, settings?}` で、選んだ種類だけを入れる。
 
-- ZIP のライブラリ fflate は、景品・ゲームの画面で使うときだけ読み込む。ZIP の読み書き（大きさの確かめ、一覧の JSON の探し方）は `packages/shared/src/archive.ts` で共通にする。
+| 種類 | `data.json` の中身 | 取り込み |
+|---|---|---|
+| `games` | `[{format, name, description, image?, choices: [{text, points, image?}], slots: [{name, points}], ranks, correctNumber?, voterPoints, keyword?}]`（作成順。状態・答え・抽選の順番・枠に選んだ人は入れない） | 下書きとして追加だけ（`POST /api/admin/games`。置き換えは、確定したゲームのポイントが消えるので無い）。100 件まで |
+| `prizes` | `[{name, quantity, positions, image?}]`（作成順。`image` は ZIP の中のパス） | 追加か置き換え（`POST`・`DELETE /api/admin/prizes`）。100 件まで |
+| `schedule` | `{date?, items: [{title, detail, startMinute, durationMinutes}]}`（開始時刻の早い順） | 追加か置き換え（`POST`・`DELETE /api/admin/schedule`）。日付は選んだときだけ設定に入れる。200 件まで |
+| `settings` | 設定（`scheduleDate` を除く） | 今の設定に重ねて `PUT /api/admin/settings`（イベントの日付は今のまま） |
+
+- 以前の形式（景品の ZIP `prizes.json`（`partally-prizes`）、ゲームの ZIP `games.json`（`partally-games`）、スケジュールの JSON（`partally-schedule`））も読む。それぞれの中身は `data.json` の同じ種類と同じ形。
+- ZIP のライブラリ fflate は、Data の画面で使うときだけ読み込む。ZIP の読み書き（大きさの確かめ、一覧の JSON の探し方）は `packages/shared/src/archive.ts`、種類ごとの書き方・確かめ方は `prize-archive.ts`・`game-archive.ts`・`schedule-file.ts` にある。
 - 画像は今の配信 URL から取る（JPEG は圧縮し直さない）。取り込むときは、作成と同じ流れ（画像を端末で縮小・JPEG にしてから `image-upload` → 署名付き POST → `POST /api/admin/prizes`・`POST /api/admin/games`）で 1 件ずつ作る。
-- 置き換えのときは、すべて取り込めてから今のものを削除する。途中で止まったときは、何件目で止まったかを出し、今のものは消さない。
-- 大きさは、ファイルを読む前（ZIP 50MB、スケジュールの JSON 1MB）と、展開するとき（1 ファイル 20MB・合計 200MB）に確かめる。置き換えで今のものを消すとき、ほかの画面で先に消されていたもの（404）は消えているとみなして続ける。一覧の JSON は ZIP のいちばん上か 1 つ下のフォルダから探し、macOS の付属ファイルは読まない。各件は作成と同じ決まり（`prizeRequestSchema`・`gameRequestSchema`・`scheduleItemRequestSchema`）で確かめ、1 件でも合わなければ何も取り込まない。
-- 取り込みの画面（中身の一覧・追加か置き換えか・進み具合）は `web/src/pages/admin/transfer/` で共通にする。
+- 取り込みはゲーム → 景品 → スケジュール → 設定の順。置き換えのときは、その種類をすべて取り込めてから今のものを削除する（ほかの画面で先に消されていたもの（404）は消えているとみなして続ける）。途中で止まったときは、どこで止まったかを出す。
+- 大きさは、ファイルを読む前（50MB）と、展開するとき（1 ファイル 20MB・合計 200MB）に確かめる。一覧の JSON は ZIP のいちばん上か 1 つ下のフォルダから探し、macOS の付属ファイルは読まない。各件は作成と同じ決まり（`prizeRequestSchema`・`gameRequestSchema`・`scheduleItemRequestSchema`・`updateSettingsRequestSchema`）で確かめ、1 件でも合わなければ何も取り込まない。
+- 画面は `web/src/pages/admin/AdminData.tsx` と `web/src/pages/admin/data/`（種類ごとの書き出し・取り込み・中身の一覧と、取り込みの画面）。
 
 ---
 
@@ -564,11 +569,11 @@ partally/
 ├── api/             Lambda（api / photo-ingest / reset）
 ├── web/             SPA（Vite + React）
 └── packages/
-    └── shared/      型定義・入力検証（zod）・二つ名単語リスト・ゲームの決まり（game-rules: 順位付け・集計・確定の条件など）・景品の順位の計算・景品・ゲームの ZIP とスケジュールの JSON（エクスポート・インポート）
+    └── shared/      型定義・入力検証（zod）・二つ名単語リスト・ゲームの決まり（game-rules: 順位付け・集計・確定の条件など）・景品の順位の計算・データの移行の ZIP（エクスポート・インポート）
 ```
 
 ---
 
 ## 11. 未決事項
 
-[機能仕様書の「決まっていないこと」](spec.md#122-決まっていないこと) を参照。
+[機能仕様書の「決まっていないこと」](spec.md#132-決まっていないこと) を参照。
