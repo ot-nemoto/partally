@@ -54,13 +54,21 @@ export function ScheduleView() {
   if (state === "hidden") return <p className="muted">今は公開されていません。</p>;
   if (state === "error") return <p className="error">{error}</p>;
   if (!data) return <p className="muted">読み込み中…</p>;
-  if (data.items.length === 0) return <p className="muted">まだスケジュールはありません。</p>;
+  return <ScheduleContent items={data.items} date={data.date} now={now} />;
+}
 
-  const statuses = scheduleStatuses(data.items, now, data.date);
+/**
+ * スケジュールの中身（日付と時間軸）。参加者の画面と、管理画面のプレビューで共通。
+ * items は参加者に見せる項目（見せない列は除いて詰めたもの）。now の時刻で「いま」「つぎ」と今の線を決める
+ */
+export function ScheduleContent(props: { items: ScheduleItemDto[]; date: string; now: Date }) {
+  const { items, date, now } = props;
+  if (items.length === 0) return <p className="muted">まだスケジュールはありません。</p>;
+  const statuses = scheduleStatuses(items, now, date);
   return (
     <>
-      {data.date && <p className="schedule-day">{formatDate(data.date)}</p>}
-      <ScheduleBoard items={data.items} statuses={statuses} now={now} date={data.date} />
+      {date && <p className="schedule-day">{formatDate(date)}</p>}
+      <ScheduleBoard items={items} statuses={statuses} now={now} date={date} />
     </>
   );
 }
@@ -83,7 +91,7 @@ function ScheduleBoard(props: {
 }) {
   const { items, statuses } = props;
   const [opened, setOpened] = useState<ScheduleItemDto>();
-  const nowRef = useRef<HTMLDivElement>(null);
+  const nowRef = useRef<HTMLSpanElement>(null);
   const scrolled = useRef(false);
 
   const columns = Math.max(1, ...items.map((i) => (i.column ?? 0) + 1));
@@ -95,11 +103,12 @@ function ScheduleBoard(props: {
   const minute = props.now.getHours() * 60 + props.now.getMinutes();
   const showNow = (!props.date || props.date === localDate(props.now)) && minute >= start && minute <= end;
 
-  // 開いたときに一度だけ、今の時刻の辺りまでスクロールする
+  // 開いたときに一度だけ、今の時刻の辺りまで縦にスクロールする。線の左端の小さな印に合わせ、横にはスクロールしない
+  // （線は列の幅いっぱいなので、線そのものに合わせると、時間軸やプレビューの枠が横にずれる）
   useEffect(() => {
     if (scrolled.current || !nowRef.current) return;
     scrolled.current = true;
-    nowRef.current.scrollIntoView({ block: "center" });
+    nowRef.current.scrollIntoView({ block: "center", inline: "nearest" });
   });
 
   return (
@@ -135,7 +144,7 @@ function ScheduleBoard(props: {
                 >
                   <button
                     type="button"
-                    className={`schedule-block ${status}${height < 24 ? " tiny" : height < 44 ? " short" : ""}`}
+                    className={`schedule-block ${status}${label ? " badged" : ""}${height < 24 ? " tiny" : height < 44 ? " short" : ""}`}
                     aria-current={status === "now" ? "time" : undefined}
                     aria-label={`${formatScheduleRange(item)} ${item.title}${label ? `（${label}）` : ""}`}
                     onClick={() => setOpened(item)}
@@ -151,12 +160,9 @@ function ScheduleBoard(props: {
               );
             })}
             {showNow && (
-              <div
-                ref={nowRef}
-                className="schedule-now-line"
-                style={{ top: (minute - start) * PX_PER_MINUTE }}
-                aria-hidden="true"
-              />
+              <div className="schedule-now-line" style={{ top: (minute - start) * PX_PER_MINUTE }} aria-hidden="true">
+                <span ref={nowRef} className="schedule-now-anchor" />
+              </div>
             )}
           </ol>
         </div>

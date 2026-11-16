@@ -1746,6 +1746,32 @@ textarea {
   padding: 1rem 0.75rem;
 }
 
+.schedule-preview-dialog {
+  max-width: 27rem;
+}
+
+/* 枠は画面の幅に収め、時間軸は枠の中で横にスクロールする */
+.schedule-preview-dialog .game-preview-phone {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* スケジュールのプレビューで見る時刻 */
+.schedule-preview-time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.schedule-preview-time label {
+  display: flex;
+  white-space: nowrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 /* 管理者ログイン。タイトルはログイン前の参加者の画面と同じく中央に寄せる */
 .admin-login .admin-login-title {
   display: flex;
@@ -2513,6 +2539,11 @@ table.import-table td.nowrap {
   cursor: pointer;
 }
 
+/* 1 行の短い項目に「いま」「つぎ」が付くときは、タイトルが隠れないよう時刻を省く（押すと詳細に出る） */
+.schedule-board .schedule-block.short.badged .schedule-block-time {
+  display: none;
+}
+
 .schedule-board .schedule-badge {
   margin-right: 0.25rem;
   white-space: nowrap;
@@ -2536,7 +2567,15 @@ table.import-table td.nowrap {
   height: 2px;
   background: var(--accent);
   pointer-events: none;
-  scroll-margin: 40vh;
+}
+
+/* 開いたときにスクロールして合わせる印（線の左端） */
+.schedule-now-anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
 }
 
 .schedule-now-line::before {

@@ -19,6 +19,7 @@ import { api, errorMessage } from "../../api";
 import { Modal } from "../../components/Modal";
 import { PageTitle } from "../../components/PageTitle";
 import { useOnReload } from "../../hooks/useReload";
+import { SchedulePreviewDialog } from "./schedule/SchedulePreviewDialog";
 
 /** タイムラインの 1 分の高さ（px）。1 時間 = 120px、10 分 = 20px */
 const PX_PER_MINUTE = 2;
@@ -79,6 +80,7 @@ export function AdminSchedule() {
   const [date, setDate] = useState("");
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState<Editing>();
+  const [previewing, setPreviewing] = useState(false);
   const [drag, setDrag] = useState<Drag>();
   /** 時間帯を手で広げた分（分） */
   const [extra, setExtra] = useState({ before: 0, after: 0 });
@@ -273,6 +275,9 @@ export function AdminSchedule() {
             日付
             <input type="date" value={date} onChange={(e) => void saveDate(e.target.value)} />
           </label>
+          <button type="button" onClick={() => setPreviewing(true)} disabled={!items}>
+            プレビュー
+          </button>
           <button
             type="button"
             className="primary"
@@ -413,6 +418,7 @@ export function AdminSchedule() {
           {list.length === 0 && <p className="muted">まだ項目がありません。</p>}
         </>
       )}
+      {previewing && items && <SchedulePreviewDialog items={items} date={date} onClose={() => setPreviewing(false)} />}
       {editing && (
         <ScheduleItemDialog
           editing={editing}
