@@ -1,4 +1,10 @@
-import { formatScheduleRange, type ScheduleResponse, type ScheduleStatus, scheduleStatuses } from "@partally/shared";
+import {
+  formatScheduleRange,
+  type ScheduleItemDto,
+  type ScheduleResponse,
+  type ScheduleStatus,
+  scheduleStatuses,
+} from "@partally/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../api";
 import { useOnReload } from "../hooks/useReload";
@@ -9,7 +15,7 @@ const TICK_MS = 30_000;
 const STATUS_LABEL: Partial<Record<ScheduleStatus, string>> = { now: "いま", next: "つぎ" };
 
 /**
- * 参加者に見せるスケジュール。開始時刻の早い順に並べ、今の時間の項目に「いま」、次の項目に「つぎ」を付け、
+ * 参加者に見せるスケジュール。幹事が置いた列ごとに、開始時刻の早い順に並べ、今の時間の項目に「いま」、次の項目に「つぎ」を付け、
  * 終わった項目は薄くする（日付が決まっていれば、その日だけ）
  */
 export function ScheduleView() {
@@ -48,29 +54,43 @@ export function ScheduleView() {
   if (data.items.length === 0) return <p className="muted">まだスケジュールはありません。</p>;
 
   const statuses = scheduleStatuses(data.items, now, data.date);
+  // 幹事が置いた列ごとに並べる（列の中は開始時刻の早い順）。列が 1 つなら今までどおり 1 列の一覧
+  const columns = Math.max(1, ...data.items.map((i) => i.column + 1));
+  const list = (items: ScheduleItemDto[]) => (
+    <ol className="schedule-list">
+      {items.map((item) => {
+        const status = statuses.get(item.itemId) ?? "none";
+        const label = STATUS_LABEL[status];
+        return (
+          <li
+            key={item.itemId}
+            className={`card schedule-item ${status}`}
+            aria-current={status === "now" ? "time" : undefined}
+          >
+            <div className="schedule-item-head">
+              <span className="schedule-item-time">{formatScheduleRange(item)}</span>
+              {label && <span className={`schedule-badge ${status}`}>{label}</span>}
+            </div>
+            <h3>{item.title}</h3>
+            {item.detail && <p className="schedule-item-detail">{item.detail}</p>}
+          </li>
+        );
+      })}
+    </ol>
+  );
   return (
     <>
       {data.date && <p className="schedule-day">{formatDate(data.date)}</p>}
-      <ol className="schedule-list">
-        {data.items.map((item) => {
-          const status = statuses.get(item.itemId) ?? "none";
-          const label = STATUS_LABEL[status];
-          return (
-            <li
-              key={item.itemId}
-              className={`card schedule-item ${status}`}
-              aria-current={status === "now" ? "time" : undefined}
-            >
-              <div className="schedule-item-head">
-                <span className="schedule-item-time">{formatScheduleRange(item)}</span>
-                {label && <span className={`schedule-badge ${status}`}>{label}</span>}
-              </div>
-              <h3>{item.title}</h3>
-              {item.detail && <p className="schedule-item-detail">{item.detail}</p>}
-            </li>
-          );
-        })}
-      </ol>
+      {columns === 1 ? (
+        list(data.items)
+      ) : (
+        <div className="schedule-columns" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+          {Array.from({ length: columns }, (_, column) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 列の番号そのものが鍵
+            <div key={column}>{list(data.items.filter((i) => i.column === column))}</div>
+          ))}
+        </div>
+      )}
     </>
   );
 }

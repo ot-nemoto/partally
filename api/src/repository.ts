@@ -73,6 +73,8 @@ export interface ScheduleItemRecord {
   /** 0:00 からの分 */
   startMinute: number;
   durationMinutes: number;
+  /** 置いた列（0 から）。列を持つ前に作った項目には無い（時刻から決めた以前の並べ方の列に置く） */
+  column?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -360,9 +362,11 @@ export interface Repository {
   /** @throws NotFoundError */
   updateScheduleItem(
     itemId: string,
-    changes: Pick<ScheduleItemRecord, "title" | "detail" | "startMinute" | "durationMinutes">,
+    changes: Pick<ScheduleItemRecord, "title" | "detail" | "startMinute" | "durationMinutes" | "column">,
     updatedAt: string,
   ): Promise<ScheduleItemRecord>;
+  /** 項目の列だけを変える（重なりで列を足した・何もない列を詰めたとき）。もう無い項目は飛ばす */
+  setScheduleColumns(columns: { itemId: string; column: number }[]): Promise<void>;
   /** @throws NotFoundError */
   deleteScheduleItem(itemId: string): Promise<void>;
 

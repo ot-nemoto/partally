@@ -21,6 +21,8 @@ export interface ScheduleFileItem {
   /** 0:00 からの分 */
   startMinute: number;
   durationMinutes: number;
+  /** 置く列（0 から）。列を持つ前に書き出したファイルには無い（取り込むと左端の列から置く） */
+  column?: number;
 }
 
 export interface ScheduleFile {
@@ -67,7 +69,13 @@ export function readScheduleFile(text: string): ScheduleFileResult {
 export function scheduleManifest(schedule: ScheduleFile): { date?: string; items: ScheduleFileItem[] } {
   const items = [...schedule.items]
     .sort((a, b) => a.startMinute - b.startMinute)
-    .map(({ title, detail, startMinute, durationMinutes }) => ({ title, detail, startMinute, durationMinutes }));
+    .map(({ title, detail, startMinute, durationMinutes, column }) => ({
+      title,
+      detail,
+      startMinute,
+      durationMinutes,
+      ...(column === undefined ? {} : { column }),
+    }));
   return { ...(schedule.date ? { date: schedule.date } : {}), items };
 }
 
@@ -98,6 +106,7 @@ export function parseSchedule(raw: unknown): ScheduleFileResult {
       detail: item.detail ?? "",
       startMinute: item.startMinute,
       durationMinutes: item.durationMinutes,
+      column: item.column ?? undefined,
     });
     if (!parsed.success) return fail(`${label}（${String(item.title ?? "")}）: ${issueText(parsed.error.issues)}`);
     items.push(parsed.data);

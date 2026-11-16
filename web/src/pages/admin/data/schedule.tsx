@@ -20,6 +20,7 @@ export function SchedulePreview(props: { items: ScheduleFileItem[] }) {
       <thead>
         <tr>
           <th>時刻</th>
+          <th className="num">列</th>
           <th>タイトル</th>
           <th>詳細</th>
         </tr>
@@ -29,6 +30,7 @@ export function SchedulePreview(props: { items: ScheduleFileItem[] }) {
           // biome-ignore lint/suspicious/noArrayIndexKey: ファイルの中の並びで、取り込みの間は変わらない
           <tr key={i}>
             <td className="nowrap">{formatScheduleRange(item)}</td>
+            <td className="num">{(item.column ?? 0) + 1}</td>
             <td>{item.title}</td>
             <td className="muted small">{item.detail.split("\n")[0]}</td>
           </tr>

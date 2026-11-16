@@ -57,6 +57,106 @@ describe("API", () => {
       ).toBe(404);
     });
 
+    it("列は置いたまま。同じ列で重なったらすぐ右に列を足して移し、何もない列は詰める。列を超えて動かせる", async () => {
+      const admin = await t.adminClient();
+      const post = async (title: string, startMinute: number, column?: number) =>
+        (await admin("POST", "/api/admin/schedule", { title, detail: "", startMinute, durationMinutes: 30, column }))
+          .body.item;
+      const columns = async () =>
+        Object.fromEntries((await admin("GET", "/api/admin/schedule")).body.items.map((i: any) => [i.title, i.column]));
+      const a = await post("A", 18 * 60);
+      // 重ならなければ、左端の列のまま。別の列にも置ける
+      await post("B", 18 * 60 + 30);
+      const c = await post("C", 18 * 60, 1);
+      expect(await columns()).toEqual({ A: 0, B: 0, C: 1 });
+      // A と重なる D を左端の列に置くと、すぐ右に列を足して移す（もとの列 1 の C は列 2 へ）
+      const d = await post("D", 18 * 60 + 15);
+      expect(d.column).toBe(1);
+      expect(await columns()).toEqual({ A: 0, B: 0, D: 1, C: 2 });
+      // 列を超えて動かす（C を、空いている時間の列 0 の 19:00 へ）。何もなくなった列 2 は詰める
+      const moved = await admin("PUT", `/api/admin/schedule/${c.itemId}`, {
+        title: "C",
+        detail: "",
+        startMinute: 19 * 60,
+        durationMinutes: 30,
+        column: 0,
+      });
+      expect(moved.body.item.column).toBe(0);
+      expect(await columns()).toEqual({ A: 0, B: 0, D: 1, C: 0 });
+      // 列を省いて直すと、今の列のまま
+      await admin("PUT", `/api/admin/schedule/${d.itemId}`, {
+        title: "D2",
+        detail: "",
+        startMinute: 20 * 60,
+        durationMinutes: 30,
+      });
+      expect(await columns()).toEqual({ A: 0, B: 0, C: 0, D2: 1 });
+      // A を消しても、列 0 には B・C が残るので、D2 は列 1 のまま
+      await admin("DELETE", `/api/admin/schedule/${a.itemId}`);
+      expect(await columns()).toEqual({ B: 0, C: 0, D2: 1 });
+    });
+
+    it("何もない列を消すと、右の列が左へ詰まる", async () => {
+      const admin = await t.adminClient();
+      const post = async (title: string, column: number) =>
+        (
+          await admin("POST", "/api/admin/schedule", {
+            title,
+            detail: "",
+            startMinute: 18 * 60,
+            durationMinutes: 30,
+            column,
+          })
+        ).body.item;
+      const a = await post("A", 0);
+      await post("B", 1);
+      await post("C", 2);
+      await admin("DELETE", `/api/admin/schedule/${a.itemId}`);
+      const items = (await admin("GET", "/api/admin/schedule")).body.items;
+      expect(Object.fromEntries(items.map((i: any) => [i.title, i.column]))).toEqual({ B: 0, C: 1 });
+    });
+
+    it("列を持つ前に作った項目は、時刻から決めた以前の並べ方の列で返し、次に直したときに保存する", async () => {
+      const admin = await t.adminClient();
+      const ts = "2026-01-01T00:00:00.000Z";
+      await t.repo.createScheduleItem({
+        itemId: "OLD1",
+        title: "古い 1",
+        detail: "",
+        startMinute: 1080,
+        durationMinutes: 60,
+        createdAt: ts,
+        updatedAt: ts,
+      });
+      await t.repo.createScheduleItem({
+        itemId: "OLD2",
+        title: "古い 2",
+        detail: "",
+        startMinute: 1110,
+        durationMinutes: 60,
+        createdAt: ts,
+        updatedAt: ts,
+      });
+      const items = (await admin("GET", "/api/admin/schedule")).body.items;
+      expect(items.map((i: any) => i.column)).toEqual([0, 1]);
+      await admin("POST", "/api/admin/schedule", { title: "新", detail: "", startMinute: 1260, durationMinutes: 30 });
+      expect((await t.repo.listScheduleItems()).map((i) => [i.itemId, i.column])).toContainEqual(["OLD2", 1]);
+    });
+
+    it("列は 0〜49 の整数", async () => {
+      const admin = await t.adminClient();
+      for (const column of [-1, 50, 1.5]) {
+        const res = await admin("POST", "/api/admin/schedule", {
+          title: "A",
+          detail: "",
+          startMinute: 0,
+          durationMinutes: 30,
+          column,
+        });
+        expect(res.status).toBe(400);
+      }
+    });
+
     it("終わりが 24:00 を越える・5 分未満・長すぎる詳細は 400", async () => {
       const admin = await t.adminClient();
       const post = (body: Record<string, unknown>) =>

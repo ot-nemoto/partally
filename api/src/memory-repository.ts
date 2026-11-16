@@ -264,13 +264,20 @@ export class MemoryRepository implements Repository {
 
   async updateScheduleItem(
     itemId: string,
-    changes: Pick<ScheduleItemRecord, "title" | "detail" | "startMinute" | "durationMinutes">,
+    changes: Pick<ScheduleItemRecord, "title" | "detail" | "startMinute" | "durationMinutes" | "column">,
     updatedAt: string,
   ) {
     const item = this.scheduleItems.get(itemId);
     if (!item) throw new NotFoundError();
     Object.assign(item, clone(changes), { updatedAt });
     return clone(item);
+  }
+
+  async setScheduleColumns(columns: { itemId: string; column: number }[]) {
+    for (const { itemId, column } of columns) {
+      const item = this.scheduleItems.get(itemId);
+      if (item) item.column = column;
+    }
   }
 
   async deleteScheduleItem(itemId: string) {

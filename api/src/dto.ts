@@ -1,4 +1,5 @@
 import {
+  arrangeScheduleColumns,
   type CurrentGameDto,
   formatDisplayName,
   type GameDto,
@@ -56,19 +57,23 @@ export function toParticipantUserDto(user: UserRecord, settings: Settings, game:
   };
 }
 
-export function toScheduleItemDto(item: ScheduleItemRecord): ScheduleItemDto {
+export function toScheduleItemDto(item: ScheduleItemRecord, column: number): ScheduleItemDto {
   return {
     itemId: item.itemId,
     title: item.title,
     detail: item.detail,
     startMinute: item.startMinute,
     durationMinutes: item.durationMinutes,
+    column,
   };
 }
 
-/** 開始時刻の早い順（同じなら作った順） */
+/** 開始時刻の早い順（同じなら作った順）。列は幹事が置いた列（何もない列は詰める） */
 export function sortSchedule(items: ScheduleItemRecord[]): ScheduleItemDto[] {
-  return [...items].sort((a, b) => a.startMinute - b.startMinute).map(toScheduleItemDto);
+  const columns = arrangeScheduleColumns(items);
+  return [...items]
+    .sort((a, b) => a.startMinute - b.startMinute)
+    .map((item) => toScheduleItemDto(item, columns.get(item.itemId) ?? 0));
 }
 
 type ImageUrlOf = (imageId: string | undefined) => string | undefined;

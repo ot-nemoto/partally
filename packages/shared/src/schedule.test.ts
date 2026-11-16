@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  arrangeScheduleColumns,
   formatMinute,
   formatScheduleRange,
   type ScheduleItemDto,
@@ -10,7 +11,7 @@ import {
 
 const item = (itemId: string, start: string, durationMinutes: number): ScheduleItemDto => {
   const [h, m] = start.split(":").map(Number);
-  return { itemId, title: itemId, detail: "", startMinute: h! * 60 + m!, durationMinutes };
+  return { itemId, title: itemId, detail: "", startMinute: h! * 60 + m!, durationMinutes, column: 0 };
 };
 
 describe("formatMinute / formatScheduleRange", () => {
@@ -79,5 +80,53 @@ describe("scheduleItemRequestSchema", () => {
     expect(
       scheduleItemRequestSchema.safeParse({ ...base, startMinute: 23 * 60 + 55, durationMinutes: 5 }).success,
     ).toBe(true);
+  });
+});
+
+describe("arrangeScheduleColumns（幹事が置く列）", () => {
+  // [itemId, 開始, 長さ, 列]
+  const items = (...list: [string, number, number, number?][]) =>
+    list.map(([itemId, startMinute, durationMinutes, column]) => ({ itemId, startMinute, durationMinutes, column }));
+  const of = (map: Map<string, number>) => Object.fromEntries(map);
+
+  it("置いた列のまま。重ならなければ、同じ時刻でも別の列に置ける", () => {
+    expect(of(arrangeScheduleColumns(items(["a", 0, 30, 0], ["b", 0, 30, 1], ["c", 30, 30, 0]), "c"))).toEqual({
+      a: 0,
+      b: 1,
+      c: 0,
+    });
+  });
+
+  it("同じ列で時間が重なったら、すぐ右に列を足して移す（右の列は 1 つずつ右へずれる）", () => {
+    // a（列 0）と重なる d を列 0 に置く → d は列 1 へ、もとの列 1 の b は列 2 へ
+    const result = arrangeScheduleColumns(items(["a", 0, 30, 0], ["b", 0, 60, 1], ["d", 15, 30, 0]), "d");
+    expect(of(result)).toEqual({ a: 0, d: 1, b: 2 });
+  });
+
+  it("終わりと始まりが同じ時刻なら重ならない", () => {
+    expect(of(arrangeScheduleColumns(items(["a", 0, 30, 0], ["b", 30, 30, 0]), "b"))).toEqual({ a: 0, b: 0 });
+  });
+
+  it("何もない列は詰める（勝手に並べ替えはしない）", () => {
+    // 列 1 が空いている
+    expect(of(arrangeScheduleColumns(items(["a", 0, 30, 0], ["b", 0, 30, 2], ["c", 60, 30, 3])))).toEqual({
+      a: 0,
+      b: 1,
+      c: 2,
+    });
+  });
+
+  it("列を超えて動かせる（動かした先で重なれば、そのすぐ右に移す）", () => {
+    // c を列 0 から列 1（b と重なる）へ動かす → c は列 2 へ、空いた列 0 は a が残るのでそのまま
+    const result = arrangeScheduleColumns(items(["a", 0, 30, 0], ["b", 0, 30, 1], ["c", 0, 30, 1]), "c");
+    expect(of(result)).toEqual({ a: 0, b: 1, c: 2 });
+  });
+
+  it("列を持たない項目（列を持つ前に作った項目）は、時刻から決めた以前の並べ方の列に置く", () => {
+    expect(of(arrangeScheduleColumns(items(["a", 0, 60], ["b", 30, 60], ["c", 90, 30])))).toEqual({
+      a: 0,
+      b: 1,
+      c: 0,
+    });
   });
 });

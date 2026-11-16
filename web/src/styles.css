@@ -2516,6 +2516,37 @@ table.import-table td.nowrap {
   color: var(--accent);
 }
 
+/* 幹事が置いた列ごとに横に並べる（列の中は開始時刻の早い順）。狭い画面では列の中のカードを詰める */
+.schedule-columns {
+  display: grid;
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.schedule-columns .schedule-item {
+  padding: 0.6rem;
+}
+
+/* 狭い列では、時刻と「いま」「つぎ」を折り返して並べる（印は 1 行のまま） */
+.schedule-columns .schedule-item-head {
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.schedule-columns .schedule-badge {
+  white-space: nowrap;
+}
+
+.schedule-columns .schedule-item h3 {
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+.schedule-columns .schedule-item-detail {
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
 /* ---- 参加者の順位 ---- */
 
 /* ランキングと推移の切り替え */

@@ -55,7 +55,7 @@ const all: DataArchive = {
     date: "2026-12-24",
     items: [
       { title: "開場", detail: "受付は 1 階", startMinute: 1080, durationMinutes: 30 },
-      { title: "乾杯", detail: "", startMinute: 1110, durationMinutes: 5 },
+      { title: "乾杯", detail: "", startMinute: 1110, durationMinutes: 5, column: 1 },
     ],
   },
   settings,

@@ -258,6 +258,8 @@ export interface ScheduleItemDto {
   detail: string;
   startMinute: number;
   durationMinutes: number;
+  /** 管理画面・参加者の画面で並べる列（0 から。左から順に、何もない列は無い） */
+  column: number;
 }
 
 /** スケジュール（開始時刻の早い順）とイベントの日付 */

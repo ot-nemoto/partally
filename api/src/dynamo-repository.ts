@@ -643,24 +643,29 @@ export class DynamoRepository implements Repository {
 
   async updateScheduleItem(
     itemId: string,
-    changes: Pick<ScheduleItemRecord, "title" | "detail" | "startMinute" | "durationMinutes">,
+    changes: Pick<ScheduleItemRecord, "title" | "detail" | "startMinute" | "durationMinutes" | "column">,
     updatedAt: string,
   ) {
+    const column = changes.column === undefined ? "" : ", #column = :column";
     try {
       const { Attributes } = await this.client.send(
         new UpdateCommand({
           TableName: this.tableName,
           Key: keys.scheduleItem(itemId),
-          UpdateExpression:
-            "SET #title = :title, #detail = :detail, startMinute = :start, durationMinutes = :duration, updatedAt = :updatedAt",
+          UpdateExpression: `SET #title = :title, #detail = :detail, startMinute = :start, durationMinutes = :duration, updatedAt = :updatedAt${column}`,
           ConditionExpression: "attribute_exists(PK)",
-          ExpressionAttributeNames: { "#title": "title", "#detail": "detail" },
+          ExpressionAttributeNames: {
+            "#title": "title",
+            "#detail": "detail",
+            ...(changes.column === undefined ? {} : { "#column": "column" }),
+          },
           ExpressionAttributeValues: {
             ":title": changes.title,
             ":detail": changes.detail,
             ":start": changes.startMinute,
             ":duration": changes.durationMinutes,
             ":updatedAt": updatedAt,
+            ...(changes.column === undefined ? {} : { ":column": changes.column }),
           },
           ReturnValues: "ALL_NEW",
         }),
@@ -669,6 +674,30 @@ export class DynamoRepository implements Repository {
     } catch (e) {
       if (isConditionalCheckFailed(e)) throw new NotFoundError();
       throw e;
+    }
+  }
+
+  async setScheduleColumns(columns: { itemId: string; column: number }[]) {
+    // 列だけを変える。並行して少しずつ送る（項目は多くても数十）。消された項目は飛ばす
+    for (let i = 0; i < columns.length; i += 10) {
+      await Promise.all(
+        columns.slice(i, i + 10).map(async ({ itemId, column }) => {
+          try {
+            await this.client.send(
+              new UpdateCommand({
+                TableName: this.tableName,
+                Key: keys.scheduleItem(itemId),
+                UpdateExpression: "SET #column = :column",
+                ConditionExpression: "attribute_exists(PK)",
+                ExpressionAttributeNames: { "#column": "column" },
+                ExpressionAttributeValues: { ":column": column },
+              }),
+            );
+          } catch (e) {
+            if (!isConditionalCheckFailed(e)) throw e;
+          }
+        }),
+      );
     }
   }
 
@@ -1139,6 +1168,7 @@ function toScheduleItemRecord(item: Record<string, unknown>): ScheduleItemRecord
     detail: (item.detail as string | undefined) ?? "",
     startMinute: Number(item.startMinute ?? 0),
     durationMinutes: Number(item.durationMinutes ?? 0),
+    ...(item.column === undefined || item.column === null ? {} : { column: Number(item.column) }),
     createdAt: item.createdAt as string,
     updatedAt: item.updatedAt as string,
   };
