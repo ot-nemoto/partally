@@ -32,8 +32,10 @@ export function Modal(props: {
       className={props.className}
       aria-label={props.label}
       onCancel={(e) => {
-        // Esc で閉じるかどうかはこちらで決め、表示状態は React 側で管理する
+        // Esc で閉じるかどうかはこちらで決め、表示状態は React 側で管理する。
+        // ダイアログの中で開いたダイアログ（プレビューの中の詳細など）の Esc で、外側まで閉じないよう止める
         e.preventDefault();
+        e.stopPropagation();
         if (closable) onClose();
       }}
       onClick={(e) => {
