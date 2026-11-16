@@ -18,6 +18,7 @@ import { type FormEvent, type PointerEvent as ReactPointerEvent, useCallback, us
 import { api, errorMessage } from "../../api";
 import { Modal } from "../../components/Modal";
 import { PageTitle } from "../../components/PageTitle";
+import { ScheduleBlockDetail } from "../../components/ScheduleTimeline";
 import { useOnReload } from "../../hooks/useReload";
 import { SchedulePreviewDialog } from "./schedule/SchedulePreviewDialog";
 
@@ -391,6 +392,8 @@ export function AdminSchedule() {
                   >
                     <span className="schedule-block-time">{formatScheduleRange(shown)}</span>
                     <span className="schedule-block-title">{item.title}</span>
+                    {/* 下の端の持ち手の分を空ける */}
+                    <ScheduleBlockDetail detail={item.detail} height={height} reserved={6} />
                     {/*
                       下の端をドラッグすると長さが変わる。とても短い項目は、指で触れる範囲が持ち手にかかって
                       移動できなくなるので出さない（長さは編集ダイアログで変える）

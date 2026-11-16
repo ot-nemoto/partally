@@ -2373,6 +2373,21 @@ table.import-table td.nowrap {
   white-space: nowrap;
 }
 
+/* 項目の中の詳細。入る行数（-webkit-line-clamp）だけ出し、入りきらなければ「…」で切る */
+.schedule-block-detail {
+  display: -webkit-box;
+  align-self: stretch;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 16px;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+}
+
 /* とても短い項目（10 分未満）は時刻を出さず、タイトルを小さく出す */
 .schedule-block.tiny {
   flex-direction: row;
