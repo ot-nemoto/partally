@@ -2373,6 +2373,37 @@ table.import-table td.nowrap {
   white-space: nowrap;
 }
 
+/* 項目の中の詳細。入る行数（-webkit-line-clamp）だけ出し、入りきらなければ「…」で切る */
+.schedule-block-detail {
+  display: -webkit-box;
+  align-self: stretch;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1rem;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+}
+
+/* 詳細が 1 行も入らない項目に、詳細があることを右下に小さく出す */
+.schedule-block-more {
+  position: absolute;
+  right: 0.4rem;
+  bottom: 0.2rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 400;
+  line-height: 1;
+}
+
+/* 長いタイトルが「詳細あり」に重ならないよう、右を空ける */
+.schedule-block:has(.schedule-block-more) .schedule-block-title {
+  max-width: calc(100% - 2.5rem);
+}
+
 /* とても短い項目（10 分未満）は時刻を出さず、タイトルを小さく出す */
 .schedule-block.tiny {
   flex-direction: row;
