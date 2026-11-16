@@ -24,7 +24,7 @@ import {
 import { type UpdateSettingsRequest, updateSettingsRequestSchema } from "./schemas.js";
 
 /**
- * 管理画面の Data タブで書き出す・取り込む ZIP。景品・ゲーム・スケジュール・設定のうち選んだものを 1 つにまとめる。
+ * 管理画面の Data タブで書き出す・取り込む ZIP。ゲーム・景品・スケジュール・設定のうち選んだものを 1 つにまとめる。
  * data.json（一覧）と images/（景品・ゲームの画像。通し番号）を入れる。景品・ゲーム・スケジュールの中身は、
  * それぞれを別に書き出していたときのファイルと同じ形にし、それらのファイル（以前の ZIP・JSON）も読めるようにする。
  * API の index からは読み込まない（ZIP のライブラリを API に含めないため）。画面から `@partally/shared/data-archive` で読み込む
@@ -48,7 +48,7 @@ export interface DataArchive {
   settings?: SettingsArchive;
 }
 
-/** 選んだものを 1 つの ZIP にする。画像は景品・ゲーム（問題・選択肢）の順に通し番号で入れる */
+/** 選んだものを 1 つの ZIP にする。画像はゲーム（問題・選択肢）・景品の順に通し番号で入れる */
 export function buildDataArchive(data: DataArchive, exportedAt: string): Uint8Array {
   const count = (data.prizes ?? []).filter((p) => p.image).length + gameImageCount(data.games ?? []);
   const { addImage, images } = imageCollector(count);
@@ -56,8 +56,8 @@ export function buildDataArchive(data: DataArchive, exportedAt: string): Uint8Ar
     format: DATA_ARCHIVE_FORMAT,
     version: DATA_ARCHIVE_VERSION,
     exportedAt,
-    ...(data.prizes ? { prizes: prizeManifest(data.prizes, addImage) } : {}),
     ...(data.games ? { games: gameManifest(data.games, addImage) } : {}),
+    ...(data.prizes ? { prizes: prizeManifest(data.prizes, addImage) } : {}),
     ...(data.schedule ? { schedule: scheduleManifest(data.schedule) } : {}),
     ...(data.settings ? { settings: data.settings } : {}),
   };
@@ -135,7 +135,7 @@ export function readDataArchive(bytes: Uint8Array): DataArchiveResult {
     if (!settings.success) return fail(`設定: ${issueText(settings.error.issues)}`);
     data.settings = settings.data;
   }
-  if (Object.keys(data).length === 0) return fail("景品・ゲーム・スケジュール・設定のどれも入っていません。");
+  if (Object.keys(data).length === 0) return fail("ゲーム・景品・スケジュール・設定のどれも入っていません。");
   return { ok: true, data };
 }
 

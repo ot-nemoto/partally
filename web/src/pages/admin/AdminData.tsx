@@ -16,15 +16,16 @@ const loadArchive = () => import("@partally/shared/data-archive");
 
 type Kind = "prizes" | "games" | "schedule" | "settings";
 
+/** 並びはヘッダーのメニュー（Game・Prize・Schedule・Setting）と同じ */
 const KIND_LABEL: Record<Kind, string> = {
-  prizes: "景品",
   games: "ゲーム",
+  prizes: "景品",
   schedule: "スケジュール",
   settings: "設定",
 };
 
 /**
- * データの移行（Data）。景品・ゲーム・スケジュール・設定のうち選んだものを 1 つの ZIP に書き出し、
+ * データの移行（Data）。ゲーム・景品・スケジュール・設定のうち選んだものを 1 つの ZIP に書き出し、
  * 次のイベントやリハーサル用の環境で取り込む
  */
 export function AdminData() {
@@ -123,7 +124,7 @@ export function AdminData() {
     <section className="admin-data">
       <PageTitle en="Data" ja="データの移行" />
       <p className="muted small">
-        景品・ゲーム・スケジュール・設定を 1 つの ZIP
+        ゲーム・景品・スケジュール・設定を 1 つの ZIP
         ファイルに書き出し、次のイベント（データを消した後）やリハーサル用の環境で取り込めます。
       </p>
       {error && <p className="error">{error}</p>}

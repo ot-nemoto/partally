@@ -20,7 +20,7 @@ export interface CurrentData {
 
 /**
  * 取り込みの画面。ファイルに入っている種類ごとに中身を見せ、取り込むものと取り込み方を選んでから、
- * 景品 → ゲーム → スケジュール → 設定の順に 1 件ずつ取り込む。
+ * ゲーム → 景品 → スケジュール → 設定の順に 1 件ずつ取り込む。
  * 置き換えは、その種類をすべて取り込めてから今のものを消す（途中で失敗しても、今のものが無くならないように）
  */
 export function DataImportDialog(props: {
@@ -95,13 +95,13 @@ export function DataImportDialog(props: {
       done.push(`${label} ${items.length} 件`);
     }
     try {
+      if (include.games && data.games) {
+        await step("ゲーム", data.games, (g) => g.name, importGame);
+      }
       if (include.prizes && data.prizes) {
         const removers =
           prizeMode === "replace" ? current.prizes.map((p) => () => api("DELETE", `/admin/prizes/${p.prizeId}`)) : [];
         await step("景品", data.prizes, (p) => p.name, importPrize, removers);
-      }
-      if (include.games && data.games) {
-        await step("ゲーム", data.games, (g) => g.name, importGame);
       }
       if (include.schedule && data.schedule) {
         const removers =
@@ -133,6 +133,20 @@ export function DataImportDialog(props: {
       <div className="card">
         <h2>インポート</h2>
         <p className="small">取り込むものを選んでください。上から順に取り込みます。</p>
+        {data.games && (
+          <Section
+            title={`ゲーム（${data.games.length} 件）`}
+            checked={include.games}
+            onCheck={(v) => setInclude({ ...include, games: v })}
+            disabled={locked}
+            preview={<GamePreview items={data.games} />}
+          >
+            <p className="muted small">
+              作った順に、<strong>下書き</strong>として後ろに追加します（今のゲームは消しません）。
+              結果入力の枠に選ぶ人は、取り込んだ後に選んでください。
+            </p>
+          </Section>
+        )}
         {data.prizes && (
           <Section
             title={`景品（${data.prizes.length} 件）`}
@@ -149,20 +163,6 @@ export function DataImportDialog(props: {
               onChange={setPrizeMode}
               addNote="同じ順位に、今の景品と取り込んだ景品の両方が割り当たることがあります。"
             />
-          </Section>
-        )}
-        {data.games && (
-          <Section
-            title={`ゲーム（${data.games.length} 件）`}
-            checked={include.games}
-            onCheck={(v) => setInclude({ ...include, games: v })}
-            disabled={locked}
-            preview={<GamePreview items={data.games} />}
-          >
-            <p className="muted small">
-              作った順に、<strong>下書き</strong>として後ろに追加します（今のゲームは消しません）。
-              結果入力の枠に選ぶ人は、取り込んだ後に選んでください。
-            </p>
           </Section>
         )}
         {data.schedule && (

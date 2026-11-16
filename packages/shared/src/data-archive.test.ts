@@ -72,7 +72,7 @@ const errorOf = (bytes: Uint8Array) => {
 };
 
 describe("まとめた ZIP（Data タブ）", () => {
-  it("景品・ゲーム・スケジュール・設定を書き出して読むと元に戻る（画像は景品・ゲームの順に通し番号）", () => {
+  it("ゲーム・景品・スケジュール・設定を書き出して読むと元に戻る（画像はゲーム・景品の順に通し番号）", () => {
     const zip = buildDataArchive(all, "2026-01-01T00:00:00.000Z");
     expect(Object.keys(unzipSync(zip)).sort()).toEqual([
       "data.json",

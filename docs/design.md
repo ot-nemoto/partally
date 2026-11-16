@@ -502,23 +502,23 @@ sequenceDiagram
 | `/admin/prizes` | 景品（Prize） | 景品の登録・編集（画像・名前・数量・渡す順位を「1, 3, 5-10」のように指定）・削除と、順位ごとの景品の一覧 |
 | `/admin/schedule` | スケジュール（Schedule） | 縦の時間軸のタイムラインで項目を作る・動かす・長さを変える・編集する・削除する、イベントの日付。操作は [機能仕様書 9](spec.md#9-スケジュール) |
 | `/admin/settings` | 設定 | 検閲モード（事前承認／即時公開）、ポイント、お気に入りの受付・上限、同じポイントのときの順位（各項目の左の ⋮⋮ をドラッグするか ↑↓ で並べ替え。ドラッグ中は Esc で取り消し）、参加者への公開（ランキング・推移・景品） |
-| `/admin/data` | データの移行（Data） | 景品・ゲーム・スケジュール・設定のうち選んだものを 1 つの ZIP にエクスポート・インポート（下記）。操作は [機能仕様書 11](spec.md#11-データの移行) |
+| `/admin/data` | データの移行（Data） | ゲーム・景品・スケジュール・設定のうち選んだものを 1 つの ZIP にエクスポート・インポート（下記）。操作は [機能仕様書 11](spec.md#11-データの移行) |
 
 **データの移行（エクスポート・インポート）**: API は増やさず、画面（`/admin/data`）でファイルを作る・読む。取り込みは、今の作成と同じ API で 1 件ずつ行う。
 
-- ZIP（`@partally/shared/data-archive`）は `data.json` と `images/NN.jpg`（景品・ゲームの問題・選択肢の順に通し番号）を入れる。`data.json` は `{format: "partally-data", version: 1, exportedAt, prizes?, games?, schedule?, settings?}` で、選んだ種類だけを入れる。
+- ZIP（`@partally/shared/data-archive`）は `data.json` と `images/NN.jpg`（ゲームの問題・選択肢、景品の順に通し番号）を入れる。`data.json` は `{format: "partally-data", version: 1, exportedAt, games?, prizes?, schedule?, settings?}` で、選んだ種類だけを入れる。
 
 | 種類 | `data.json` の中身 | 取り込み |
 |---|---|---|
-| `prizes` | `[{name, quantity, positions, image?}]`（作成順。`image` は ZIP の中のパス） | 追加か置き換え（`POST`・`DELETE /api/admin/prizes`）。100 件まで |
 | `games` | `[{format, name, description, image?, choices: [{text, points, image?}], slots: [{name, points}], ranks, correctNumber?, voterPoints, keyword?}]`（作成順。状態・答え・抽選の順番・枠に選んだ人は入れない） | 下書きとして追加だけ（`POST /api/admin/games`。置き換えは、確定したゲームのポイントが消えるので無い）。100 件まで |
+| `prizes` | `[{name, quantity, positions, image?}]`（作成順。`image` は ZIP の中のパス） | 追加か置き換え（`POST`・`DELETE /api/admin/prizes`）。100 件まで |
 | `schedule` | `{date?, items: [{title, detail, startMinute, durationMinutes}]}`（開始時刻の早い順） | 追加か置き換え（`POST`・`DELETE /api/admin/schedule`）。日付は選んだときだけ設定に入れる。200 件まで |
 | `settings` | 設定（`scheduleDate` を除く） | 今の設定に重ねて `PUT /api/admin/settings`（イベントの日付は今のまま） |
 
 - 以前の形式（景品の ZIP `prizes.json`（`partally-prizes`）、ゲームの ZIP `games.json`（`partally-games`）、スケジュールの JSON（`partally-schedule`））も読む。それぞれの中身は `data.json` の同じ種類と同じ形。
 - ZIP のライブラリ fflate は、Data の画面で使うときだけ読み込む。ZIP の読み書き（大きさの確かめ、一覧の JSON の探し方）は `packages/shared/src/archive.ts`、種類ごとの書き方・確かめ方は `prize-archive.ts`・`game-archive.ts`・`schedule-file.ts` にある。
 - 画像は今の配信 URL から取る（JPEG は圧縮し直さない）。取り込むときは、作成と同じ流れ（画像を端末で縮小・JPEG にしてから `image-upload` → 署名付き POST → `POST /api/admin/prizes`・`POST /api/admin/games`）で 1 件ずつ作る。
-- 取り込みは景品 → ゲーム → スケジュール → 設定の順。置き換えのときは、その種類をすべて取り込めてから今のものを削除する（ほかの画面で先に消されていたもの（404）は消えているとみなして続ける）。途中で止まったときは、どこで止まったかを出す。
+- 取り込みはゲーム → 景品 → スケジュール → 設定の順。置き換えのときは、その種類をすべて取り込めてから今のものを削除する（ほかの画面で先に消されていたもの（404）は消えているとみなして続ける）。途中で止まったときは、どこで止まったかを出す。
 - 大きさは、ファイルを読む前（50MB）と、展開するとき（1 ファイル 20MB・合計 200MB）に確かめる。一覧の JSON は ZIP のいちばん上か 1 つ下のフォルダから探し、macOS の付属ファイルは読まない。各件は作成と同じ決まり（`prizeRequestSchema`・`gameRequestSchema`・`scheduleItemRequestSchema`・`updateSettingsRequestSchema`）で確かめ、1 件でも合わなければ何も取り込まない。
 - 画面は `web/src/pages/admin/AdminData.tsx` と `web/src/pages/admin/data/`（種類ごとの書き出し・取り込み・中身の一覧と、取り込みの画面）。
 
