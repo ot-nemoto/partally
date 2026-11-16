@@ -2452,30 +2452,6 @@ table.import-table td.nowrap {
   font-weight: 600;
 }
 
-.schedule-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.schedule-item {
-  gap: 0.25rem;
-  margin-bottom: 0.5rem;
-  padding: 0.75rem 1rem;
-}
-
-.schedule-item h3 {
-  margin: 0;
-  font-size: 1.05rem;
-  overflow-wrap: anywhere;
-}
-
-.schedule-item-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
 .schedule-item-time {
   color: var(--muted);
   font-size: 0.85rem;
@@ -2488,15 +2464,6 @@ table.import-table td.nowrap {
   font-size: 0.9rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-
-.schedule-item.now {
-  border-color: var(--accent);
-  border-left-width: 4px;
-}
-
-.schedule-item.past {
-  opacity: 0.55;
 }
 
 .schedule-badge {
@@ -2516,35 +2483,81 @@ table.import-table td.nowrap {
   color: var(--accent);
 }
 
-/* 幹事が置いた列ごとに横に並べる（列の中は開始時刻の早い順）。狭い画面では列の中のカードを詰める */
-.schedule-columns {
-  display: grid;
-  gap: 0.5rem;
-  align-items: start;
+/* 参加者の時間軸。管理画面のタイムラインと同じ形で、押すと詳細を出す。列が多いときは横にスクロールする */
+.schedule-board {
+  overflow-x: auto;
+  padding-top: 1rem;
+  scroll-margin-top: 4rem;
 }
 
-.schedule-columns .schedule-item {
-  padding: 0.6rem;
+.schedule-grid.readonly {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  cursor: default;
+  touch-action: auto;
 }
 
-/* 狭い列では、時刻と「いま」「つぎ」を折り返して並べる（印は 1 行のまま） */
-.schedule-columns .schedule-item-head {
+/* 今の線より上に重ねる（線は項目の後ろを通る） */
+.schedule-board-slot {
+  position: absolute;
+  z-index: 1;
+  padding: 0 2px;
+}
+
+.schedule-board-slot .schedule-block {
+  position: static;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.schedule-board-slot .schedule-block:not(.tiny) .schedule-block-time {
+  display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.25rem;
 }
 
-.schedule-columns .schedule-badge {
+.schedule-board .schedule-badge {
   white-space: nowrap;
 }
 
-.schedule-columns .schedule-item h3 {
-  font-size: 0.95rem;
-  overflow-wrap: anywhere;
+/* 終わった項目は薄く、いまの項目は濃く */
+.schedule-board .schedule-block.past {
+  opacity: 0.5;
 }
 
-.schedule-columns .schedule-item-detail {
-  font-size: 0.8rem;
-  overflow-wrap: anywhere;
+.schedule-board .schedule-block.now {
+  background: color-mix(in srgb, var(--accent) 24%, var(--surface));
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* 今の時刻の線 */
+.schedule-now-line {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  scroll-margin: 40vh;
+}
+
+.schedule-now-line::before {
+  position: absolute;
+  top: -4px;
+  left: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  content: "";
+}
+
+.schedule-detail .schedule-item-detail {
+  white-space: pre-wrap;
 }
 
 /* ---- 参加者の順位 ---- */
