@@ -2399,6 +2399,11 @@ table.import-table td.nowrap {
   line-height: 1;
 }
 
+/* 長いタイトルが「詳細あり」に重ならないよう、右を空ける */
+.schedule-block:has(.schedule-block-more) .schedule-block-title {
+  max-width: calc(100% - 2.5rem);
+}
+
 /* とても短い項目（10 分未満）は時刻を出さず、タイトルを小さく出す */
 .schedule-block.tiny {
   flex-direction: row;
