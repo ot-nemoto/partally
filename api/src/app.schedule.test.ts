@@ -237,6 +237,29 @@ describe("API", () => {
       expect((await state()).D).toEqual([1, false]);
     });
 
+    it("列を持つ前に作った項目があっても、列を切り替えたときにほかの列の並びは変わらない", async () => {
+      const admin = await t.adminClient();
+      const ts = "2026-01-01T00:00:00.000Z";
+      for (const itemId of ["OLD1", "OLD2"]) {
+        await t.repo.createScheduleItem({
+          itemId,
+          title: itemId,
+          detail: "",
+          startMinute: 1080,
+          durationMinutes: 60,
+          createdAt: ts,
+          updatedAt: ts,
+        });
+      }
+      const state = async () =>
+        Object.fromEntries(
+          (await admin("GET", "/api/admin/schedule")).body.items.map((i: any) => [i.title, [i.column, i.hidden]]),
+        );
+      expect(await state()).toEqual({ OLD1: [0, false], OLD2: [1, false] });
+      await admin("PUT", "/api/admin/schedule/columns/0", { hidden: true });
+      expect(await state()).toEqual({ OLD1: [0, true], OLD2: [1, false] });
+    });
+
     it("列の切り替えは、項目のある列だけ。値は真偽", async () => {
       const admin = await t.adminClient();
       await admin("POST", "/api/admin/schedule", { title: "A", detail: "", startMinute: 0, durationMinutes: 30 });

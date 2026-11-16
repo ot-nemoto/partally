@@ -130,10 +130,12 @@ export function placedScheduleHidden(items: PlacedItem[], placedId: string): boo
 }
 
 /**
- * 参加者に見せる項目だけにする。見せない列を除き、残った列を左から 0, 1, 2… に詰める
+ * 参加者に見せる項目だけにする。見せない列（1 つでも見せない項目がある列。管理画面の表示と同じ）を除き、
+ * 残った列を左から 0, 1, 2… に詰める
  */
 export function visibleSchedule<T extends { column: number; hidden: boolean }>(items: T[]): T[] {
-  const visible = items.filter((i) => !i.hidden);
+  const hiddenColumns = new Set(items.filter((i) => i.hidden).map((i) => i.column));
+  const visible = items.filter((i) => !hiddenColumns.has(i.column));
   const used = [...new Set(visible.map((i) => i.column))].sort((a, b) => a - b);
   const index = new Map(used.map((c, i) => [c, i]));
   return visible.map((i) => ({ ...i, column: index.get(i.column)! }));

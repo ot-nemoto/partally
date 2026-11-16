@@ -84,8 +84,21 @@ export function registerScheduleRoutes(app: Hono<Env>, ctx: AppContext) {
     const columns = arrangeScheduleColumns(listed);
     const targets = listed.filter((i) => columns.get(i.itemId) === column);
     if (targets.length === 0) return fail(c, 404, "not_found");
-    // 列を持たない項目は、ついでに今の列を保存する
-    await repo.setScheduleLayout(targets.map((i) => ({ itemId: i.itemId, column, hidden: body.data.hidden })));
+    // 列を持たない項目・列のずれた項目は、ついでに今の列を保存する（一部だけ保存すると、残った列を持たない項目の
+    // 以前の並べ方が変わってしまう）
+    const changes: ScheduleLayoutChange[] = listed.flatMap((i) => {
+      const at = columns.get(i.itemId)!;
+      const target = at === column;
+      if (!target && i.column === at) return [];
+      return [
+        {
+          itemId: i.itemId,
+          ...(i.column === at ? {} : { column: at }),
+          ...(target ? { hidden: body.data.hidden } : {}),
+        },
+      ];
+    });
+    await repo.setScheduleLayout(changes);
     const items = listed.map((i) => (columns.get(i.itemId) === column ? { ...i, hidden: body.data.hidden } : i));
     return c.json({ items: sortSchedule(items), date: settings.scheduleDate });
   });

@@ -421,7 +421,7 @@ sequenceDiagram
 | GET | `/api/ranking` | ランキング（推移なし）。設定 `rankingVisible` がオフなら 404。紐づけを解除した人は除き、順位を付け直す。名前を伏せるときは全員の名前・称号・表示名を `???` にし、ユーザ ID を順番の番号（`r1`…）に置き換え、推移の始まり（登録した時刻）も全員そろえる。ポイントを伏せるときは、最大値を 100 とした割合（小数第 1 位まで）だけを返す。応答に `hideNames`・`hidePoints` を含む |
 | GET | `/api/trend` | ランキングと累計ポイントの推移。`trendVisible` がオフなら 404。伏せ方は `/api/ranking` と同じ（`trendHideNames`・`trendHidePoints` に従う） |
 | GET | `/api/prizes` | 景品の一覧（名前・数量・渡す順位・画像の署名付き URL）。`prizesVisible` がオフなら 404 |
-| GET | `/api/schedule` | スケジュール（開始時刻の早い順）とイベントの日付。見せない列（`hidden`）の項目は除き、残った列を詰める（`visibleSchedule`）。`scheduleVisible` がオフなら 404 |
+| GET | `/api/schedule` | スケジュール（開始時刻の早い順）とイベントの日付。見せない列（`hidden` の項目が 1 つでもある列。管理画面の表示と同じ）の項目は除き、残った列を詰める（`visibleSchedule`）。`scheduleVisible` がオフなら 404 |
 | PUT | `/api/game/{gameId}/answer` | ゲームに答える。クイズは `{choiceId}`、数値予想は `{value}`（0〜100 の整数）、投票は `{targetUserId}`、合言葉は `{text}`（応答に正解か `correct` を含める。不正解は保存せず、正解した後は上書きしない）、抽選は `{entry: true}`。答え直しは上書き。開催中でなければ 409 `game_closed`、形式に合わない答え・結果入力のゲーム・自分や登録されていない人や紐づけを解除した人への投票は 400 |
 | GET | `/api/game/{gameId}/candidates` | 投票で選べる人 `{userId, displayName}` の一覧（自分と紐づけを解除した人を除き、名前の順）。ゲームの画面を開いたとき・アプリに戻ったとき・「一覧を読み直す」で呼ぶ（5 秒ごとの確認には含めない）。投票でなければ 400、開催中でなければ 409 `game_closed` |
 | POST | `/api/photos/upload-url` | アップロード用署名付き POST を発行 |
@@ -464,7 +464,7 @@ sequenceDiagram
 | GET | `/api/admin/schedule` | スケジュール（開始時刻の早い順）とイベントの日付 |
 | POST | `/api/admin/schedule` | 項目を作る `{title, detail, startMinute, durationMinutes, column?, hidden?}`（時刻は 0:00 からの分。長さは 5 分以上、終わりは 24:00 まで。列は 0〜49 で、省くと左端。違えば 400）。同じ列のほかの項目と重なれば、すぐ右に列を足して移し、何もない列は詰める（`arrangeScheduleColumns`）。置いた列にほかの項目があれば、`hidden` はその列に合わせる（`placedScheduleHidden`。省いて新しい列なら見せる）。列・`hidden` が変わった項目は、その値だけを保存し直す（`setScheduleLayout`） |
 | PUT | `/api/admin/schedule/{itemId}` | 項目を直す（作るときと同じ形。タイムラインのドラッグでも使う。`column`・`hidden` を省くと今のまま）。重なり・空いた列・見せるかの扱いは作るときと同じ |
-| PUT | `/api/admin/schedule/columns/{column}` | 列を参加者に見せるか `{hidden}`。今の並びでその列にある項目をまとめて切り替え、スケジュール全体を返す（`GET` と同じ形）。項目の無い列は 404 |
+| PUT | `/api/admin/schedule/columns/{column}` | 列を参加者に見せるか `{hidden}`。今の並びでその列にある項目をまとめて切り替え（列を持たない項目は、ほかの列も含めて今の列を保存する）、スケジュール全体を返す（`GET` と同じ形）。項目の無い列は 404 |
 | DELETE | `/api/admin/schedule/{itemId}` | 項目を削除（何もなくなった列は詰める） |
 | GET / PUT | `/api/admin/settings` | 設定（公開方法・ポイント・お気に入り）の取得・更新。PUT は全項目を送る（後から追加した `showPoints`・`showGamePoints`・`favoriteGivenPoints`・参加者への公開の項目（`prizesVisible` を含む）・`tieBreakOrder` は省略可で、省略時は今の値を残す。`tieBreakOrder` は 5 項目を 1 回ずつ並べたものでなければ 400） |
 

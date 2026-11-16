@@ -164,4 +164,13 @@ describe("visibleSchedule（参加者に見せる項目）", () => {
       ["c", 1],
     ]);
   });
+
+  it("見せない項目が 1 つでもある列は、列ごと出さない（管理画面の表示と同じ）", () => {
+    const items = [
+      { ...item("a", "18:00", 30), column: 0, hidden: true },
+      { ...item("b", "19:00", 30), column: 0 },
+      { ...item("c", "18:00", 30), column: 1 },
+    ];
+    expect(visibleSchedule(items).map((i) => [i.itemId, i.column])).toEqual([["c", 0]]);
+  });
 });
