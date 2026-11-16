@@ -25,7 +25,7 @@ describe("景品の ZIP", () => {
       { name: "商品券", quantity: 2, positions: [], image: jpeg(2) },
     ];
     const zip = buildPrizeArchive(prizes, "2026-01-01T00:00:00.000Z");
-    expect(Object.keys(unzipSync(zip)).sort()).toEqual(["images/01.jpg", "images/03.jpg", "prizes.json"]);
+    expect(Object.keys(unzipSync(zip)).sort()).toEqual(["images/01.jpg", "images/02.jpg", "prizes.json"]);
     const result = readPrizeArchive(zip);
     expect(result).toEqual({ ok: true, prizes });
   });

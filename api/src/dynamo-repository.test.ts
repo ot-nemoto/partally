@@ -451,6 +451,96 @@ describe("DynamoRepository", () => {
       ddb.on(DeleteCommand).rejects(failed);
       await expect(repo.deleteScheduleItem("S1")).rejects.toBeInstanceOf(NotFoundError);
     });
+
+    it("列・見せるかは、直すときに送れば保存し、列・見せるかだけを変えるときは消された項目を飛ばす。読んだ値を返す", async () => {
+      ddb
+        .on(UpdateCommand)
+        .resolves({ Attributes: { itemId: "S1", title: "x", startMinute: 0, durationMinutes: 5, column: 2 } });
+      const updated = await repo.updateScheduleItem(
+        "S1",
+        { title: "x", detail: "", startMinute: 0, durationMinutes: 5, column: 2 },
+        "t",
+      );
+      expect(updated.column).toBe(2);
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input).toMatchObject({
+        UpdateExpression: expect.stringContaining(", #column = :column"),
+        ExpressionAttributeNames: { "#column": "column" },
+        ExpressionAttributeValues: { ":column": 2 },
+      });
+      // 列を送らなければ、列は変えない
+      await repo.updateScheduleItem("S1", { title: "x", detail: "", startMinute: 0, durationMinutes: 5 }, "t");
+      const second = ddb.commandCalls(UpdateCommand)[1]!.args[0].input;
+      expect(second.UpdateExpression).not.toContain("#column");
+      expect(second.ExpressionAttributeNames).not.toHaveProperty("#column");
+      expect(second.UpdateExpression).not.toContain("#hidden");
+      await repo.updateScheduleItem(
+        "S1",
+        { title: "x", detail: "", startMinute: 0, durationMinutes: 5, hidden: true },
+        "t",
+      );
+      expect(ddb.commandCalls(UpdateCommand)[2]!.args[0].input).toMatchObject({
+        UpdateExpression: expect.stringContaining(", #hidden = :hidden"),
+        ExpressionAttributeNames: { "#hidden": "hidden" },
+        ExpressionAttributeValues: { ":hidden": true },
+      });
+
+      ddb.reset();
+      const failed = new ConditionalCheckFailedException({ message: "failed", $metadata: {} });
+      ddb.on(UpdateCommand, { Key: { PK: "SCHEDULE#GONE", SK: "META" } }).rejects(failed);
+      ddb.on(UpdateCommand, { Key: { PK: "SCHEDULE#S2", SK: "META" } }).resolves({});
+      await expect(
+        repo.setScheduleLayout([
+          { itemId: "GONE", column: 0 },
+          { itemId: "S2", column: 1 },
+        ]),
+      ).resolves.toBeUndefined();
+      expect(ddb.commandCalls(UpdateCommand).map((c) => c.args[0].input)).toContainEqual(
+        expect.objectContaining({
+          Key: { PK: "SCHEDULE#S2", SK: "META" },
+          UpdateExpression: "SET #column = :column",
+          ConditionExpression: "attribute_exists(PK)",
+          ExpressionAttributeNames: { "#column": "column" },
+          ExpressionAttributeValues: { ":column": 1 },
+        }),
+      );
+      // 見せるかだけ・両方を変える。何も変えない項目は送らない
+      ddb.reset();
+      ddb.on(UpdateCommand).resolves({});
+      await repo.setScheduleLayout([
+        { itemId: "S1", hidden: true },
+        { itemId: "S2", column: 2, hidden: false },
+        { itemId: "S3" },
+      ]);
+      const inputs = ddb.commandCalls(UpdateCommand).map((c) => c.args[0].input);
+      expect(inputs).toHaveLength(2);
+      expect(inputs).toContainEqual(
+        expect.objectContaining({
+          Key: { PK: "SCHEDULE#S1", SK: "META" },
+          UpdateExpression: "SET #hidden = :hidden",
+          ExpressionAttributeNames: { "#hidden": "hidden" },
+          ExpressionAttributeValues: { ":hidden": true },
+        }),
+      );
+      expect(inputs).toContainEqual(
+        expect.objectContaining({
+          Key: { PK: "SCHEDULE#S2", SK: "META" },
+          UpdateExpression: "SET #column = :column, #hidden = :hidden",
+          ExpressionAttributeValues: { ":column": 2, ":hidden": false },
+        }),
+      );
+      // 列を持たない項目は列なしで読む
+      ddb.on(QueryCommand).resolves({
+        Items: [{ PK: "SCHEDULE#S3", SK: "META", itemId: "S3", title: "古い", createdAt: "t", updatedAt: "t" }],
+      });
+      expect((await repo.listScheduleItems())[0]).not.toHaveProperty("column");
+      expect((await repo.listScheduleItems())[0]).not.toHaveProperty("hidden");
+      ddb.on(QueryCommand).resolves({
+        Items: [
+          { PK: "SCHEDULE#S4", SK: "META", itemId: "S4", title: "裏", hidden: true, createdAt: "t", updatedAt: "t" },
+        ],
+      });
+      expect((await repo.listScheduleItems())[0]).toHaveProperty("hidden", true);
+    });
   });
 
   describe("ゲーム", () => {

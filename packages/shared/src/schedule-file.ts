@@ -21,6 +21,10 @@ export interface ScheduleFileItem {
   /** 0:00 からの分 */
   startMinute: number;
   durationMinutes: number;
+  /** 置く列（0 から）。列を持つ前に書き出したファイルには無い（取り込むと左端の列から置く） */
+  column?: number;
+  /** 参加者に見せない項目（列ごとにそろう）。見せる項目には無い */
+  hidden?: boolean;
 }
 
 export interface ScheduleFile {
@@ -31,15 +35,11 @@ export interface ScheduleFile {
 
 /** スケジュールを JSON にする（項目は開始時刻の早い順） */
 export function buildScheduleFile(schedule: ScheduleFile, exportedAt: string): string {
-  const items = [...schedule.items]
-    .sort((a, b) => a.startMinute - b.startMinute)
-    .map(({ title, detail, startMinute, durationMinutes }) => ({ title, detail, startMinute, durationMinutes }));
   const file = {
     format: SCHEDULE_FILE_FORMAT,
     version: SCHEDULE_FILE_VERSION,
     exportedAt,
-    ...(schedule.date ? { date: schedule.date } : {}),
-    items,
+    ...scheduleManifest(schedule),
   };
   return `${JSON.stringify(file, null, 2)}\n`;
 }
@@ -61,32 +61,60 @@ export function readScheduleFile(text: string): ScheduleFileResult {
   if (!isRecord(file) || file.format !== SCHEDULE_FILE_FORMAT) {
     return fail("スケジュールのエクスポートの形ではありません。");
   }
-  if (file.version !== SCHEDULE_FILE_VERSION)
+  if (file.version !== SCHEDULE_FILE_VERSION) {
     return fail(`対応していない版のファイルです（${String(file.version)}）。`);
-  if (!Array.isArray(file.items)) return fail("スケジュールの項目の一覧（items）がありません。");
-  if (file.items.length === 0) return fail("項目が 1 つも入っていません。");
-  if (file.items.length > SCHEDULE_FILE_MAX_ITEMS) {
+  }
+  return parseSchedule(file);
+}
+
+/** スケジュール（日付と項目の一覧）を、ファイルに書く形にする（項目は開始時刻の早い順） */
+export function scheduleManifest(schedule: ScheduleFile): { date?: string; items: ScheduleFileItem[] } {
+  const items = [...schedule.items]
+    .sort((a, b) => a.startMinute - b.startMinute)
+    .map(({ title, detail, startMinute, durationMinutes, column, hidden }) => ({
+      title,
+      detail,
+      startMinute,
+      durationMinutes,
+      ...(column === undefined ? {} : { column }),
+      ...(hidden ? { hidden: true } : {}),
+    }));
+  return { ...(schedule.date ? { date: schedule.date } : {}), items };
+}
+
+/**
+ * スケジュール（{date?, items}）を確かめる。各項目はスケジュールの項目の作成と同じ決まり（scheduleItemRequestSchema）で確かめ、
+ * 1 つでも問題があれば、何も取り込まないよう全体を失敗にする
+ */
+export function parseSchedule(raw: unknown): ScheduleFileResult {
+  if (!isRecord(raw) || !Array.isArray(raw.items)) return fail("スケジュールの項目の一覧（items）がありません。");
+  if (raw.items.length === 0) return fail("項目が 1 つも入っていません。");
+  if (raw.items.length > SCHEDULE_FILE_MAX_ITEMS) {
     return fail(`項目が多すぎます（1 回に ${SCHEDULE_FILE_MAX_ITEMS} 件まで）。`);
   }
   let date: string | undefined;
-  if (file.date !== undefined && file.date !== null && file.date !== "") {
-    const parsed = updateSettingsRequestSchema.shape.scheduleDate.safeParse(file.date);
-    if (!parsed.success || !parsed.data)
+  if (raw.date !== undefined && raw.date !== null && raw.date !== "") {
+    const parsed = updateSettingsRequestSchema.shape.scheduleDate.safeParse(raw.date);
+    if (!parsed.success || !parsed.data) {
       return fail("イベントの日付（date）が正しくありません（YYYY-MM-DD の形にしてください）。");
+    }
     date = parsed.data;
   }
   const items: ScheduleFileItem[] = [];
-  for (const [i, raw] of file.items.entries()) {
+  for (const [i, item] of raw.items.entries()) {
     const label = `${i + 1} 件目`;
-    if (!isRecord(raw)) return fail(`${label}: 項目の形になっていません。`);
+    if (!isRecord(item)) return fail(`${label}: 項目の形になっていません。`);
     const parsed = scheduleItemRequestSchema.safeParse({
-      title: raw.title,
-      detail: raw.detail ?? "",
-      startMinute: raw.startMinute,
-      durationMinutes: raw.durationMinutes,
+      title: item.title,
+      detail: item.detail ?? "",
+      startMinute: item.startMinute,
+      durationMinutes: item.durationMinutes,
+      column: item.column ?? undefined,
+      hidden: item.hidden ?? undefined,
     });
-    if (!parsed.success) return fail(`${label}（${String(raw.title ?? "")}）: ${issueText(parsed.error.issues)}`);
-    items.push(parsed.data);
+    if (!parsed.success) return fail(`${label}（${String(item.title ?? "")}）: ${issueText(parsed.error.issues)}`);
+    const { hidden, ...rest } = parsed.data;
+    items.push({ ...rest, ...(hidden ? { hidden: true } : {}) });
   }
   items.sort((a, b) => a.startMinute - b.startMinute);
   return { ok: true, ...(date ? { date } : {}), items };

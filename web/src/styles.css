@@ -1746,6 +1746,32 @@ textarea {
   padding: 1rem 0.75rem;
 }
 
+.schedule-preview-dialog {
+  max-width: 27rem;
+}
+
+/* 枠は画面の幅に収め、時間軸は枠の中で横にスクロールする */
+.schedule-preview-dialog .game-preview-phone {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* スケジュールのプレビューで見る時刻 */
+.schedule-preview-time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.schedule-preview-time label {
+  display: flex;
+  white-space: nowrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 /* 管理者ログイン。タイトルはログイン前の参加者の画面と同じく中央に寄せる */
 .admin-login .admin-login-title {
   display: flex;
@@ -2146,6 +2172,46 @@ table.import-table td.nowrap {
   margin: 0;
 }
 
+/* データの移行（Data） */
+.data-card {
+  margin-top: 1rem;
+}
+
+.data-card h2 {
+  margin-top: 0;
+}
+
+.data-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+}
+
+.data-kinds .import-option {
+  margin: 0.25rem 0;
+}
+
+/* 取り込みの画面の、種類ごとの欄 */
+.data-import-section {
+  margin: 0.75rem 0;
+  padding: 0.25rem 0.75rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.data-import-section legend {
+  padding: 0 0.25rem;
+  font-weight: 600;
+}
+
+.data-import-section legend .import-option {
+  margin: 0;
+}
+
+.data-import-section .import-mode {
+  margin: 0.5rem 0 0;
+}
+
 .prize-dialog {
   max-width: 30rem;
 }
@@ -2307,6 +2373,37 @@ table.import-table td.nowrap {
   white-space: nowrap;
 }
 
+/* 項目の中の詳細。入る行数（-webkit-line-clamp）だけ出し、入りきらなければ「…」で切る */
+.schedule-block-detail {
+  display: -webkit-box;
+  align-self: stretch;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1rem;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+}
+
+/* 詳細が 1 行も入らない項目に、詳細があることを右下に小さく出す */
+.schedule-block-more {
+  position: absolute;
+  right: 0.4rem;
+  bottom: 0.2rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 400;
+  line-height: 1;
+}
+
+/* 長いタイトルが「詳細あり」に重ならないよう、右を空ける */
+.schedule-block:has(.schedule-block-more) .schedule-block-title {
+  max-width: calc(100% - 2.5rem);
+}
+
 /* とても短い項目（10 分未満）は時刻を出さず、タイトルを小さく出す */
 .schedule-block.tiny {
   flex-direction: row;
@@ -2412,30 +2509,6 @@ table.import-table td.nowrap {
   font-weight: 600;
 }
 
-.schedule-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.schedule-item {
-  gap: 0.25rem;
-  margin-bottom: 0.5rem;
-  padding: 0.75rem 1rem;
-}
-
-.schedule-item h3 {
-  margin: 0;
-  font-size: 1.05rem;
-  overflow-wrap: anywhere;
-}
-
-.schedule-item-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
 .schedule-item-time {
   color: var(--muted);
   font-size: 0.85rem;
@@ -2448,15 +2521,6 @@ table.import-table td.nowrap {
   font-size: 0.9rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-
-.schedule-item.now {
-  border-color: var(--accent);
-  border-left-width: 4px;
-}
-
-.schedule-item.past {
-  opacity: 0.55;
 }
 
 .schedule-badge {
@@ -2474,6 +2538,137 @@ table.import-table td.nowrap {
 .schedule-badge.next {
   border: 1px solid var(--accent);
   color: var(--accent);
+}
+
+/* 参加者の時間軸。管理画面のタイムラインと同じ形で、押すと詳細を出す。列が多いときは横にスクロールする */
+.schedule-board {
+  overflow-x: auto;
+  padding: 1rem 0;
+  scroll-margin-top: 4rem;
+}
+
+.schedule-grid.readonly {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  cursor: default;
+  touch-action: auto;
+}
+
+/* 今の線より上に重ねる（線は項目の後ろを通る） */
+.schedule-board-slot {
+  position: absolute;
+  z-index: 1;
+  padding: 0 2px;
+}
+
+.schedule-board-slot .schedule-block {
+  position: static;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* 1 行の短い項目に「いま」「つぎ」が付くときは、タイトルが隠れないよう時刻を省く（押すと詳細に出る） */
+.schedule-board .schedule-block.short.badged .schedule-block-time {
+  display: none;
+}
+
+.schedule-board .schedule-badge {
+  margin-right: 0.25rem;
+  white-space: nowrap;
+}
+
+/* 終わった項目は薄く、いまの項目は濃く */
+.schedule-board .schedule-block.past {
+  opacity: 0.5;
+}
+
+.schedule-board .schedule-block.now {
+  background: color-mix(in srgb, var(--accent) 24%, var(--surface));
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* 今の時刻の線 */
+.schedule-now-line {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+/* 開いたときにスクロールして合わせる印（線の左端） */
+.schedule-now-anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.schedule-now-line::before {
+  position: absolute;
+  top: -4px;
+  left: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  content: "";
+}
+
+.schedule-detail .schedule-item-detail {
+  white-space: pre-wrap;
+}
+
+/* 列ごとに参加者に見せるかの切り替え（時間軸の列にそろえる） */
+.schedule-column-heads {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 0.25rem 3.5rem;
+}
+
+.schedule-column-toggle {
+  min-width: 0;
+  padding: 0.15rem 0.25rem;
+  overflow: hidden;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.schedule-column-toggle.off {
+  border-style: dashed;
+  border-color: var(--muted);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+/* 見せない列は斜線、項目は点線で薄く */
+.schedule-column-shade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent 0 6px,
+    color-mix(in srgb, var(--muted) 14%, transparent) 6px 8px
+  );
+  pointer-events: none;
+}
+
+.schedule-block.hidden-item {
+  border-style: dashed;
+  border-color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 10%, var(--surface));
+  color: var(--muted);
 }
 
 /* ---- 参加者の順位 ---- */

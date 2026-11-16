@@ -6,7 +6,8 @@
     ".": "./src/index.ts",
     "./prize-archive": "./src/prize-archive.ts",
     "./game-archive": "./src/game-archive.ts",
-    "./schedule-file": "./src/schedule-file.ts"
+    "./schedule-file": "./src/schedule-file.ts",
+    "./data-archive": "./src/data-archive.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",

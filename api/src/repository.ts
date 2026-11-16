@@ -73,8 +73,18 @@ export interface ScheduleItemRecord {
   /** 0:00 からの分 */
   startMinute: number;
   durationMinutes: number;
+  /** 置いた列（0 から）。列を持つ前に作った項目には無い（時刻から決めた以前の並べ方の列に置く） */
+  column?: number;
+  /** 参加者に見せない（列ごとに切り替え、同じ列の項目はそろえる）。無ければ見せる */
+  hidden?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ScheduleLayoutChange {
+  itemId: string;
+  column?: number;
+  hidden?: boolean;
 }
 
 export interface GameSlot {
@@ -360,9 +370,14 @@ export interface Repository {
   /** @throws NotFoundError */
   updateScheduleItem(
     itemId: string,
-    changes: Pick<ScheduleItemRecord, "title" | "detail" | "startMinute" | "durationMinutes">,
+    changes: Pick<ScheduleItemRecord, "title" | "detail" | "startMinute" | "durationMinutes" | "column" | "hidden">,
     updatedAt: string,
   ): Promise<ScheduleItemRecord>;
+  /**
+   * 項目の列・見せるかだけを変える（重なりで列を足した・何もない列を詰めた・列を見せない設定にしたとき）。
+   * 省いた値は変えない。もう無い項目は飛ばす
+   */
+  setScheduleLayout(changes: ScheduleLayoutChange[]): Promise<void>;
   /** @throws NotFoundError */
   deleteScheduleItem(itemId: string): Promise<void>;
 

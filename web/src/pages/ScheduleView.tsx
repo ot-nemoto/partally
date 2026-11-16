@@ -1,15 +1,14 @@
-import { formatScheduleRange, type ScheduleResponse, type ScheduleStatus, scheduleStatuses } from "@partally/shared";
+import type { ScheduleResponse } from "@partally/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../api";
+import { ScheduleContent } from "../components/ScheduleTimeline";
 import { useOnReload } from "../hooks/useReload";
 
 /** 「いま」「つぎ」を時刻に合わせて付け直す間隔 */
 const TICK_MS = 30_000;
 
-const STATUS_LABEL: Partial<Record<ScheduleStatus, string>> = { now: "いま", next: "つぎ" };
-
 /**
- * 参加者に見せるスケジュール。開始時刻の早い順に並べ、今の時間の項目に「いま」、次の項目に「つぎ」を付け、
+ * 参加者に見せるスケジュール。管理画面と同じ時間軸に、幹事が置いた列ごとに並べ、今の時間の項目に「いま」、次の項目に「つぎ」を付け、
  * 終わった項目は薄くする（日付が決まっていれば、その日だけ）
  */
 export function ScheduleView() {
@@ -45,39 +44,5 @@ export function ScheduleView() {
   if (state === "hidden") return <p className="muted">今は公開されていません。</p>;
   if (state === "error") return <p className="error">{error}</p>;
   if (!data) return <p className="muted">読み込み中…</p>;
-  if (data.items.length === 0) return <p className="muted">まだスケジュールはありません。</p>;
-
-  const statuses = scheduleStatuses(data.items, now, data.date);
-  return (
-    <>
-      {data.date && <p className="schedule-day">{formatDate(data.date)}</p>}
-      <ol className="schedule-list">
-        {data.items.map((item) => {
-          const status = statuses.get(item.itemId) ?? "none";
-          const label = STATUS_LABEL[status];
-          return (
-            <li
-              key={item.itemId}
-              className={`card schedule-item ${status}`}
-              aria-current={status === "now" ? "time" : undefined}
-            >
-              <div className="schedule-item-head">
-                <span className="schedule-item-time">{formatScheduleRange(item)}</span>
-                {label && <span className={`schedule-badge ${status}`}>{label}</span>}
-              </div>
-              <h3>{item.title}</h3>
-              {item.detail && <p className="schedule-item-detail">{item.detail}</p>}
-            </li>
-          );
-        })}
-      </ol>
-    </>
-  );
-}
-
-/** 「2026-12-20」→「12月20日（日）」 */
-function formatDate(date: string): string {
-  const [y, m, d] = date.split("-").map(Number);
-  const day = new Date(y!, m! - 1, d!);
-  return `${m}月${d}日（${"日月火水木金土"[day.getDay()]}）`;
+  return <ScheduleContent items={data.items} date={data.date} now={now} />;
 }
