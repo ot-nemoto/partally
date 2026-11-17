@@ -1,5 +1,6 @@
 import type { RankingResponse } from "@partally/shared";
 import { useEffect, useMemo, useState } from "react";
+import { useT } from "../../i18n";
 import { formatTime, needsDate, valueAt } from "../../rankingHistory";
 
 /** 最初に点が入る少し前から今までを再生する時間 */
@@ -12,6 +13,7 @@ const ROW_HEIGHT = 44;
  * 抜いた・抜かれたで行が上下に動き、最後は今のランキングと同じ並びで止まる
  */
 export function RankingRace({ data, onClose }: { data: RankingResponse; onClose: () => void }) {
+  const t = useT();
   const endTime = Date.parse(data.generatedAt);
   // 時刻は毎フレーム読み直さないよう、先に数にしておく
   const entries = useMemo(
@@ -91,15 +93,15 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
             {done ? (
               <>
                 <button type="button" className="primary" onClick={replay}>
-                  もう一度
+                  {t("もう一度", "Replay")}
                 </button>
                 <button type="button" onClick={close}>
-                  表に戻る
+                  {t("表に戻る", "Back to table")}
                 </button>
               </>
             ) : (
               <button type="button" onClick={close}>
-                停止
+                {t("停止", "Stop")}
               </button>
             )}
           </div>
@@ -116,7 +118,10 @@ export function RankingRace({ data, onClose }: { data: RankingResponse; onClose:
         className="race-board"
         style={{ height: Math.max(standings.length, 1) * ROW_HEIGHT }}
         role="img"
-        aria-label="順位の推移のアニメーション。終わると今のランキングと同じ並びになります"
+        aria-label={t(
+          "順位の推移のアニメーション。終わると今のランキングと同じ並びになります",
+          "Animation of the ranking over time. It ends in the current ranking order.",
+        )}
       >
         {data.ranking.map((entry) => {
           const pos = positions.get(entry.userId);

@@ -1,5 +1,6 @@
 import { type ReactNode, useRef } from "react";
 import { useHeightVar } from "../hooks/useHeightVar";
+import { useLang } from "../i18n";
 
 /**
  * 管理画面の見出しの行。英字の装飾タイトルに日本語の補足を小さく添え、children（保存ボタンなど）を右に並べる。
@@ -9,6 +10,7 @@ import { useHeightVar } from "../hooks/useHeightVar";
 export function PageTitle(props: { en: string; ja: string; className?: string; children?: ReactNode }) {
   // 1 画面に見出しの行は 1 つなので、ページ全体の変数に高さを書く
   const barRef = useRef<HTMLDivElement>(null);
+  const lang = useLang();
   useHeightVar(barRef, "--admin-title-height");
 
   return (
@@ -17,7 +19,7 @@ export function PageTitle(props: { en: string; ja: string; className?: string; c
         <span className="page-title-en gradient-title" lang="en">
           {props.en}
         </span>
-        <span className="page-title-ja">{props.ja}</span>
+        {lang === "ja" && <span className="page-title-ja">{props.ja}</span>}
       </h1>
       {props.children}
     </div>

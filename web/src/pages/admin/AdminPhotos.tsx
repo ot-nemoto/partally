@@ -6,14 +6,16 @@ import { Lightbox } from "../../components/Lightbox";
 import { PageTitle } from "../../components/PageTitle";
 import { formatDateTime } from "../../format";
 import { useOnReload } from "../../hooks/useReload";
+import { useT } from "../../i18n";
 
-const TABS: { status: PhotoStatus; label: string }[] = [
-  { status: "pending", label: "確認待ち" },
-  { status: "approved", label: "公開中" },
-  { status: "rejected", label: "却下済み" },
+const TABS: { status: PhotoStatus; label: [ja: string, en: string] }[] = [
+  { status: "pending", label: ["確認待ち", "Pending"] },
+  { status: "approved", label: ["公開中", "Public"] },
+  { status: "rejected", label: ["却下済み", "Rejected"] },
 ];
 
 export function AdminPhotos() {
+  const t = useT();
   const [status, setStatus] = useState<PhotoStatus>("pending");
   const [photos, setPhotos] = useState<PhotoDto[]>();
   const [cursor, setCursor] = useState<string>();
@@ -68,7 +70,11 @@ export function AdminPhotos() {
   async function act(photo: PhotoDto, action: "approve" | "reject" | "delete") {
     // 画面の更新を待たずに続けて押されても、2 回目は送らない
     if (actingRef.current.has(photo.photoId)) return;
-    if (action === "delete" && !confirm("この写真を削除します。元に戻せません。よろしいですか？")) return;
+    if (
+      action === "delete" &&
+      !confirm(t("この写真を削除します。元に戻せません。よろしいですか？", "Delete this photo? This can’t be undone."))
+    )
+      return;
     actingRef.current.add(photo.photoId);
     setActing(new Set(actingRef.current));
     try {
@@ -89,30 +95,35 @@ export function AdminPhotos() {
     <section>
       <PageTitle en="Photo" ja="写真の確認・管理">
         <div className="tabs title-actions">
-          {TABS.map((t) => (
+          {TABS.map((tab) => (
             <button
-              key={t.status}
+              key={tab.status}
               type="button"
-              className={t.status === status ? "active" : undefined}
+              className={tab.status === status ? "active" : undefined}
               onClick={() => {
                 // タブはスクロールしても画面の上に残るので、切り替えたら一覧の先頭から見せる
                 window.scrollTo({ top: 0 });
-                setStatus(t.status);
+                setStatus(tab.status);
               }}
             >
-              {t.label}
+              {t(...tab.label)}
             </button>
           ))}
         </div>
       </PageTitle>
       {moderation && (
         <p className="muted">
-          現在の公開方法：{moderation === "pre" ? "管理者が承認してから公開" : "アップロードと同時に公開"}（
-          <Link to="/admin/settings">変更</Link>）
+          {t("現在の公開方法：", "How photos go public: ")}
+          {moderation === "pre"
+            ? t("管理者が承認してから公開", "after an admin approves them")
+            : t("アップロードと同時に公開", "as soon as they’re uploaded")}
+          {t("（", " (")}
+          <Link to="/admin/settings">{t("変更", "change")}</Link>
+          {t("）", ")")}
         </p>
       )}
       {error && <p className="error">{error}</p>}
-      {photos?.length === 0 && <p className="muted">該当する写真はありません。</p>}
+      {photos?.length === 0 && <p className="muted">{t("該当する写真はありません。", "No photos.")}</p>}
       <div className="admin-photo-grid">
         {photos?.map((p) => (
           <div key={p.photoId} className="admin-photo">
@@ -121,9 +132,9 @@ export function AdminPhotos() {
                 <img src={p.thumbUrl} alt="" loading="lazy" />
               </button>
             ) : (
-              <div className="photo-tile photo-placeholder">画像なし</div>
+              <div className="photo-tile photo-placeholder">{t("画像なし", "No image")}</div>
             )}
-            <p className="small">{p.uploaderName ?? "（不明）"}</p>
+            <p className="small">{p.uploaderName ?? t("（不明）", "(unknown)")}</p>
             <p className="muted small">
               {formatDateTime(p.createdAt)}
               {p.status === "approved" && ` ・ ♥ ${p.favoriteCount}`}
@@ -134,7 +145,7 @@ export function AdminPhotos() {
       </div>
       {cursor && (
         <button type="button" className="more" onClick={loadMore}>
-          もっと見る
+          {t("もっと見る", "Show more")}
         </button>
       )}
       {selected && (
@@ -152,15 +163,16 @@ function PhotoActions(props: {
   /** この写真の操作を送っている間 */
   busy: boolean;
 }) {
+  const t = useT();
   const { photo, onAct, busy } = props;
   if (photo.status === "pending") {
     return (
       <div className="actions">
         <button type="button" className="primary" onClick={() => onAct(photo, "approve")} disabled={busy}>
-          承認
+          {t("承認", "Approve")}
         </button>
         <button type="button" className="danger" onClick={() => onAct(photo, "reject")} disabled={busy}>
-          却下
+          {t("却下", "Reject")}
         </button>
       </div>
     );
@@ -169,7 +181,7 @@ function PhotoActions(props: {
     return (
       <div className="actions">
         <button type="button" className="danger" onClick={() => onAct(photo, "delete")} disabled={busy}>
-          削除
+          {t("削除", "Delete")}
         </button>
       </div>
     );

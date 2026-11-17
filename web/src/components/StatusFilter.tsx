@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useT } from "../i18n";
 
 /**
  * 一覧に出す状態を選ぶ切り替え（複数選べる）。どれを出すかはこのブラウザに覚える（storageKey ごと）。
@@ -55,9 +56,10 @@ export function StatusFilter<S extends string>(props: {
   shown: Set<S>;
   onToggle: (status: S) => void;
 }) {
+  const t = useT();
   return (
     <fieldset className="status-filter">
-      <legend>表示</legend>
+      <legend>{t("表示", "Show")}</legend>
       {props.statuses.map((s) => (
         <button
           key={s}

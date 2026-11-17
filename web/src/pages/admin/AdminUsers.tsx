@@ -4,10 +4,16 @@ import { api, errorMessage } from "../../api";
 import { Modal } from "../../components/Modal";
 import { PageTitle } from "../../components/PageTitle";
 import { useOnReload } from "../../hooks/useReload";
+import { useT } from "../../i18n";
 
-const PIN_LABEL: Record<PinStatus, string> = { none: "未設定", set: "設定済み", locked: "ロック中" };
+const PIN_LABEL: Record<PinStatus, [ja: string, en: string]> = {
+  none: ["未設定", "Not set"],
+  set: ["設定済み", "Set"],
+  locked: ["ロック中", "Locked"],
+};
 
 export function AdminUsers() {
+  const t = useT();
   const [users, setUsers] = useState<UserDto[]>();
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState<UserDto>();
@@ -31,7 +37,10 @@ export function AdminUsers() {
   async function unbind(user: UserDto) {
     if (
       !confirm(
-        `${user.displayName} と QR コードの紐づけを解除します。\n本人は再ログインできなくなり、その QR は新規登録用に戻ります。よろしいですか？`,
+        t(
+          `${user.displayName} と QR コードの紐づけを解除します。\n本人は再ログインできなくなり、その QR は新規登録用に戻ります。よろしいですか？`,
+          `Unlink ${user.displayName} from the QR code?\nThey won’t be able to log in again, and the QR code goes back to unused.`,
+        ),
       )
     ) {
       return;
@@ -46,7 +55,15 @@ export function AdminUsers() {
 
   /** 暗証番号のロックを解除する（間違えた回数を 0 に戻す） */
   async function unlockPin(user: UserDto) {
-    if (!confirm(`${user.displayName} の暗証番号のロックを解除します。よろしいですか？`)) return;
+    if (
+      !confirm(
+        t(
+          `${user.displayName} の暗証番号のロックを解除します。よろしいですか？`,
+          `Unlock the PIN of ${user.displayName}?`,
+        ),
+      )
+    )
+      return;
     try {
       replace((await api<UserResponse>("POST", `/admin/users/${user.userId}/pin/unlock`)).user);
     } catch (e) {
@@ -58,7 +75,10 @@ export function AdminUsers() {
   async function clearPin(user: UserDto) {
     if (
       !confirm(
-        `${user.displayName} の暗証番号を消します。\n次にログインしていない端末で QR コードを読み込んだ人が、新しい暗証番号を決められます。本人がその場で読み込むときに消してください。よろしいですか？`,
+        t(
+          `${user.displayName} の暗証番号を消します。\n次にログインしていない端末で QR コードを読み込んだ人が、新しい暗証番号を決められます。本人がその場で読み込むときに消してください。よろしいですか？`,
+          `Clear the PIN of ${user.displayName}?\nThe next person to scan the QR code on a device that isn’t logged in can set a new PIN, so do this only while they scan it in front of you.`,
+        ),
       )
     ) {
       return;
@@ -78,22 +98,24 @@ export function AdminUsers() {
       {error && <p className="error">{error}</p>}
       {users && (
         <p className="muted">
-          登録 {active} 名{users.length > active && `（解除済み ${users.length - active} 名）`}
+          {t(`登録 ${active} 名`, `${active} registered`)}
+          {users.length > active &&
+            t(`（解除済み ${users.length - active} 名）`, ` (${users.length - active} unlinked)`)}
         </p>
       )}
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>表示名</th>
-              <th className="num">ポイント</th>
-              <th className="num">アップロード</th>
-              <th className="num">公開</th>
-              <th className="num">選ばれた</th>
-              <th className="num">選んだ</th>
-              <th className="num">ゲーム点</th>
-              <th>状態</th>
-              <th>暗証番号</th>
+              <th>{t("表示名", "Name")}</th>
+              <th className="num">{t("ポイント", "Points")}</th>
+              <th className="num">{t("アップロード", "Uploads")}</th>
+              <th className="num">{t("公開", "Public")}</th>
+              <th className="num">{t("選ばれた", "Favorited")}</th>
+              <th className="num">{t("選んだ", "Gave")}</th>
+              <th className="num">{t("ゲーム点", "Game pts")}</th>
+              <th>{t("状態", "Status")}</th>
+              <th>{t("暗証番号", "PIN")}</th>
               <th />
             </tr>
           </thead>
@@ -109,28 +131,28 @@ export function AdminUsers() {
                 <td className="num">{u.favoritesReceived}</td>
                 <td className="num">{u.favoritesGiven}</td>
                 <td className="num">{u.gamePoints}</td>
-                <td>{u.status === "active" ? "登録済み" : "解除済み"}</td>
+                <td>{u.status === "active" ? t("登録済み", "Active") : t("解除済み", "Unlinked")}</td>
                 <td className={u.pin === "locked" ? "pin-locked nowrap" : "nowrap"}>
-                  {u.status === "active" && u.pin ? PIN_LABEL[u.pin] : ""}
+                  {u.status === "active" && u.pin ? t(...PIN_LABEL[u.pin]) : ""}
                 </td>
                 <td>
                   <div className="actions">
                     <button type="button" onClick={() => setEditing(u)}>
-                      編集
+                      {t("編集", "Edit")}
                     </button>
                     {u.status === "active" && u.pin === "locked" && (
                       <button type="button" onClick={() => unlockPin(u)}>
-                        ロック解除
+                        {t("ロック解除", "Unlock")}
                       </button>
                     )}
                     {u.status === "active" && u.pin !== undefined && u.pin !== "none" && (
                       <button type="button" onClick={() => clearPin(u)}>
-                        暗証番号を消す
+                        {t("暗証番号を消す", "Clear PIN")}
                       </button>
                     )}
                     {u.status === "active" && (
                       <button type="button" className="danger" onClick={() => unbind(u)}>
-                        紐づけ解除
+                        {t("紐づけ解除", "Unlink")}
                       </button>
                     )}
                   </div>
@@ -155,6 +177,7 @@ export function AdminUsers() {
 }
 
 function EditUserDialog(props: { user: UserDto; onClose: () => void; onSaved: (user: UserDto) => void }) {
+  const t = useT();
   const [name, setName] = useState(props.user.name);
   const [epithet, setEpithet] = useState(props.user.epithet);
   const [error, setError] = useState<string>();
@@ -175,24 +198,24 @@ function EditUserDialog(props: { user: UserDto; onClose: () => void; onSaved: (u
   }
 
   return (
-    <Modal className="dialog" label="ユーザの編集" onClose={props.onClose} closable={!saving}>
+    <Modal className="dialog" label={t("ユーザの編集", "Edit user")} onClose={props.onClose} closable={!saving}>
       <form className="card" onSubmit={onSubmit}>
-        <h2>ユーザの編集</h2>
+        <h2>{t("ユーザの編集", "Edit user")}</h2>
         <label className="field">
-          <span>二つ名</span>
+          <span>{t("二つ名", "Title (二つ名)")}</span>
           <input value={epithet} onChange={(e) => setEpithet(e.target.value)} maxLength={20} required />
         </label>
         <label className="field">
-          <span>名前</span>
+          <span>{t("名前", "Name")}</span>
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={20} required />
         </label>
         {error && <p className="error">{error}</p>}
         <div className="buttons">
           <button type="button" onClick={props.onClose} disabled={saving}>
-            キャンセル
+            {t("キャンセル", "Cancel")}
           </button>
           <button type="submit" className="primary" disabled={saving}>
-            保存
+            {t("保存", "Save")}
           </button>
         </div>
       </form>

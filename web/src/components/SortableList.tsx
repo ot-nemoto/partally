@@ -1,4 +1,5 @@
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
+import { useT } from "../i18n";
 
 interface Drag {
   pointerId: number;
@@ -22,6 +23,7 @@ export function SortableList<T extends string>(props: {
   label: (item: T) => string;
   onChange: (items: T[]) => void;
 }) {
+  const t = useT();
   const { items, label, onChange } = props;
   const listRef = useRef<HTMLOListElement>(null);
   const [drag, setDrag] = useState<Drag>();
@@ -121,7 +123,7 @@ export function SortableList<T extends string>(props: {
           <span
             className="drag-handle"
             aria-hidden="true"
-            title="ドラッグして並べ替え"
+            title={t("ドラッグして並べ替え", "Drag to reorder")}
             onPointerDown={(e) => onPointerDown(e, i)}
             onPointerMove={onPointerMove}
             onPointerUp={(e) => onPointerEnd(e, true)}
@@ -134,14 +136,19 @@ export function SortableList<T extends string>(props: {
           <span className="sortable-label">
             {i + 1}. {label(item)}
           </span>
-          <button type="button" onClick={() => move(i, i - 1)} disabled={i === 0} aria-label={`${label(item)}を上へ`}>
+          <button
+            type="button"
+            onClick={() => move(i, i - 1)}
+            disabled={i === 0}
+            aria-label={t(`${label(item)}を上へ`, `Move ${label(item)} up`)}
+          >
             ↑
           </button>
           <button
             type="button"
             onClick={() => move(i, i + 1)}
             disabled={i === items.length - 1}
-            aria-label={`${label(item)}を下へ`}
+            aria-label={t(`${label(item)}を下へ`, `Move ${label(item)} down`)}
           >
             ↓
           </button>
