@@ -1,5 +1,6 @@
 import type { PresignedPost, UploadUrlResponse } from "@partally/shared";
 import { ApiError, api } from "../api";
+import { tr } from "../i18n";
 import { processPhoto } from "./process";
 
 /**
@@ -24,7 +25,8 @@ export interface QueueState {
   waiting: number;
   uploading: boolean;
   /** 直近の送信が失敗していれば、その理由 */
-  error?: string;
+  /** エラーの文（日本語・英語。表示するときに言語を選ぶ） */
+  error?: readonly [ja: string, en: string];
   /** 失敗の詳細（問い合わせ時の手がかり） */
   errorDetail?: string;
 }
@@ -40,14 +42,14 @@ const MAX_FAILURES = 5;
 /** 保存した画像データを読み出せない（再送しても直らない） */
 class UnreadableError extends Error {
   constructor() {
-    super("保存した写真のデータを読み出せません");
+    super(tr("保存した写真のデータを読み出せません", "The saved photo data can’t be read"));
   }
 }
 
 /** S3 や API が送信を断った（通信エラーではない） */
 class RejectedError extends Error {
   constructor(readonly status: number) {
-    super(`送信が拒否されました（${status}）`);
+    super(tr(`送信が拒否されました（${status}）`, `Upload was refused (${status})`));
   }
 }
 
@@ -103,7 +105,12 @@ export async function flushQueue(): Promise<void> {
         await withStore("readwrite", (store) => store.delete(item.id));
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) {
-          setState({ error: "ログインが切れています。QR コードを読み込み直してください。" });
+          setState({
+            error: [
+              "ログインが切れています。QR コードを読み込み直してください。",
+              "You’ve been logged out. Please scan your QR code again.",
+            ],
+          });
           return;
         }
         failed = true;
@@ -130,11 +137,17 @@ export async function flushQueue(): Promise<void> {
   const errorDetail = lastError instanceof Error ? lastError.message : lastError ? String(lastError) : undefined;
   if (discarded > 0) {
     setState({
-      error: `送信できなかった写真が ${discarded} 枚ありました。もう一度撮影・選択してください。`,
+      error: [
+        `送信できなかった写真が ${discarded} 枚ありました。もう一度撮影・選択してください。`,
+        `${discarded} photo(s) couldn’t be uploaded. Please take or choose them again.`,
+      ],
       errorDetail,
     });
   } else if (failed) {
-    setState({ error: "送信に失敗しました。自動的に再送します。", errorDetail });
+    setState({
+      error: ["送信に失敗しました。自動的に再送します。", "Upload failed. It will retry automatically."],
+      errorDetail,
+    });
   }
   if (failed) retryTimer = setTimeout(() => void flushQueue(), RETRY_INTERVAL_MS);
   if (rerunRequested) {

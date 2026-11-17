@@ -2,6 +2,7 @@ import { PIN_LENGTH, type QrLoginResponse, type RegisterResponse, type UserDto }
 import { type FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../api";
+import { LanguageSwitch, useT } from "../i18n";
 
 type State =
   | { kind: "loading" }
@@ -24,6 +25,7 @@ export function QrLanding() {
   const [pinAgain, setPinAgain] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string>();
+  const t = useT();
 
   useEffect(() => {
     let cancelled = false;
@@ -45,7 +47,7 @@ export function QrLanding() {
   const pinProblem = !pinPattern.test(pin)
     ? undefined
     : needsAgain && pinAgain.length === PIN_LENGTH && pin !== pinAgain
-      ? "暗証番号が 1 回目と 2 回目で違います。"
+      ? t("暗証番号が 1 回目と 2 回目で違います。", "The two PINs don’t match.")
       : undefined;
   const pinReady = pinPattern.test(pin) && (!needsAgain || pin === pinAgain);
 
@@ -75,7 +77,12 @@ export function QrLanding() {
         setState({ kind: "pin", setup: res.setup });
         setPin("");
         setPinAgain("");
-        setFormError("この QR コードの暗証番号は、先に決められていました。その番号を入れてください。");
+        setFormError(
+          t(
+            "この QR コードの暗証番号は、先に決められていました。その番号を入れてください。",
+            "A PIN was already set for this QR code. Please enter that PIN.",
+          ),
+        );
       } else setState({ kind: "register" });
     } catch (err) {
       setPin("");
@@ -90,7 +97,7 @@ export function QrLanding() {
   const pinFields = (autoFocus: boolean) => (
     <>
       <label className="field">
-        <span>暗証番号（数字 {PIN_LENGTH} 桁）</span>
+        <span>{t(`暗証番号（数字 ${PIN_LENGTH} 桁）`, `PIN (${PIN_LENGTH} digits)`)}</span>
         <input
           className="pin-input"
           type="password"
@@ -106,7 +113,7 @@ export function QrLanding() {
       </label>
       {needsAgain && (
         <label className="field">
-          <span>暗証番号（確認のため、もう一度）</span>
+          <span>{t("暗証番号（確認のため、もう一度）", "PIN (again, to confirm)")}</span>
           <input
             className="pin-input"
             type="password"
@@ -125,66 +132,105 @@ export function QrLanding() {
 
   return (
     <main className="page">
+      <div className="lang-row">
+        <LanguageSwitch />
+      </div>
       <InAppBrowserNotice />
-      {state.kind === "loading" && <p className="muted">読み込み中…</p>}
+      {state.kind === "loading" && <p className="muted">{t("読み込み中…", "Loading…")}</p>}
 
       {state.kind === "error" && <p className="error">{state.message}</p>}
 
       {state.kind === "register" && (
         <form className="card" onSubmit={onRegister}>
-          <h1>ようこそ！</h1>
-          <p>お名前と暗証番号を入力してください。あなただけの「二つ名」が授けられます。</p>
+          <h1>{t("ようこそ！", "Welcome!")}</h1>
+          <p>
+            {t(
+              "お名前と暗証番号を入力してください。あなただけの「二つ名」が授けられます。",
+              "Enter your name and a PIN. You’ll be given your own title (二つ名).",
+            )}
+          </p>
           <label className="field">
-            <span>お名前</span>
+            <span>{t("お名前", "Your name")}</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={20}
-              placeholder="例：田中"
+              placeholder={t("例：田中", "e.g. Alex")}
               autoComplete="name"
               required
             />
           </label>
           {pinFields(false)}
           <p className="muted small">
-            暗証番号は、別のスマホやブラウザでこの QR コードを読み込んだときに聞かれます。QR
-            コードを他の人に使われないためのものなので、忘れないようにしてください。
+            {t(
+              "暗証番号は、別のスマホやブラウザでこの QR コードを読み込んだときに聞かれます。QR コードを他の人に使われないためのものなので、忘れないようにしてください。",
+              "You’ll be asked for this PIN when you scan this QR code on another phone or browser. It keeps others from using your QR code, so please remember it.",
+            )}
           </p>
           {formError && <p className="error">{formError}</p>}
           <button type="submit" className="primary" disabled={submitting || name.trim() === "" || !pinReady}>
-            {submitting ? "登録中…" : "登録する"}
+            {submitting ? t("登録中…", "Registering…") : t("登録する", "Register")}
           </button>
-          <p className="muted small">名前の変更は運営のみ可能です。入力ミスに気をつけてください。</p>
+          <p className="muted small">
+            {t(
+              "名前の変更は運営のみ可能です。入力ミスに気をつけてください。",
+              "Only the organizers can change your name, so please check it carefully.",
+            )}
+          </p>
         </form>
       )}
 
       {state.kind === "pin" && (
         <form className="card" onSubmit={onPin}>
-          <h1>{state.setup ? "暗証番号を決めてください" : "暗証番号を入れてください"}</h1>
+          <h1>
+            {state.setup
+              ? t("暗証番号を決めてください", "Choose a PIN")
+              : t("暗証番号を入れてください", "Enter your PIN")}
+          </h1>
           <p>
             {state.setup
-              ? "この QR コードには、まだ暗証番号がありません。別のスマホやブラウザで読み込んだときに聞かれる番号を決めてください。"
-              : "この QR コードは登録済みです。登録したときに決めた暗証番号を入れると、ログインできます。"}
+              ? t(
+                  "この QR コードには、まだ暗証番号がありません。別のスマホやブラウザで読み込んだときに聞かれる番号を決めてください。",
+                  "This QR code has no PIN yet. Choose the PIN you’ll be asked for when you scan it on another phone or browser.",
+                )
+              : t(
+                  "この QR コードは登録済みです。登録したときに決めた暗証番号を入れると、ログインできます。",
+                  "This QR code is already registered. Enter the PIN you chose when registering to log in.",
+                )}
           </p>
           {pinFields(true)}
           {formError && <p className="error">{formError}</p>}
           <button type="submit" className="primary" disabled={submitting || !pinReady}>
-            {submitting ? "確認中…" : state.setup ? "決めてログイン" : "ログイン"}
+            {submitting
+              ? t("確認中…", "Checking…")
+              : state.setup
+                ? t("決めてログイン", "Set PIN and log in")
+                : t("ログイン", "Log in")}
           </button>
-          {!state.setup && <p className="muted small">暗証番号を忘れたときは、運営に声をかけてください。</p>}
+          {!state.setup && (
+            <p className="muted small">
+              {t(
+                "暗証番号を忘れたときは、運営に声をかけてください。",
+                "If you forgot your PIN, please ask the organizers.",
+              )}
+            </p>
+          )}
         </form>
       )}
 
       {state.kind === "registered" && (
         <section className="card reveal">
-          <p className="muted">あなたの二つ名は…</p>
+          <p className="muted">{t("あなたの二つ名は…", "Your title (二つ名) is…")}</p>
           <p className="epithet">〈{state.user.epithet}〉</p>
           <p className="name">{state.user.name}</p>
           <Link to="/" replace className="button primary">
-            はじめる
+            {t("はじめる", "Start")}
           </Link>
           <p className="muted small">
-            次回からはこの QR コードを読み込むだけでログインできます（別のスマホやブラウザでは暗証番号を聞かれます）。
+            {t(
+              "次回からはこの QR コードを読み込むだけでログインできます（別のスマホやブラウザでは暗証番号を聞かれます）。",
+              "Next time, just scan this QR code to log in (on another phone or browser you’ll be asked for your PIN).",
+            )}
           </p>
         </section>
       )}
@@ -194,12 +240,15 @@ export function QrLanding() {
 
 /** LINE 等のアプリ内ブラウザでは Cookie が通常のブラウザと共有されないため注意を出す */
 function InAppBrowserNotice() {
+  const t = useT();
   const ua = navigator.userAgent;
   if (!/\bLine\/|FBAN|FBAV|Instagram|Slack|Teams/i.test(ua)) return null;
   return (
     <p className="notice">
-      アプリ内のブラウザで開いています。次回以降もログイン状態を保つには、スマホ標準のカメラで QR
-      コードを読み込んでください。
+      {t(
+        "アプリ内のブラウザで開いています。次回以降もログイン状態を保つには、スマホ標準のカメラで QR コードを読み込んでください。",
+        "You’re in an in-app browser. To stay logged in next time, scan the QR code with your phone’s standard camera.",
+      )}
     </p>
   );
 }

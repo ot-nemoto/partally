@@ -1,5 +1,6 @@
 import type { RankingEntryDto, RankingPointDto } from "@partally/shared";
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useT } from "../i18n";
 import { formatTime, needsDate, valueAt } from "../rankingHistory";
 
 /** 色を付けて強調できる人数（色だけで見分けられるのは 10 色ほどまで）。ほかの人は灰色の線で描く */
@@ -46,6 +47,7 @@ export function RankingChart({
   end: string;
   hidePoints?: boolean;
 }) {
+  const t = useT();
   const [hover, setHover] = useState<number>();
   // 文字の大きさを保つため、viewBox で拡大縮小せず表示幅に合わせて描く
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -147,7 +149,7 @@ export function RankingChart({
         viewBox={`0 0 ${CHART.width} ${CHART.height}`}
         className={hasFocus ? "has-focus" : undefined}
         role="img"
-        aria-label="累計ポイントの推移"
+        aria-label={t("累計ポイントの推移", "Total points over time")}
         onPointerMove={onPointerMove}
         onPointerLeave={() => setHover(undefined)}
       >

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../api";
 import { ScheduleContent } from "../components/ScheduleTimeline";
 import { useOnReload } from "../hooks/useReload";
+import { useT } from "../i18n";
 
 /** 「いま」「つぎ」を時刻に合わせて付け直す間隔 */
 const TICK_MS = 30_000;
@@ -12,6 +13,7 @@ const TICK_MS = 30_000;
  * 終わった項目は薄くする（日付が決まっていれば、その日だけ）
  */
 export function ScheduleView() {
+  const t = useT();
   const [data, setData] = useState<ScheduleResponse>();
   const [state, setState] = useState<"loading" | "ok" | "hidden" | "error">("loading");
   const [error, setError] = useState<string>();
@@ -41,8 +43,8 @@ export function ScheduleView() {
     return () => clearInterval(timer);
   }, []);
 
-  if (state === "hidden") return <p className="muted">今は公開されていません。</p>;
+  if (state === "hidden") return <p className="muted">{t("今は公開されていません。", "Not available right now.")}</p>;
   if (state === "error") return <p className="error">{error}</p>;
-  if (!data) return <p className="muted">読み込み中…</p>;
+  if (!data) return <p className="muted">{t("読み込み中…", "Loading…")}</p>;
   return <ScheduleContent items={data.items} date={data.date} now={now} />;
 }

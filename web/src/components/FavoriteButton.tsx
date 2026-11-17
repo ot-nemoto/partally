@@ -1,6 +1,7 @@
 import type { FavoriteResponse, PhotoDto } from "@partally/shared";
 import { useState } from "react";
 import { ApiError, api, errorMessage } from "../api";
+import { useT } from "../i18n";
 import { useParticipant } from "./ParticipantLayout";
 
 /**
@@ -16,6 +17,7 @@ export function FavoriteButton(props: {
   const { photo, onChange, compact = false } = props;
   const { user, rules, setUser, reloadUser } = useParticipant();
   const [busy, setBusy] = useState(false);
+  const t = useT();
 
   if (photo.uploaderId === user.userId) return null;
 
@@ -24,12 +26,12 @@ export function FavoriteButton(props: {
   const full = !favorited && user.favoritesGiven >= rules.favoriteLimit;
   const disabled = busy || !rules.favoritesEnabled || full;
   const title = !rules.favoritesEnabled
-    ? "お気に入りの受付は終了しました"
+    ? t("お気に入りの受付は終了しました", "Favorites are closed")
     : full
-      ? `お気に入りは ${rules.favoriteLimit} 枚まで選べます`
+      ? t(`お気に入りは ${rules.favoriteLimit} 枚まで選べます`, `You can choose up to ${rules.favoriteLimit} favorites`)
       : favorited
-        ? "お気に入りを外す"
-        : "お気に入りに選ぶ";
+        ? t("お気に入りを外す", "Remove from favorites")
+        : t("お気に入りに選ぶ", "Add to favorites");
 
   async function toggle() {
     setBusy(true);
@@ -61,7 +63,7 @@ export function FavoriteButton(props: {
       title={title}
     >
       {favorited ? "♥" : "♡"}
-      {!compact && <span>{favorited ? "お気に入り" : "お気に入りに選ぶ"}</span>}
+      {!compact && <span>{favorited ? t("お気に入り", "Favorite") : t("お気に入りに選ぶ", "Add to favorites")}</span>}
     </button>
   );
 }

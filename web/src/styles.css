@@ -2718,3 +2718,35 @@ table.import-table td.nowrap {
   margin: 0.25rem 0 0.5rem 1.75rem;
   font-size: 0.9rem;
 }
+
+/* ---- 言語の切り替え（日本語 / English） ---- */
+.lang-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.75rem;
+}
+
+.lang-switch {
+  display: inline-flex;
+  flex: none;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.lang-switch button {
+  min-height: 2rem;
+  padding: 0 0.8rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.lang-switch button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 700;
+}

@@ -34,4 +34,15 @@ describe("開催中のゲームのお知らせ", () => {
     expect(gameBannerText(game("keyword", { myKeywordCorrect: true })).note).toBe("第 1 問・正解しました");
     expect(gameBannerText(game("lottery", { myEntry: true })).note).toContain("参加済み");
   });
+
+  it("英語の画面では英語の見出しと案内（ゲームの名前はそのまま）", () => {
+    expect(gameBannerText(game("quiz"), "en")).toEqual({
+      title: "A question is live",
+      note: "第 1 問 · Tap to answer",
+    });
+    expect(gameBannerText(game("vote", { myTargetUserId: "U1" }), "en").note).toBe(
+      "第 1 問 · Voted (you can change it until it closes)",
+    );
+    expect(gameBannerText(game("number", { myValue: 0 }), "en").note).toContain("Answered");
+  });
 });
