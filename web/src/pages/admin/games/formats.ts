@@ -1,4 +1,5 @@
 import { GAME_FORMATS, GAME_NUMBER_MAX, GAME_NUMBER_MIN, type GameFormat } from "@partally/shared";
+import type { Lang } from "../../../i18n";
 
 /** 形式を選ぶパネルの並び（参加者が答える形式を先に、結果入力を最後に） */
 export const FORMAT_ORDER: GameFormat[] = [...GAME_FORMATS].sort(
@@ -15,19 +16,22 @@ export const FORMAT_ICON: Record<GameFormat, string> = {
   result: "🏆",
 };
 
-/** 形式ごとの、作る画面の案内（summary は形式を選ぶパネルの一言） */
-export const FORMAT_TEXT: Record<
-  GameFormat,
-  {
-    summary: string;
-    about: string;
-    name: string;
-    descriptionLabel: string;
-    description: string;
-    imageLabel: string;
-    note: string;
-  }
-> = {
+interface FormatText {
+  summary: string;
+  about: string;
+  name: string;
+  descriptionLabel: string;
+  description: string;
+  imageLabel: string;
+  note: string;
+}
+
+/** 形式ごとの、作る画面の案内（summary は形式を選ぶパネルの一言）。英語は FORMAT_TEXT_EN */
+export function formatText(format: GameFormat, lang: Lang): FormatText {
+  return (lang === "en" ? FORMAT_TEXT_EN : FORMAT_TEXT)[format];
+}
+
+const FORMAT_TEXT: Record<GameFormat, FormatText> = {
   quiz: {
     summary: "選択肢から選ぶ",
     about: "参加者がスマホで選択肢から選び、選んだ答えの点数が入ります",
@@ -81,5 +85,63 @@ export const FORMAT_TEXT: Record<
     description: "例: 負けた人は座ってください。最後まで残った人が優勝です",
     imageLabel: "画像（任意）",
     note: "枠は後から追加することもできます（枠が無いゲームは確定できません）。人は、保存した後に枠ごとの「人を選ぶ」で選びます。枠を削除すると、その枠で選んだ人も外れます。枠の点数は参加者には見せません。",
+  },
+};
+
+const FORMAT_TEXT_EN: Record<GameFormat, FormatText> = {
+  quiz: {
+    summary: "Pick an answer",
+    about: "Participants pick an answer on their phones, and get the points of the answer they picked",
+    name: "e.g. Question 1",
+    descriptionLabel: "Question",
+    description: "e.g. Where is the organizer from?",
+    imageLabel: "Question image (optional)",
+    note: "You can set points for each answer, such as 10 for the right one and 5 for a close one. Participants don’t see the points.",
+  },
+  number: {
+    summary: "Guess a number",
+    about: `Participants guess a number (${GAME_NUMBER_MIN}–${GAME_NUMBER_MAX}), and get points by how close they are to the answer`,
+    name: "e.g. Candies in the jar",
+    descriptionLabel: "Question",
+    description: "e.g. How many candies are in the jar?",
+    imageLabel: "Question image (optional)",
+    note: "Guesses are ranked by how close they are, and each rank range gets its points (equal distances share a rank; ranks outside every range get 0). Participants don’t see the points or the correct number.",
+  },
+  vote: {
+    summary: "Vote for one person",
+    about: "Participants vote for one person, and the people voted for get points by vote ranking",
+    name: "e.g. Today’s MVP",
+    descriptionLabel: "Description (optional)",
+    description: "e.g. Vote for the person who livened up the party the most",
+    imageLabel: "Image (optional)",
+    note: "People are ranked by votes, and each rank range gets its points (equal votes share a rank; people with 0 votes and ranks outside every range get 0). Participants can’t vote for themselves or unlinked people. Participants don’t see the points or who voted for whom.",
+  },
+  keyword: {
+    summary: "Enter a found word",
+    about: "Participants enter a keyword hidden at the venue, and get points in the order they answer correctly",
+    name: "e.g. Treasure hunt",
+    descriptionLabel: "Description (optional)",
+    description: "e.g. A keyword is hidden somewhere in the venue. Enter it when you find it",
+    imageLabel: "Image (optional)",
+    note: "Correct answers are numbered in order, and each range gets its points (numbers outside every range get 0). Full-/half-width, upper/lower case, katakana/hiragana and spaces are treated as the same. Participants don’t see the points or the keyword.",
+  },
+  lottery: {
+    summary: "Enter and draw",
+    about: "Participants tap “Enter”, and when you finalize, the app draws a random order that decides the points",
+    name: "e.g. Lucky prize",
+    descriptionLabel: "Description (optional)",
+    description: "e.g. 5 people who enter will win points in a draw",
+    imageLabel: "Image (optional)",
+    note: "When you finalize, the entrants are put in a random order that is saved, and each range of the order gets its points (people outside every range get 0). Changing the ranges or points after finalizing doesn’t change the order. Undoing and finalizing again redraws. Participants don’t see the points.",
+  },
+  result: {
+    summary: "You enter the results",
+    about:
+      "For results like a rock-paper-scissors contest, choose people for each slot (winner, etc.) to give them points",
+    name: "e.g. Rock-paper-scissors contest",
+    descriptionLabel: "Description (optional)",
+    description: "e.g. Sit down when you lose. The last one standing wins",
+    imageLabel: "Image (optional)",
+    note: "You can add slots later (a game with no slots can’t be finalized). Choose people for each slot with “Choose people” after saving. Deleting a slot also removes the people chosen for it. Participants don’t see the slot points.",
   },
 };

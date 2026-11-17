@@ -1,3 +1,4 @@
+import { ordinal } from "./ordinal.js";
 /**
  * ゲームの決まり（形式によらない部分と、形式ごとの集計）。API と画面の両方で使う。
  * 数値予想の順位付け・投票の集計・合言葉の比べ方・抽選の並べ替え・確定の条件など
@@ -96,7 +97,9 @@ export function rankUnit(format: GameFormat): string {
 }
 
 /** 「1〜5 位」「3 位」のように書く */
-export function formatRankRange(range: Pick<RankRange, "from" | "to">, unit = "位"): string {
+export function formatRankRange(range: Pick<RankRange, "from" | "to">, unit = "位", lang: "ja" | "en" = "ja"): string {
+  if (lang === "en")
+    return range.from === range.to ? ordinal(range.from) : `${ordinal(range.from)}–${ordinal(range.to)}`;
   return range.from === range.to ? `${range.from} ${unit}` : `${range.from}〜${range.to} ${unit}`;
 }
 
@@ -126,16 +129,24 @@ export function normalizeKeyword(input: string): string {
  * ゲームを確定できない理由（入るポイントが決まらない）。確定できるなら undefined。
  * 枠の無い結果入力、正解の数か点数の範囲が無い数値予想、点数の範囲が無い投票・合言葉・抽選は確定できない
  */
-export function gameConfirmProblem(game: {
-  format: GameFormat;
-  slots: unknown[];
-  ranks: unknown[];
-  correctNumber?: number;
-}): string | undefined {
-  if (game.format === "result" && game.slots.length === 0) return "枠を追加してから確定してください";
-  if (game.format === "number" && game.correctNumber === undefined) return "正解の数を入れてから確定してください";
+export function gameConfirmProblem(
+  game: {
+    format: GameFormat;
+    slots: unknown[];
+    ranks: unknown[];
+    correctNumber?: number;
+  },
+  lang: "ja" | "en" = "ja",
+): string | undefined {
+  const en = lang === "en";
+  if (game.format === "result" && game.slots.length === 0) {
+    return en ? "Add a slot before finalizing" : "枠を追加してから確定してください";
+  }
+  if (game.format === "number" && game.correctNumber === undefined) {
+    return en ? "Enter the correct number before finalizing" : "正解の数を入れてから確定してください";
+  }
   if (hasGameRanks(game) && game.ranks.length === 0) {
-    return "点数の範囲を追加してから確定してください";
+    return en ? "Add a points range before finalizing" : "点数の範囲を追加してから確定してください";
   }
   return undefined;
 }

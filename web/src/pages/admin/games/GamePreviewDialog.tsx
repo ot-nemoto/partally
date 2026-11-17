@@ -10,7 +10,7 @@ import {
 import { useCallback, useMemo, useState } from "react";
 import { type GameAnswerBody, GameView } from "../../../components/GameView";
 import { Modal } from "../../../components/Modal";
-import { useLang } from "../../../i18n";
+import { useLang, useT } from "../../../i18n";
 
 /** 参加者の画面で見せる形（参加者に返す内容と同じく、点数・正解・合言葉は含めない） */
 function toPreviewGame(game: GameDto): CurrentGameDto {
@@ -33,6 +33,7 @@ function toPreviewGame(game: GameDto): CurrentGameDto {
 export function GamePreviewDialog(props: { game: GameDto; members: UserDto[]; onClose: () => void }) {
   const { game } = props;
   const lang = useLang();
+  const t = useT();
   const [current, setCurrent] = useState(() => toPreviewGame(game));
   /** 「答える前に戻す」で入力中の内容も消すよう、画面を作り直す印 */
   const [resetKey, setResetKey] = useState(0);
@@ -66,12 +67,16 @@ export function GamePreviewDialog(props: { game: GameDto; members: UserDto[]; on
   }
 
   return (
-    <Modal className="dialog game-preview-dialog" label="プレビュー" onClose={props.onClose}>
+    <Modal className="dialog game-preview-dialog" label={t("プレビュー", "Preview")} onClose={props.onClose}>
       <div className="card">
-        <h2>プレビュー</h2>
+        <h2>{t("プレビュー", "Preview")}</h2>
         <p className="muted small">
-          開催したときの参加者のスマホの画面です。答えはここで試せますが、保存はしません。
-          {game.status === "draft" && "下書きのうちは、参加者には見えません。"}
+          {t(
+            "開催したときの参加者のスマホの画面です。答えはここで試せますが、保存はしません。",
+            "This is what participants see on their phones when the game is live. You can try answering here; nothing is saved.",
+          )}
+          {game.status === "draft" &&
+            t("下書きのうちは、参加者には見えません。", " Participants can’t see it while it’s a draft.")}
         </p>
         <div className="game-preview-phone">
           <div className="participant game-preview-screen">
@@ -98,10 +103,10 @@ export function GamePreviewDialog(props: { game: GameDto; members: UserDto[]; on
               setResetKey((k) => k + 1);
             }}
           >
-            答える前に戻す
+            {t("答える前に戻す", "Reset answers")}
           </button>
           <button type="button" onClick={props.onClose}>
-            閉じる
+            {t("閉じる", "Close")}
           </button>
         </div>
       </div>

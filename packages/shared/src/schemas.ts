@@ -263,6 +263,15 @@ export const GAME_FORMAT_LABEL: Record<(typeof GAME_FORMATS)[number], string> = 
   keyword: "合言葉",
   lottery: "抽選",
 };
+/** GAME_FORMAT_LABEL の英語（管理画面を英語にしたとき） */
+export const GAME_FORMAT_LABEL_EN: Record<(typeof GAME_FORMATS)[number], string> = {
+  quiz: "Quiz",
+  result: "Result entry",
+  number: "Number guess",
+  vote: "Vote",
+  keyword: "Keyword",
+  lottery: "Lottery",
+};
 
 /** 合言葉の長さの上限 */
 export const GAME_KEYWORD_MAX_LENGTH = 50;

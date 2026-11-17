@@ -4,6 +4,7 @@ import {
   GAME_CHOICES_MIN,
   GAME_DESCRIPTION_MAX_LENGTH,
   GAME_FORMAT_LABEL,
+  GAME_FORMAT_LABEL_EN,
   GAME_KEYWORD_MAX_LENGTH,
   GAME_NAME_MAX_LENGTH,
   GAME_NUMBER_MAX,
@@ -23,9 +24,10 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../../../api";
 import { Modal } from "../../../components/Modal";
 import { NumberField } from "../../../components/NumberField";
+import { tr, useLang, useT } from "../../../i18n";
 import { type ImageDraft, ImageField } from "../ImageField";
 import { ImageUploads, uploadGameImage } from "../prizeImage";
-import { FORMAT_ICON, FORMAT_ORDER, FORMAT_TEXT } from "./formats";
+import { FORMAT_ICON, FORMAT_ORDER, formatText } from "./formats";
 
 /** 枠・選択肢の編集中の行。既存のものを直すときだけ id が付く */
 interface RowDraft {
@@ -67,17 +69,25 @@ function nextRank(ranks: RankDraft[]): RankDraft {
 
 /** 点数の範囲の誤り（空欄・逆転・重なり）。無ければ undefined */
 function rankProblem(ranks: RankDraft[], unit: string): string | undefined {
-  if (ranks.some((r) => [r.from, r.to, r.points].some(Number.isNaN))) return "空欄の項目がある範囲があります。";
-  if (ranks.some((r) => r.from < 1)) return `1 ${unit}からです。`;
-  if (ranks.some((r) => r.from > r.to)) return "「から」が「まで」より大きい範囲があります。";
+  if (ranks.some((r) => [r.from, r.to, r.points].some(Number.isNaN))) {
+    return tr("空欄の項目がある範囲があります。", "A range has an empty field.");
+  }
+  if (ranks.some((r) => r.from < 1)) return tr(`1 ${unit}からです。`, "Ranges start at 1.");
+  if (ranks.some((r) => r.from > r.to))
+    return tr("「から」が「まで」より大きい範囲があります。", "A range’s “from” is larger than its “to”.");
   const sorted = [...ranks].sort((a, b) => a.from - b.from);
-  if (sorted.some((r, i) => i > 0 && sorted[i - 1]!.to >= r.from)) return "重なっている範囲があります。";
+  if (sorted.some((r, i) => i > 0 && sorted[i - 1]!.to >= r.from))
+    return tr("重なっている範囲があります。", "Some ranges overlap.");
   return undefined;
 }
 
 const newRow = (points = 10): RowDraft => ({ key: `new-${++draftKey}`, name: "", points, userIds: [], image: {} });
 
-const SLOT_PLACEHOLDERS = ["例: 優勝", "例: 準優勝", "例: ベスト 4"];
+const SLOT_PLACEHOLDERS: [ja: string, en: string][] = [
+  ["例: 優勝", "e.g. Winner"],
+  ["例: 準優勝", "e.g. Runner-up"],
+  ["例: ベスト 4", "e.g. Semifinalist"],
+];
 
 export function GameFormDialog(props: {
   game?: GameDto;
@@ -85,6 +95,8 @@ export function GameFormDialog(props: {
   onSaved: (game: GameDto) => void;
   onConflict: () => void;
 }) {
+  const t = useT();
+  const lang = useLang();
   const { game } = props;
   const [format, setFormat] = useState<GameFormat>(game?.format ?? "quiz");
   const [name, setName] = useState(game?.name ?? "");
@@ -139,7 +151,7 @@ export function GameFormDialog(props: {
   /** 順位の範囲で点数を決める形式（数値予想・投票・合言葉・抽選） */
   const ranked = hasGameRanks({ format });
   const unit = rankUnit(format);
-  const text = FORMAT_TEXT[format];
+  const text = formatText(format, lang);
   // 確定した数値予想・投票・合言葉・抽選は、正解の数と点数の範囲を外せない（入ったポイントが消えないように）
   const lockAnswer = ranked && game?.status === "confirmed";
   const rows = quiz ? choices : slots;
@@ -222,8 +234,9 @@ export function GameFormDialog(props: {
 
   const incomplete = ranked ? voteGame && Number.isNaN(voterPoints) : rows.some((r) => Number.isNaN(r.points));
   const rankError = ranked ? rankProblem(ranks, unit) : undefined;
-  const title = game ? "ゲームの編集" : "ゲームを作る";
-  const label = quiz ? "選択肢" : "枠";
+  const title = game ? t("ゲームの編集", "Edit game") : t("ゲームを作る", "New game");
+  const label = quiz ? t("選択肢", "Choice") : t("枠", "Slot");
+  const formatLabel = lang === "en" ? GAME_FORMAT_LABEL_EN : GAME_FORMAT_LABEL;
 
   return (
     <Modal className="dialog game-dialog" label={title} onClose={props.onClose} closable={!saving}>
@@ -231,11 +244,12 @@ export function GameFormDialog(props: {
         <h2>{title}</h2>
         {game ? (
           <p className="small">
-            形式: <span className="game-format">{GAME_FORMAT_LABEL[format]}</span>
+            {t("形式: ", "Format: ")}
+            <span className="game-format">{formatLabel[format]}</span>
           </p>
         ) : (
           <fieldset className="game-format-choice">
-            <legend>形式</legend>
+            <legend>{t("形式", "Format")}</legend>
             <div className="game-format-panels">
               {FORMAT_ORDER.map((f) => (
                 <label key={f} className={format === f ? "game-format-panel selected" : "game-format-panel"}>
@@ -243,16 +257,16 @@ export function GameFormDialog(props: {
                   <span className="game-format-icon" aria-hidden="true">
                     {FORMAT_ICON[f]}
                   </span>
-                  <strong>{GAME_FORMAT_LABEL[f]}</strong>
-                  <span className="muted small">{FORMAT_TEXT[f].summary}</span>
+                  <strong>{formatLabel[f]}</strong>
+                  <span className="muted small">{formatText(f, lang).summary}</span>
                 </label>
               ))}
             </div>
-            <p className="small game-format-about">{FORMAT_TEXT[format].about}</p>
+            <p className="small game-format-about">{text.about}</p>
           </fieldset>
         )}
         <label className="field">
-          <span>名前</span>
+          <span>{t("名前", "Name")}</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -271,7 +285,9 @@ export function GameFormDialog(props: {
             rows={3}
             placeholder={text.description}
           />
-          <span className="muted small">参加者のゲームの画面に出ます。</span>
+          <span className="muted small">
+            {t("参加者のゲームの画面に出ます。", "Shown on the participants’ game screen.")}
+          </span>
         </label>
         <ImageField
           label={text.imageLabel}
@@ -285,7 +301,11 @@ export function GameFormDialog(props: {
           <>
             {numberGame && (
               <NumberField
-                label={lockAnswer ? "正解の数" : "正解の数（任意・確定までに入れる）"}
+                label={
+                  lockAnswer
+                    ? t("正解の数", "Correct number")
+                    : t("正解の数（任意・確定までに入れる）", "Correct number (optional; enter it before finalizing)")
+                }
                 value={correctNumber}
                 min={GAME_NUMBER_MIN}
                 max={GAME_NUMBER_MAX}
@@ -295,7 +315,7 @@ export function GameFormDialog(props: {
             )}
             {voteGame && (
               <NumberField
-                label="投票した人に入る点数（0 なら入らない）"
+                label={t("投票した人に入る点数（0 なら入らない）", "Points for each voter (0 for none)")}
                 value={voterPoints}
                 max={POINTS_MAX}
                 onChange={setVoterPoints}
@@ -303,41 +323,48 @@ export function GameFormDialog(props: {
             )}
             {keywordGame && (
               <label className="field">
-                <span>合言葉</span>
+                <span>{t("合言葉", "Keyword")}</span>
                 <input
                   value={keyword}
                   onChange={(e) => setKeyword(e.target.value)}
                   maxLength={GAME_KEYWORD_MAX_LENGTH}
-                  placeholder="例: パーティー"
+                  placeholder={t("例: パーティー", "e.g. party")}
                   autoComplete="off"
                   required
                 />
                 <span className="muted small">
-                  参加者には見せません。確定した後に直すと、今の合言葉に合う答えだけで数え直します。
+                  {t(
+                    "参加者には見せません。確定した後に直すと、今の合言葉に合う答えだけで数え直します。",
+                    "Not shown to participants. If you change it after finalizing, only answers that match the new keyword are counted.",
+                  )}
                 </span>
               </label>
             )}
             <fieldset className="game-form-slots">
-              <legend>{keywordGame ? "正解した順と点数" : "順位と点数"}</legend>
+              <legend>
+                {keywordGame
+                  ? t("正解した順と点数", "Order of correct answers and points")
+                  : t("順位と点数", "Ranks and points")}
+              </legend>
               {ranks.map((r, i) => (
                 <div key={r.key} className="game-form-slot game-form-rank">
-                  <span className="game-form-rank-title small">範囲 {i + 1}</span>
+                  <span className="game-form-rank-title small">{t(`範囲 ${i + 1}`, `Range ${i + 1}`)}</span>
                   <NumberField
-                    label={`何${unit}から`}
+                    label={t(`何${unit}から`, "From")}
                     value={r.from}
                     min={1}
                     max={GAME_RANK_MAX}
                     onChange={(from) => setRanks((prev) => prev.map((x) => (x.key === r.key ? { ...x, from } : x)))}
                   />
                   <NumberField
-                    label={`何${unit}まで`}
+                    label={t(`何${unit}まで`, "To")}
                     value={r.to}
                     min={1}
                     max={GAME_RANK_MAX}
                     onChange={(to) => setRanks((prev) => prev.map((x) => (x.key === r.key ? { ...x, to } : x)))}
                   />
                   <NumberField
-                    label="点数"
+                    label={t("点数", "Points")}
                     value={r.points}
                     max={POINTS_MAX}
                     onChange={(points) => setRanks((prev) => prev.map((x) => (x.key === r.key ? { ...x, points } : x)))}
@@ -348,9 +375,9 @@ export function GameFormDialog(props: {
                       className="link"
                       onClick={() => setRanks((prev) => prev.filter((x) => x.key !== r.key))}
                       disabled={lockAnswer && ranks.length <= 1}
-                      aria-label={`範囲 ${i + 1} を削除`}
+                      aria-label={t(`範囲 ${i + 1} を削除`, `Delete range ${i + 1}`)}
                     >
-                      削除
+                      {t("削除", "Delete")}
                     </button>
                   </div>
                 </div>
@@ -360,14 +387,14 @@ export function GameFormDialog(props: {
                 onClick={() => setRanks((prev) => [...prev, nextRank(prev)])}
                 disabled={ranks.length >= GAME_RANKS_MAX}
               >
-                範囲を追加
+                {t("範囲を追加", "Add range")}
               </button>
             </fieldset>
           </>
         )}
         {!ranked && (
           <fieldset className="game-form-slots">
-            <legend>{label}と点数</legend>
+            <legend>{t(`${label}と点数`, `${label}s and points`)}</legend>
             {rows.map((r, i) => (
               <div key={r.key} className="game-form-slot">
                 <label className="field">
@@ -378,12 +405,14 @@ export function GameFormDialog(props: {
                     value={r.name}
                     onChange={(e) => update(r.key, { name: e.target.value })}
                     maxLength={quiz ? GAME_CHOICE_TEXT_MAX_LENGTH : GAME_SLOT_NAME_MAX_LENGTH}
-                    placeholder={quiz ? undefined : (SLOT_PLACEHOLDERS[i] ?? "例: 参加賞")}
+                    placeholder={
+                      quiz ? undefined : t(...(SLOT_PLACEHOLDERS[i] ?? ["例: 参加賞", "e.g. Participation prize"]))
+                    }
                     required
                   />
                 </label>
                 <NumberField
-                  label="点数"
+                  label={t("点数", "Points")}
                   value={r.points}
                   max={POINTS_MAX}
                   onChange={(points) => update(r.key, { points })}
@@ -393,7 +422,7 @@ export function GameFormDialog(props: {
                     type="button"
                     onClick={() => move(i, i - 1)}
                     disabled={i === 0}
-                    aria-label={`${label} ${i + 1} を上へ`}
+                    aria-label={t(`${label} ${i + 1} を上へ`, `Move ${label} ${i + 1} up`)}
                   >
                     ↑
                   </button>
@@ -401,7 +430,7 @@ export function GameFormDialog(props: {
                     type="button"
                     onClick={() => move(i, i + 1)}
                     disabled={i === rows.length - 1}
-                    aria-label={`${label} ${i + 1} を下へ`}
+                    aria-label={t(`${label} ${i + 1} を下へ`, `Move ${label} ${i + 1} down`)}
                   >
                     ↓
                   </button>
@@ -413,22 +442,27 @@ export function GameFormDialog(props: {
                       disabled={rows.length <= minRows}
                       title={
                         lastSlotLocked && rows.length <= minRows
-                          ? "確定済みなので、最後の枠は消せません（先に確定を取り消してください）"
+                          ? t(
+                              "確定済みなので、最後の枠は消せません（先に確定を取り消してください）",
+                              "It’s finalized, so the last slot can’t be deleted (undo finalizing first)",
+                            )
                           : undefined
                       }
-                      aria-label={`${label} ${i + 1} を削除`}
+                      aria-label={t(`${label} ${i + 1} を削除`, `Delete ${label} ${i + 1}`)}
                     >
-                      削除
+                      {t("削除", "Delete")}
                     </button>
                   )}
                 </div>
                 {r.userIds.length > 0 && (
-                  <p className="muted small game-form-slot-note">選んだ人: {r.userIds.length} 人</p>
+                  <p className="muted small game-form-slot-note">
+                    {t(`選んだ人: ${r.userIds.length} 人`, `Chosen: ${r.userIds.length}`)}
+                  </p>
                 )}
                 {quiz && (
                   <div className="game-form-slot-note">
                     <ImageField
-                      label={`${label} ${i + 1} の画像（任意）`}
+                      label={t(`${label} ${i + 1} の画像（任意）`, `${label} ${i + 1} image (optional)`)}
                       image={r.image}
                       onChange={(image) => update(r.key, { image })}
                       onPicked={track}
@@ -446,35 +480,50 @@ export function GameFormDialog(props: {
                 onClick={() => setRows((prev) => [...prev, newRow(quiz ? 0 : 10)])}
                 disabled={rows.length >= maxRows}
               >
-                {label}を追加
+                {t(`${label}を追加`, `Add ${label.toLowerCase()}`)}
               </button>
             ) : (
               <p className="muted small">
-                答えがある・開催した後は、選択肢の追加・削除はできません。文言と点数は直せます（点数を直すと、確定した分も数え直します）。
+                {t(
+                  "答えがある・開催した後は、選択肢の追加・削除はできません。文言と点数は直せます（点数を直すと、確定した分も数え直します）。",
+                  "Once it has answers or has been started, choices can’t be added or deleted. You can still edit their text and points (changing points recounts finalized results too).",
+                )}
               </p>
             )}
           </fieldset>
         )}
         <p className="muted small">
           {text.note}
-          {lastSlotLocked && "確定済みなので、枠を全部は消せません（消すなら先に確定を取り消してください）。"}
-          {game?.status === "confirmed" && "確定済みなので、保存するとすぐにポイントが変わります。"}
+          {lastSlotLocked &&
+            t(
+              "確定済みなので、枠を全部は消せません（消すなら先に確定を取り消してください）。",
+              " It’s finalized, so you can’t delete every slot (undo finalizing first).",
+            )}
+          {game?.status === "confirmed" &&
+            t(
+              "確定済みなので、保存するとすぐにポイントが変わります。",
+              " It’s finalized, so points change as soon as you save.",
+            )}
         </p>
         {error && <p className="error">{error}</p>}
         {incomplete && (
-          <p className="error">{voteGame ? "投票した人の点数が空欄です。" : `点数が空欄の${label}があります。`}</p>
+          <p className="error">
+            {voteGame
+              ? t("投票した人の点数が空欄です。", "The points for voters are empty.")
+              : t(`点数が空欄の${label}があります。`, `A ${label.toLowerCase()} has no points.`)}
+          </p>
         )}
         {rankError && <p className="error">{rankError}</p>}
         <div className="buttons">
           <button type="button" onClick={props.onClose} disabled={saving}>
-            キャンセル
+            {t("キャンセル", "Cancel")}
           </button>
           <button
             type="submit"
             className="primary"
             disabled={saving || processing > 0 || incomplete || rankError !== undefined}
           >
-            保存
+            {t("保存", "Save")}
           </button>
         </div>
       </form>

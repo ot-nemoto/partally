@@ -47,6 +47,7 @@ export function App() {
         <Route path="tokens" element={<AdminTokens />} />
         <Route path="photos" element={<AdminPhotos />} />
         <Route path="quizzes" element={<Navigate to="/admin/games" replace />} />
+        <Route path="games" element={<AdminGames />} />
         {/* まだ英語に対応していない画面は、日本語に固定する */}
         <Route
           element={
@@ -55,7 +56,6 @@ export function App() {
             </FixedLang>
           }
         >
-          <Route path="games" element={<AdminGames />} />
           <Route path="prizes" element={<AdminPrizes />} />
           <Route path="schedule" element={<AdminSchedule />} />
           <Route path="settings" element={<AdminSettings />} />

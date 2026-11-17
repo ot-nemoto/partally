@@ -1,3 +1,4 @@
+import { ordinal } from "./ordinal.js";
 import { PRIZE_POSITION_MAX } from "./schemas.js";
 import type { PrizeDto, RankingEntryDto } from "./types.js";
 
@@ -37,13 +38,6 @@ export function formatPositionLabel(positions: number[], lang: "ja" | "en" = "ja
   return positionRanges(positions)
     .map(([from, to]) => (to === from ? `${from} 位` : `${from}〜${to} 位`))
     .join("・");
-}
-
-/** 英語の順位（1st, 2nd, 3rd, 4th, 11th, 21st…） */
-export function ordinal(n: number): string {
-  const tens = n % 100;
-  if (tens >= 11 && tens <= 13) return `${n}th`;
-  return `${n}${{ 1: "st", 2: "nd", 3: "rd" }[n % 10] ?? "th"}`;
 }
 
 /** 順位を小さい順に並べ、続いている所を [始め, 終わり] にまとめる */
