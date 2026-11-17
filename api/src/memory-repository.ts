@@ -98,6 +98,36 @@ export class MemoryRepository implements Repository {
     return clone(updated);
   }
 
+  async setUserPin(userId: string, pinHash: string, onlyIfUnset: boolean) {
+    const user = this.users.get(userId);
+    if (!user || (onlyIfUnset && (user.status !== "active" || user.pinHash))) return false;
+    user.pinHash = pinHash;
+    user.pinFailures = 0;
+    return true;
+  }
+
+  async reservePinAttempt(userId: string, max: number) {
+    const user = this.users.get(userId);
+    if (!user || (user.pinFailures ?? 0) >= max) return false;
+    user.pinFailures = (user.pinFailures ?? 0) + 1;
+    return true;
+  }
+
+  async resetPinFailures(userId: string) {
+    const user = this.users.get(userId);
+    if (!user) throw new NotFoundError();
+    user.pinFailures = 0;
+    return clone(user);
+  }
+
+  async clearUserPin(userId: string) {
+    const user = this.users.get(userId);
+    if (!user) throw new NotFoundError();
+    delete user.pinHash;
+    delete user.pinFailures;
+    return clone(user);
+  }
+
   async unbindUser(userId: string, updatedAt: string) {
     const user = this.users.get(userId);
     if (user?.status !== "active" || !user.token) throw new NotFoundError();

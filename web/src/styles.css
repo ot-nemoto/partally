@@ -1103,6 +1103,12 @@ button.more {
   margin: 0.25rem 0 0;
 }
 
+/* ユーザ管理の暗証番号のロック中 */
+.pin-locked {
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .admin-photo .actions {
   justify-content: flex-start;
   margin-top: 0.5rem;

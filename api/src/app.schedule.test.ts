@@ -228,7 +228,7 @@ describe("API", () => {
       // 参加者には、見せない列（E の列・D の列・F の列）を除き、列を詰めて返す
       await admin("PUT", "/api/admin/settings", { ...DEFAULT_SETTINGS, scheduleVisible: true });
       const user = createClient(t.app);
-      await user("POST", "/api/auth/register", { token: await t.issueToken(), name: "参加者" });
+      await user("POST", "/api/auth/register", { token: await t.issueToken(), name: "参加者", pin: "1234" });
       const shown = (await user("GET", "/api/schedule")).body.items;
       expect(Object.fromEntries(shown.map((i: any) => [i.title, i.column]))).toEqual({ A: 0, B: 0, C: 1 });
 
@@ -267,7 +267,7 @@ describe("API", () => {
       expect((await admin("PUT", "/api/admin/schedule/columns/x", { hidden: true })).status).toBe(404);
       expect((await admin("PUT", "/api/admin/schedule/columns/0", { hidden: "yes" })).status).toBe(400);
       const user = createClient(t.app);
-      await user("POST", "/api/auth/register", { token: await t.issueToken(), name: "参加者" });
+      await user("POST", "/api/auth/register", { token: await t.issueToken(), name: "参加者", pin: "1234" });
       expect((await user("PUT", "/api/admin/schedule/columns/0", { hidden: true })).status).toBe(401);
     });
 
@@ -276,7 +276,7 @@ describe("API", () => {
       await admin("POST", "/api/admin/schedule", { title: "開場", detail: "", startMinute: 1080, durationMinutes: 15 });
       const token = await t.issueToken();
       const user = createClient(t.app);
-      await user("POST", "/api/auth/register", { token, name: "参加者" });
+      await user("POST", "/api/auth/register", { token, name: "参加者", pin: "1234" });
 
       expect((await user("GET", "/api/schedule")).status).toBe(404);
       expect((await user("GET", "/api/admin/schedule")).status).toBe(401);

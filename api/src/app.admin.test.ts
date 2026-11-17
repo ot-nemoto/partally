@@ -38,7 +38,7 @@ describe("API", () => {
     it("参加者のセッションでは管理 API を使えない", async () => {
       const token = await t.issueToken();
       const request = createClient(t.app);
-      await request("POST", "/api/auth/register", { token, name: "田中" });
+      await request("POST", "/api/auth/register", { token, name: "田中", pin: "1234" });
       expect((await request("GET", "/api/admin/users")).status).toBe(401);
     });
 
@@ -50,7 +50,7 @@ describe("API", () => {
       expect(issued.body.tokens[0].token).toMatch(/^[A-Za-z0-9_-]{22}$/);
 
       const token = issued.body.tokens[1].token;
-      await createClient(t.app)("POST", "/api/auth/register", { token, name: "田中" });
+      await createClient(t.app)("POST", "/api/auth/register", { token, name: "田中", pin: "1234" });
 
       const list = await admin("GET", "/api/admin/tokens");
       expect(list.body.tokens).toHaveLength(3);
@@ -68,9 +68,9 @@ describe("API", () => {
       const t1 = await t.issueToken();
       const t2 = await t.issueToken();
       t.randomInts = [0, 0];
-      const a = await createClient(t.app)("POST", "/api/auth/register", { token: t1, name: "田中" });
+      const a = await createClient(t.app)("POST", "/api/auth/register", { token: t1, name: "田中", pin: "1234" });
       t.randomInts = [0, 1];
-      const b = await createClient(t.app)("POST", "/api/auth/register", { token: t2, name: "鈴木" });
+      const b = await createClient(t.app)("POST", "/api/auth/register", { token: t2, name: "鈴木", pin: "1234" });
       const admin = await adminClient();
 
       const renamed = await admin("PATCH", `/api/admin/users/${a.body.user.userId}`, {
@@ -94,7 +94,7 @@ describe("API", () => {
     it("紐づけ解除すると旧セッションは無効になり、トークンは再登録できる", async () => {
       const token = await t.issueToken();
       const participant = createClient(t.app);
-      const reg = await participant("POST", "/api/auth/register", { token, name: "田中" });
+      const reg = await participant("POST", "/api/auth/register", { token, name: "田中", pin: "1234" });
       const admin = await adminClient();
 
       const unbind = await admin("POST", `/api/admin/users/${reg.body.user.userId}/unbind`);
@@ -107,7 +107,7 @@ describe("API", () => {
 
       // 解除済みユーザの二つ名は確保されたままなので、別の二つ名になる
       t.randomInts = [0, 0, 0, 1];
-      const again = await participant("POST", "/api/auth/register", { token, name: "鈴木" });
+      const again = await participant("POST", "/api/auth/register", { token, name: "鈴木", pin: "1234" });
       expect(again.status).toBe(201);
       expect(again.body.user.userId).not.toBe(reg.body.user.userId);
       expect(again.body.user.epithet).toBe("疾風の剣士");
@@ -117,6 +117,40 @@ describe("API", () => {
         ["田中", "unbound"],
         ["鈴木", "active"],
       ]);
+    });
+
+    it("暗証番号の状態を見られ、ロックの解除と、暗証番号の消去ができる（参加者には状態を返さない）", async () => {
+      const token = await t.issueToken();
+      const participant = createClient(t.app);
+      const reg = await participant("POST", "/api/auth/register", { token, name: "田中", pin: "1234" });
+      expect(reg.body.user).not.toHaveProperty("pin");
+      expect((await participant("GET", "/api/me")).body.user).not.toHaveProperty("pin");
+      const admin = await adminClient();
+      const userId = reg.body.user.userId;
+      const pinOf = async () =>
+        (await admin("GET", "/api/admin/users")).body.users.find((u: any) => u.userId === userId).pin;
+      expect(await pinOf()).toBe("set");
+
+      const other = createClient(t.app);
+      for (let i = 0; i < 5; i++) await other("POST", "/api/auth/qr", { token, pin: "0000" });
+      expect(await pinOf()).toBe("locked");
+
+      const unlocked = await admin("POST", `/api/admin/users/${userId}/pin/unlock`);
+      expect(unlocked.body.user.pin).toBe("set");
+      expect((await other("POST", "/api/auth/qr", { token, pin: "1234" })).body).toMatchObject({ status: "bound" });
+
+      const cleared = await admin("DELETE", `/api/admin/users/${userId}/pin`);
+      expect(cleared.body.user.pin).toBe("none");
+      expect((await createClient(t.app)("POST", "/api/auth/qr", { token })).body).toEqual({
+        status: "pin_required",
+        setup: true,
+      });
+      // ログインしたままの端末はそのまま
+      expect((await participant("GET", "/api/me")).status).toBe(200);
+
+      expect((await admin("POST", "/api/admin/users/nobody/pin/unlock")).status).toBe(404);
+      expect((await admin("DELETE", "/api/admin/users/nobody/pin")).status).toBe(404);
+      expect((await participant("DELETE", `/api/admin/users/${userId}/pin`)).status).toBe(401);
     });
   });
 });

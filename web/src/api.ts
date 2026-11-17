@@ -40,6 +40,10 @@ export function errorMessage(e: unknown): string {
         return "この QR コードは既に登録されています。もう一度 QR を読み込んでください。";
       case "epithet_taken":
         return "その二つ名は他の人が使っています。";
+      case "pin_invalid":
+        return `暗証番号が違います${e.message && e.message !== e.code ? `（${e.message}）` : ""}。`;
+      case "pin_locked":
+        return "暗証番号を続けて間違えたため、ロックしました。運営に声をかけてください。";
       case "invalid_state":
         return e.message && e.message !== e.code
           ? e.message

@@ -25,6 +25,8 @@ export interface UserDto {
    * ポイントを伏せている間、参加者向けの応答には無い
    */
   points?: number;
+  /** 暗証番号の状態。管理画面だけに返す */
+  pin?: PinStatus;
   createdAt: string;
 }
 
@@ -38,7 +40,17 @@ export interface TokenDto {
   boundAt?: string;
 }
 
-export type QrLoginResponse = { status: "bound"; user: UserDto } | { status: "unbound" };
+/**
+ * bound: ログインした / unbound: まだ登録していない QR コード /
+ * pin_required: 暗証番号が要る（setup が true なら、まだ暗証番号が無いので決めてもらう）
+ */
+export type QrLoginResponse =
+  | { status: "bound"; user: UserDto }
+  | { status: "unbound" }
+  | { status: "pin_required"; setup: boolean };
+
+/** 暗証番号の状態（管理画面だけに返す）。none: 決めていない / set: 決めてある / locked: 間違えすぎてロック中 */
+export type PinStatus = "none" | "set" | "locked";
 
 export interface RegisterResponse {
   user: UserDto;
@@ -68,6 +80,10 @@ export type ApiErrorCode =
   | "unauthorized"
   | "invalid_token"
   | "token_already_bound"
+  /** 暗証番号が違う */
+  | "pin_invalid"
+  /** 暗証番号を間違えすぎてロック中 */
+  | "pin_locked"
   | "epithet_taken"
   | "invalid_state"
   | "favorites_disabled"

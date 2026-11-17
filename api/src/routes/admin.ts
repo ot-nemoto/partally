@@ -50,6 +50,26 @@ export function registerAdminRoutes(app: Hono<Env>, ctx: AppContext) {
     }
   });
 
+  // 暗証番号のロックを解除する（間違えた回数を 0 に戻す）
+  app.post("/admin/users/:userId/pin/unlock", async (c) => {
+    try {
+      return c.json({ user: await adminUser(await repo.resetPinFailures(c.req.param("userId"))) });
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      throw e;
+    }
+  });
+
+  // 暗証番号を消す（忘れた人。次にほかの端末で QR コードを読み込んだときに決め直す）
+  app.delete("/admin/users/:userId/pin", async (c) => {
+    try {
+      return c.json({ user: await adminUser(await repo.clearUserPin(c.req.param("userId"))) });
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      throw e;
+    }
+  });
+
   app.get("/admin/settings", async (c) => c.json({ settings: await repo.getSettings() }));
 
   app.put("/admin/settings", async (c) => {
