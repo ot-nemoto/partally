@@ -62,7 +62,7 @@ export function CaptureButtons() {
       {error && <p className="error small">{error}</p>}
       {queue.error && (
         <div className="error small">
-          <p>{queue.error}</p>
+          <p>{t(...queue.error)}</p>
           {queue.errorDetail && (
             <p className="muted">
               {t("詳細：", "Details: ")}

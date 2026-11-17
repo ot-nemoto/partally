@@ -107,7 +107,7 @@ function ScheduleBoard(props: {
                     type="button"
                     className={`schedule-block ${status}${label ? " badged" : ""}${height < 24 ? " tiny" : height < 44 ? " short" : ""}`}
                     aria-current={status === "now" ? "time" : undefined}
-                    aria-label={`${formatScheduleRange(item)} ${item.title}${label ? `（${label}）` : ""}`}
+                    aria-label={`${formatScheduleRange(item)} ${item.title}${label ? t(`（${label}）`, ` (${label})`) : ""}`}
                     onClick={() => setOpened(item)}
                   >
                     <span className="schedule-block-time">{formatScheduleRange(item)}</span>

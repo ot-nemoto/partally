@@ -1,6 +1,6 @@
-import { Link, Navigate, Route, Routes } from "react-router-dom";
+import { Link, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { ParticipantLayout } from "./components/ParticipantLayout";
-import { useT } from "./i18n";
+import { FixedLang, useT } from "./i18n";
 import { AdminData } from "./pages/admin/AdminData";
 import { AdminGames } from "./pages/admin/AdminGames";
 import { AdminLayout } from "./pages/admin/AdminLayout";
@@ -36,22 +36,31 @@ export function App() {
         <Route path="/favorites" element={<Navigate to="/gallery" replace />} />
       </Route>
       <Route path="/q/:token" element={<QrLanding />} />
-      <Route path="/admin/login" element={<AdminLogin />} />
-      <Route path="/admin/tokens/print" element={<AdminTokensPrint />} />
-      <Route path="/admin" element={<AdminLayout />}>
-        {/* User 画面のヘッダーのリンク（/admin/users）が選択状態になるよう、URL を移す */}
-        <Route index element={<Navigate to="users" replace />} />
-        <Route path="users" element={<AdminUsers />} />
-        <Route path="ranking" element={<AdminRanking />} />
-        <Route path="trend" element={<AdminTrend />} />
-        <Route path="tokens" element={<AdminTokens />} />
-        <Route path="photos" element={<AdminPhotos />} />
-        <Route path="quizzes" element={<Navigate to="/admin/games" replace />} />
-        <Route path="games" element={<AdminGames />} />
-        <Route path="prizes" element={<AdminPrizes />} />
-        <Route path="schedule" element={<AdminSchedule />} />
-        <Route path="settings" element={<AdminSettings />} />
-        <Route path="data" element={<AdminData />} />
+      {/* 管理画面は英語に対応するまで日本語に固定する */}
+      <Route
+        element={
+          <FixedLang lang="ja">
+            <Outlet />
+          </FixedLang>
+        }
+      >
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin/tokens/print" element={<AdminTokensPrint />} />
+        <Route path="/admin" element={<AdminLayout />}>
+          {/* User 画面のヘッダーのリンク（/admin/users）が選択状態になるよう、URL を移す */}
+          <Route index element={<Navigate to="users" replace />} />
+          <Route path="users" element={<AdminUsers />} />
+          <Route path="ranking" element={<AdminRanking />} />
+          <Route path="trend" element={<AdminTrend />} />
+          <Route path="tokens" element={<AdminTokens />} />
+          <Route path="photos" element={<AdminPhotos />} />
+          <Route path="quizzes" element={<Navigate to="/admin/games" replace />} />
+          <Route path="games" element={<AdminGames />} />
+          <Route path="prizes" element={<AdminPrizes />} />
+          <Route path="schedule" element={<AdminSchedule />} />
+          <Route path="settings" element={<AdminSettings />} />
+          <Route path="data" element={<AdminData />} />
+        </Route>
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>

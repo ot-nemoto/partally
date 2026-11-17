@@ -6,9 +6,11 @@ import {
   normalizeKeyword,
   type UserDto,
 } from "@partally/shared";
+
 import { useCallback, useMemo, useState } from "react";
 import { type GameAnswerBody, GameView } from "../../../components/GameView";
 import { Modal } from "../../../components/Modal";
+import { useLang } from "../../../i18n";
 
 /** 参加者の画面で見せる形（参加者に返す内容と同じく、点数・正解・合言葉は含めない） */
 function toPreviewGame(game: GameDto): CurrentGameDto {
@@ -30,10 +32,11 @@ function toPreviewGame(game: GameDto): CurrentGameDto {
  */
 export function GamePreviewDialog(props: { game: GameDto; members: UserDto[]; onClose: () => void }) {
   const { game } = props;
+  const lang = useLang();
   const [current, setCurrent] = useState(() => toPreviewGame(game));
   /** 「答える前に戻す」で入力中の内容も消すよう、画面を作り直す印 */
   const [resetKey, setResetKey] = useState(0);
-  const banner = gameBannerText(current);
+  const banner = gameBannerText(current, lang);
   const candidates = useMemo(
     () =>
       props.members

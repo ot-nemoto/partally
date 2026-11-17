@@ -25,7 +25,8 @@ export interface QueueState {
   waiting: number;
   uploading: boolean;
   /** 直近の送信が失敗していれば、その理由 */
-  error?: string;
+  /** エラーの文（日本語・英語。表示するときに言語を選ぶ） */
+  error?: readonly [ja: string, en: string];
   /** 失敗の詳細（問い合わせ時の手がかり） */
   errorDetail?: string;
 }
@@ -105,10 +106,10 @@ export async function flushQueue(): Promise<void> {
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) {
           setState({
-            error: tr(
+            error: [
               "ログインが切れています。QR コードを読み込み直してください。",
               "You’ve been logged out. Please scan your QR code again.",
-            ),
+            ],
           });
           return;
         }
@@ -136,15 +137,15 @@ export async function flushQueue(): Promise<void> {
   const errorDetail = lastError instanceof Error ? lastError.message : lastError ? String(lastError) : undefined;
   if (discarded > 0) {
     setState({
-      error: tr(
+      error: [
         `送信できなかった写真が ${discarded} 枚ありました。もう一度撮影・選択してください。`,
         `${discarded} photo(s) couldn’t be uploaded. Please take or choose them again.`,
-      ),
+      ],
       errorDetail,
     });
   } else if (failed) {
     setState({
-      error: tr("送信に失敗しました。自動的に再送します。", "Upload failed. It will retry automatically."),
+      error: ["送信に失敗しました。自動的に再送します。", "Upload failed. It will retry automatically."],
       errorDetail,
     });
   }
