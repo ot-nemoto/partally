@@ -4,10 +4,12 @@ import { Link } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../api";
 import { type GameAnswerBody, GameView } from "../components/GameView";
 import { useParticipant } from "../components/ParticipantLayout";
+import { useT } from "../i18n";
 
 /** 開催中のゲーム（中身は GameView）。答えは API に送り、終わったらそのことを伝える */
 export function Game() {
   const { game, setGame, reloadUser } = useParticipant();
+  const t = useT();
   const [sending, setSending] = useState<string>();
   const [error, setError] = useState<string>();
   // 見ている間に終わったら、そのことを伝える
@@ -48,16 +50,25 @@ export function Game() {
     }
   }
 
-  if (game === undefined) return <p className="muted">読み込み中…</p>;
+  if (game === undefined) return <p className="muted">{t("読み込み中…", "Loading…")}</p>;
 
   if (!game) {
     return (
       <>
-        <h1>ゲーム</h1>
+        <h1>{t("ゲーム", "Game")}</h1>
         <section className="card">
-          <p>{ended ? "終わりました。結果の発表をお待ちください。" : "今は開催中のゲームはありません。"}</p>
-          <p className="muted small">ゲームが始まると、画面の上にお知らせが出ます。</p>
-          <Link to="/">ホームへ</Link>
+          <p>
+            {ended
+              ? t("終わりました。結果の発表をお待ちください。", "It’s over. Please wait for the results.")
+              : t("今は開催中のゲームはありません。", "No game is running right now.")}
+          </p>
+          <p className="muted small">
+            {t(
+              "ゲームが始まると、画面の上にお知らせが出ます。",
+              "When a game starts, a notice appears at the top of the screen.",
+            )}
+          </p>
+          <Link to="/">{t("ホームへ", "Back to home")}</Link>
         </section>
       </>
     );

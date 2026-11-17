@@ -7,9 +7,13 @@ import {
   scheduleStatuses,
 } from "@partally/shared";
 import { useEffect, useRef, useState } from "react";
+import { type Lang, useLang, useT } from "../i18n";
 import { Modal } from "./Modal";
 
-const STATUS_LABEL: Partial<Record<ScheduleStatus, string>> = { now: "いま", next: "つぎ" };
+const STATUS_LABEL: Partial<Record<ScheduleStatus, [ja: string, en: string]>> = {
+  now: ["いま", "Now"],
+  next: ["つぎ", "Next"],
+};
 
 /**
  * スケジュールの中身（日付と時間軸）。参加者の画面と、管理画面のプレビューで共通。
@@ -17,11 +21,13 @@ const STATUS_LABEL: Partial<Record<ScheduleStatus, string>> = { now: "いま", n
  */
 export function ScheduleContent(props: { items: ScheduleItemDto[]; date: string; now: Date }) {
   const { items, date, now } = props;
-  if (items.length === 0) return <p className="muted">まだスケジュールはありません。</p>;
+  const t = useT();
+  const lang = useLang();
+  if (items.length === 0) return <p className="muted">{t("まだスケジュールはありません。", "No schedule yet.")}</p>;
   const statuses = scheduleStatuses(items, now, date);
   return (
     <>
-      {date && <p className="schedule-day">{formatDate(date)}</p>}
+      {date && <p className="schedule-day">{formatDate(date, lang)}</p>}
       <ScheduleBoard items={items} statuses={statuses} now={now} date={date} />
     </>
   );
@@ -44,6 +50,7 @@ function ScheduleBoard(props: {
   date: string;
 }) {
   const { items, statuses } = props;
+  const t = useT();
   const [opened, setOpened] = useState<ScheduleItemDto>();
   const nowRef = useRef<HTMLSpanElement>(null);
   const scrolled = useRef(false);
@@ -81,7 +88,8 @@ function ScheduleBoard(props: {
           >
             {items.map((item) => {
               const status = statuses.get(item.itemId) ?? "none";
-              const label = STATUS_LABEL[status];
+              const labels = STATUS_LABEL[status];
+              const label = labels && t(...labels);
               const height = item.durationMinutes * PX_PER_MINUTE;
               const column = item.column ?? 0;
               return (
@@ -129,11 +137,11 @@ function ScheduleBoard(props: {
             {opened.detail ? (
               <p className="schedule-item-detail">{opened.detail}</p>
             ) : (
-              <p className="muted small">詳細はありません。</p>
+              <p className="muted small">{t("詳細はありません。", "No details.")}</p>
             )}
             <div className="buttons">
               <button type="button" onClick={() => setOpened(undefined)}>
-                閉じる
+                {t("閉じる", "Close")}
               </button>
             </div>
           </div>
@@ -143,10 +151,11 @@ function ScheduleBoard(props: {
   );
 }
 
-/** 「2026-12-20」→「12月20日（日）」 */
-function formatDate(date: string): string {
+/** 「2026-12-20」→「12月20日（日）」、英語では「Sun, Dec 20」 */
+function formatDate(date: string, lang: Lang): string {
   const [y, m, d] = date.split("-").map(Number);
   const day = new Date(y!, m! - 1, d!);
+  if (lang === "en") return day.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
   return `${m}月${d}日（${"日月火水木金土"[day.getDay()]}）`;
 }
 
@@ -185,13 +194,14 @@ function remPx(): number {
  * 管理画面は編集画面で見る）。reserved は下に空ける高さ（px。管理画面の長さを変える持ち手）
  */
 export function ScheduleBlockDetail(props: { detail: string; height: number; reserved?: number }) {
+  const t = useT();
   if (!props.detail || props.height < SHORT_BLOCK_HEIGHT) return null;
   const rem = remPx();
   const lines = Math.floor((props.height - BLOCK_HEADER_REM * rem - (props.reserved ?? 0)) / (DETAIL_LINE_REM * rem));
   if (lines < 1) {
     return (
       <span className="schedule-block-more" aria-hidden="true">
-        詳細あり
+        {t("詳細あり", "More")}
       </span>
     );
   }

@@ -58,6 +58,11 @@ describe("formatPositionLabel", () => {
     expect(formatPositionLabel([4])).toBe("4 位");
     expect(formatPositionLabel([])).toBe("");
   });
+
+  it("英語では「1st–3rd, 5th」のように書く（11〜13 は th）", () => {
+    expect(formatPositionLabel([5, 1, 2, 3], "en")).toBe("1st–3rd, 5th");
+    expect(formatPositionLabel([11, 12, 13, 21, 22, 23, 101], "en")).toBe("11th–13th, 21st–23rd, 101st");
+  });
 });
 
 describe("prizesForDisplay", () => {

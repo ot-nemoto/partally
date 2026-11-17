@@ -1,5 +1,6 @@
 import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { ParticipantLayout } from "./components/ParticipantLayout";
+import { useT } from "./i18n";
 import { AdminData } from "./pages/admin/AdminData";
 import { AdminGames } from "./pages/admin/AdminGames";
 import { AdminLayout } from "./pages/admin/AdminLayout";
@@ -58,10 +59,11 @@ export function App() {
 }
 
 function NotFound() {
+  const t = useT();
   return (
     <main className="page">
-      <p>ページが見つかりません。</p>
-      <Link to="/">トップへ</Link>
+      <p>{t("ページが見つかりません。", "Page not found.")}</p>
+      <Link to="/">{t("トップへ", "Back to top")}</Link>
     </main>
   );
 }

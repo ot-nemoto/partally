@@ -1,4 +1,5 @@
 import { type PrizeDto, prizePositions, prizesByPosition, type RankingEntryDto } from "@partally/shared";
+import { useT } from "../i18n";
 import { PrizeChips } from "./PrizeChips";
 
 /**
@@ -19,6 +20,7 @@ export function RankingBars({
   prizes?: PrizeDto[];
 }) {
   // 棒の長さは 1 位のポイントを 100% とする
+  const t = useT();
   const max = Math.max(0, ...ranking.map((r) => r.points));
   const positions = prizePositions(ranking);
   const byPosition = prizesByPosition(prizes ?? []);
@@ -28,9 +30,9 @@ export function RankingBars({
       <table className="ranking-table">
         <thead>
           <tr>
-            <th className="num">順位</th>
-            <th>名前</th>
-            {!hidePoints && <th className="num">ポイント</th>}
+            <th className="num">{t("順位", "Rank")}</th>
+            <th>{t("名前", "Name")}</th>
+            {!hidePoints && <th className="num">{t("ポイント", "Points")}</th>}
             <th className="ranking-bar-cell" />
           </tr>
         </thead>
@@ -44,7 +46,7 @@ export function RankingBars({
                 <td className={`num rank-${r.rank}`}>{r.rank}</td>
                 <td className="name-cell">
                   {r.displayName}
-                  {unbound && "（解除済み）"}
+                  {unbound && t("（解除済み）", " (unlinked)")}
                   {rowPrizes && <PrizeChips prizes={rowPrizes} />}
                 </td>
                 {!hidePoints && (

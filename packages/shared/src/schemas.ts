@@ -96,6 +96,14 @@ export const TIE_BREAK_LABEL: Record<TieBreakKey, string> = {
   game: "ゲーム",
   registered: "登録順",
 };
+/** TIE_BREAK_LABEL の英語（参加者の画面を英語にしたとき） */
+export const TIE_BREAK_LABEL_EN: Record<TieBreakKey, string> = {
+  upload: "photo uploads",
+  favoriteGiven: "favorites given",
+  favoriteReceived: "favorites received",
+  game: "games",
+  registered: "registration order",
+};
 export const FAVORITE_LIMIT_MAX = 100;
 
 const points = z.number().int().min(0).max(POINTS_MAX);

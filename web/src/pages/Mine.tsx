@@ -4,18 +4,21 @@ import { api, errorMessage } from "../api";
 import { CaptureButtons } from "../components/CaptureButtons";
 import { Lightbox } from "../components/Lightbox";
 import { useOnReload } from "../hooks/useReload";
+import { useT } from "../i18n";
 import { subscribeQueue } from "../photos/queue";
 
-const STATUS_LABEL: Record<PhotoStatus, string> = {
-  pending: "確認待ち",
-  approved: "公開中",
-  rejected: "非公開",
+const STATUS_LABEL: Record<PhotoStatus, [ja: string, en: string]> = {
+  pending: ["確認待ち", "In review"],
+  approved: ["公開中", "Public"],
+  rejected: ["非公開", "Not public"],
 };
 
 export function Mine() {
   const [photos, setPhotos] = useState<PhotoDto[]>();
   const [error, setError] = useState<string>();
   const [selected, setSelected] = useState<PhotoDto>();
+  const t = useT();
+  const statusLabel = (status: PhotoStatus) => t(...STATUS_LABEL[status]);
 
   // 送信後の取り直しと「更新」で読み込みが重なったとき、後から返ってきた古い応答で戻さない
   const latestRequest = useRef(0);
@@ -60,10 +63,10 @@ export function Mine() {
 
   return (
     <>
-      <h1>自分の写真</h1>
+      <h1>{t("自分の写真", "My photos")}</h1>
       <CaptureButtons />
       {error && <p className="error">{error}</p>}
-      {photos?.length === 0 && <p className="muted">まだ写真がありません。</p>}
+      {photos?.length === 0 && <p className="muted">{t("まだ写真がありません。", "No photos yet.")}</p>}
       <div className="photo-grid">
         {photos?.map((p) => (
           <div key={p.photoId} className="photo-tile">
@@ -72,16 +75,16 @@ export function Mine() {
                 <img src={p.thumbUrl} alt="" loading="lazy" />
               </button>
             ) : (
-              <div className="photo-placeholder">非公開</div>
+              <div className="photo-placeholder">{statusLabel("rejected")}</div>
             )}
-            <span className={`badge badge-${p.status}`}>{STATUS_LABEL[p.status]}</span>
+            <span className={`badge badge-${p.status}`}>{statusLabel(p.status)}</span>
           </div>
         ))}
       </div>
       {selected && (
         <Lightbox photo={selected} onClose={() => setSelected(undefined)}>
           <span className="small">
-            {STATUS_LABEL[selected.status]}
+            {statusLabel(selected.status)}
             {selected.status === "approved" &&
               selected.favoriteCount !== undefined &&
               ` ・ ♥ ${selected.favoriteCount}`}

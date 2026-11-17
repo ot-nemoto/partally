@@ -5,6 +5,7 @@ import { FavoriteButton } from "../components/FavoriteButton";
 import { Lightbox } from "../components/Lightbox";
 import { useParticipant } from "../components/ParticipantLayout";
 import { useOnReload } from "../hooks/useReload";
+import { useT } from "../i18n";
 
 /** 公開済みの写真を新しい順に表示する。新着は「更新」で取り込む。他の人の写真は ♡ でお気に入りに選べる */
 export function Gallery() {
@@ -15,6 +16,7 @@ export function Gallery() {
   const [error, setError] = useState<string>();
   const [selected, setSelected] = useState<PhotoDto>();
   const { user, rules } = useParticipant();
+  const t = useT();
   // 「もっと見る」の位置は初回の読み込み結果だけで決める（新着の取り込みでは動かさない）
   const cursorInitialized = useRef(false);
   // お気に入りを付け外しした回数。取得中に操作されたら、古い応答で手元の状態を上書きしない
@@ -76,23 +78,42 @@ export function Gallery() {
 
   return (
     <>
-      <h1>みんなの写真</h1>
+      <h1>{t("みんなの写真", "Everyone’s photos")}</h1>
       {rules.favoritesEnabled ? (
         <p className="muted small">
-          気に入った写真の ♡ を押すとお気に入りに選べます（{user.favoritesGiven} / {rules.favoriteLimit} 枚選択中）。
+          {t(
+            `気に入った写真の ♡ を押すとお気に入りに選べます（${user.favoritesGiven} / ${rules.favoriteLimit} 枚選択中）。`,
+            `Tap ♡ on a photo you like to make it a favorite (${user.favoritesGiven} / ${rules.favoriteLimit} chosen). `,
+          )}
           {rules.showPoints && (
             <>
-              {rules.favoritePoints > 0 && `選ばれた人に ${rules.favoritePoints} ポイント入ります。`}
+              {rules.favoritePoints > 0 &&
+                t(
+                  `選ばれた人に ${rules.favoritePoints} ポイント入ります。`,
+                  `The photographer gets ${rules.favoritePoints} ${rules.favoritePoints === 1 ? "point" : "points"}. `,
+                )}
               {rules.favoriteGivenPoints > 0 &&
-                `選んだあなたにも 1 枚につき ${rules.favoriteGivenPoints} ポイント入ります。`}
+                t(
+                  `選んだあなたにも 1 枚につき ${rules.favoriteGivenPoints} ポイント入ります。`,
+                  `You also get ${rules.favoriteGivenPoints} ${rules.favoriteGivenPoints === 1 ? "point" : "points"} for each one you choose.`,
+                )}
             </>
           )}
         </p>
       ) : (
-        user.favoritesGiven > 0 && <p className="muted small">お気に入りの受付は終了しました（♥ が選んだ写真）。</p>
+        user.favoritesGiven > 0 && (
+          <p className="muted small">
+            {t(
+              "お気に入りの受付は終了しました（♥ が選んだ写真）。",
+              "Favorites are closed (♥ marks the ones you chose).",
+            )}
+          </p>
+        )
       )}
       {error && <p className="error">{error}</p>}
-      {loaded && !error && !cursor && photos.length === 0 && <p className="muted">まだ写真がありません。</p>}
+      {loaded && !error && !cursor && photos.length === 0 && (
+        <p className="muted">{t("まだ写真がありません。", "No photos yet.")}</p>
+      )}
       <div className="photo-grid">
         {photos.map((p) => (
           <div key={p.photoId} className="photo-tile">
@@ -106,7 +127,7 @@ export function Gallery() {
       </div>
       {cursor && (
         <button type="button" className="more" onClick={loadMore} disabled={loadingMore}>
-          {loadingMore ? "読み込み中…" : "もっと見る"}
+          {loadingMore ? t("読み込み中…", "Loading…") : t("もっと見る", "Show more")}
         </button>
       )}
       {selected && (

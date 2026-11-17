@@ -28,10 +28,22 @@ export function formatPositions(positions: number[]): string {
 }
 
 /** 参加者に見せる順位の書き方。続いている所は範囲にする（[1, 2, 3, 5] → 「1〜3 位・5 位」） */
-export function formatPositionLabel(positions: number[]): string {
+export function formatPositionLabel(positions: number[], lang: "ja" | "en" = "ja"): string {
+  if (lang === "en") {
+    return positionRanges(positions)
+      .map(([from, to]) => (to === from ? ordinal(from) : `${ordinal(from)}–${ordinal(to)}`))
+      .join(", ");
+  }
   return positionRanges(positions)
     .map(([from, to]) => (to === from ? `${from} 位` : `${from}〜${to} 位`))
     .join("・");
+}
+
+/** 英語の順位（1st, 2nd, 3rd, 4th, 11th, 21st…） */
+export function ordinal(n: number): string {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${{ 1: "st", 2: "nd", 3: "rd" }[n % 10] ?? "th"}`;
 }
 
 /** 順位を小さい順に並べ、続いている所を [始め, 終わり] にまとめる */

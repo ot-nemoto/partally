@@ -13,6 +13,7 @@ import { Link, NavLink, Outlet, useLocation, useOutletContext } from "react-rout
 import { ApiError, api, errorMessage } from "../api";
 import { useAutoRefresh } from "../hooks/useAutoRefresh";
 import { ReloadProvider } from "../hooks/useReload";
+import { LanguageSwitch, useLang, useT } from "../i18n";
 
 /** 開催・確定にすぐ気づけるよう、表示中はこの間隔で開催中のゲームを確認する（文字だけの小さな通信） */
 const GAME_REFRESH_MS = 5_000;
@@ -111,8 +112,10 @@ export function ParticipantLayout() {
     setReloading(false);
   }, [refreshQuietly, refreshGame]);
   const location = useLocation();
+  const t = useT();
+  const lang = useLang();
 
-  if (state.kind === "loading") return <main className="page muted">読み込み中…</main>;
+  if (state.kind === "loading") return <main className="page muted">{t("読み込み中…", "Loading…")}</main>;
   if (state.kind === "error") {
     return (
       <main className="page">
@@ -123,17 +126,25 @@ export function ParticipantLayout() {
   if (state.kind === "guest") {
     return (
       <main className="page">
+        <div className="lang-row">
+          <LanguageSwitch />
+        </div>
         <section className="card guest-card">
           <h1 className="guest-title gradient-title" lang="en">
             partally
           </h1>
-          <p>配布された QR コードをスマホのカメラで読み込んでください。</p>
+          <p>
+            {t(
+              "配布された QR コードをスマホのカメラで読み込んでください。",
+              "Scan the QR code you were given with your phone’s camera.",
+            )}
+          </p>
         </section>
       </main>
     );
   }
 
-  const banner = game && location.pathname !== "/game" ? gameBannerText(game) : undefined;
+  const banner = game && location.pathname !== "/game" ? gameBannerText(game, lang) : undefined;
 
   return (
     <div className="participant">
@@ -154,17 +165,17 @@ export function ParticipantLayout() {
       </main>
       <nav className="tabbar">
         <NavLink to="/" end>
-          ホーム
+          {t("ホーム", "Home")}
         </NavLink>
-        <NavLink to="/gallery">みんなの写真</NavLink>
-        <NavLink to="/mine">自分の写真</NavLink>
+        <NavLink to="/gallery">{t("みんなの写真", "Everyone")}</NavLink>
+        <NavLink to="/mine">{t("自分の写真", "My photos")}</NavLink>
         {/* ランキング・推移は管理画面で見せる設定にしたときだけ出す */}
         {(state.rules.rankingVisible ||
           state.rules.trendVisible ||
           state.rules.prizesVisible ||
-          state.rules.scheduleVisible) && <NavLink to="/standings">イベント情報</NavLink>}
+          state.rules.scheduleVisible) && <NavLink to="/standings">{t("イベント情報", "Event info")}</NavLink>}
         <button type="button" className="tabbar-reload" onClick={reload} disabled={reloading}>
-          {reloading ? "更新中…" : "↻ 更新"}
+          {reloading ? t("更新中…", "Refreshing…") : t("↻ 更新", "↻ Refresh")}
         </button>
       </nav>
     </div>

@@ -1,4 +1,5 @@
 import { PHOTO_FULL_MAX_EDGE, PHOTO_THUMB_MAX_EDGE } from "@partally/shared";
+import { tr } from "../i18n";
 
 export interface ProcessedPhoto {
   full: Blob;
@@ -56,9 +57,9 @@ async function toJpeg(bitmap: ImageBitmap, maxEdge: number, quality: number): Pr
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas を使えません");
+  if (!ctx) throw new Error(tr("Canvas を使えません", "Canvas is not available"));
   ctx.drawImage(bitmap, 0, 0, width, height);
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
-  if (!blob) throw new Error("JPEG への変換に失敗しました");
+  if (!blob) throw new Error(tr("JPEG への変換に失敗しました", "Converting to JPEG failed"));
   return blob;
 }

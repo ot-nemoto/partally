@@ -3,6 +3,7 @@ import {
   type ParticipantRankingResponse,
   prizesForDisplay,
   TIE_BREAK_LABEL,
+  TIE_BREAK_LABEL_EN,
 } from "@partally/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../api";
@@ -12,15 +13,16 @@ import { RankingBars } from "../components/RankingBars";
 import { MAX_LINES, RankingChart } from "../components/RankingChart";
 import { usePrizes } from "../hooks/usePrizes";
 import { useOnReload } from "../hooks/useReload";
+import { useLang, useT } from "../i18n";
 import { ScheduleView } from "./ScheduleView";
 
 type View = "schedule" | "ranking" | "trend" | "prizes";
 
-const VIEW_LABEL: Record<View, string> = {
-  schedule: "スケジュール",
-  ranking: "ランキング",
-  trend: "ポイントの推移",
-  prizes: "景品",
+const VIEW_LABEL: Record<View, [ja: string, en: string]> = {
+  schedule: ["スケジュール", "Schedule"],
+  ranking: ["ランキング", "Ranking"],
+  trend: ["ポイントの推移", "Trend"],
+  prizes: ["景品", "Prizes"],
 };
 
 /**
@@ -29,6 +31,7 @@ const VIEW_LABEL: Record<View, string> = {
  */
 export function Standings() {
   const { rules } = useParticipant();
+  const t = useT();
   const visible: Record<View, boolean> = {
     schedule: rules.scheduleVisible,
     ranking: rules.rankingVisible,
@@ -41,7 +44,7 @@ export function Standings() {
 
   return (
     <section className="ranking">
-      <h1>イベント情報</h1>
+      <h1>{t("イベント情報", "Event info")}</h1>
       {views.length > 1 && (
         <div className="segmented" role="tablist">
           {views.map((v) => (
@@ -53,7 +56,7 @@ export function Standings() {
               className={view === v ? "active" : undefined}
               onClick={() => setSelected(v)}
             >
-              {VIEW_LABEL[v]}
+              {t(...VIEW_LABEL[v])}
             </button>
           ))}
         </div>
@@ -65,7 +68,7 @@ export function Standings() {
       ) : view ? (
         <StandingsView key={view} view={view} withPrizes={rules.prizesVisible} />
       ) : (
-        <p className="muted">今は公開されていません。</p>
+        <p className="muted">{t("今は公開されていません。", "Not available right now.")}</p>
       )}
     </section>
   );
@@ -78,11 +81,22 @@ export function Standings() {
 function PrizesView() {
   const { rules } = useParticipant();
   const { prizes, state } = usePrizes("/prizes");
-  if (state === "hidden") return <p className="muted">今は公開されていません。</p>;
-  if (state === "error") return <p className="error">景品を読み込めませんでした。下の「更新」を押してください。</p>;
-  if (!prizes) return <p className="muted">読み込み中…</p>;
+  const t = useT();
+  const lang = useLang();
+  if (state === "hidden") return <p className="muted">{t("今は公開されていません。", "Not available right now.")}</p>;
+  if (state === "error") {
+    return (
+      <p className="error">
+        {t(
+          "景品を読み込めませんでした。下の「更新」を押してください。",
+          "Couldn’t load the prizes. Tap “Refresh” below.",
+        )}
+      </p>
+    );
+  }
+  if (!prizes) return <p className="muted">{t("読み込み中…", "Loading…")}</p>;
   const shown = prizesForDisplay(prizes);
-  if (shown.length === 0) return <p className="muted">まだ景品はありません。</p>;
+  if (shown.length === 0) return <p className="muted">{t("まだ景品はありません。", "No prizes yet.")}</p>;
   return (
     <>
       <ul className="prize-list">
@@ -92,15 +106,17 @@ function PrizesView() {
             <h3>{p.name}</h3>
             {/* 上位（1〜3 位）を含む景品は順位を金色にする */}
             <p className={`prize-positions${Math.min(...p.positions) <= 3 ? " top" : ""}`}>
-              {formatPositionLabel(p.positions)}
+              {formatPositionLabel(p.positions, lang)}
             </p>
           </li>
         ))}
       </ul>
       {rules.tieBreakOrder?.length > 0 && (
         <p className="muted small">
-          同じポイントの人は、{rules.tieBreakOrder.map((key) => TIE_BREAK_LABEL[key]).join(" → ")}
-          の順に比べて順位を決めます（ポイントの項目は多い人、登録順は先に登録した人が上）。
+          {t(
+            `同じポイントの人は、${rules.tieBreakOrder.map((key) => TIE_BREAK_LABEL[key]).join(" → ")} の順に比べて順位を決めます（ポイントの項目は多い人、登録順は先に登録した人が上）。`,
+            `Ties are broken by ${rules.tieBreakOrder.map((key) => TIE_BREAK_LABEL_EN[key]).join(" → ")}, in that order (more is higher; for registration order, earlier is higher).`,
+          )}
         </p>
       )}
     </>
@@ -109,6 +125,7 @@ function PrizesView() {
 
 function StandingsView({ view, withPrizes }: { view: "ranking" | "trend"; withPrizes: boolean }) {
   const { prizes } = usePrizes("/prizes", withPrizes && view === "ranking");
+  const t = useT();
   const [data, setData] = useState<ParticipantRankingResponse>();
   const [error, setError] = useState<string>();
   const [hidden, setHidden] = useState(false);
@@ -141,10 +158,10 @@ function StandingsView({ view, withPrizes }: { view: "ranking" | "trend"; withPr
     [data],
   );
 
-  if (hidden) return <p className="muted">今は公開されていません。</p>;
+  if (hidden) return <p className="muted">{t("今は公開されていません。", "Not available right now.")}</p>;
   if (error) return <p className="error">{error}</p>;
-  if (!data) return <p className="muted">読み込み中…</p>;
-  if (data.ranking.length === 0) return <p className="muted">まだ参加者がいません。</p>;
+  if (!data) return <p className="muted">{t("読み込み中…", "Loading…")}</p>;
+  if (data.ranking.length === 0) return <p className="muted">{t("まだ参加者がいません。", "No participants yet.")}</p>;
 
   return (
     <>
@@ -152,12 +169,19 @@ function StandingsView({ view, withPrizes }: { view: "ranking" | "trend"; withPr
         <RankingBars ranking={data.ranking} hidePoints={data.hidePoints} prizes={prizes} />
       ) : (
         <div className="card ranking-chart">
-          <h2>累計ポイントの推移</h2>
-          <p className="muted small">上位 {Math.min(MAX_LINES, data.ranking.length)} 人を色付きで表示しています。</p>
+          <h2>{t("累計ポイントの推移", "Total points over time")}</h2>
+          <p className="muted small">
+            {t(
+              `上位 ${Math.min(MAX_LINES, data.ranking.length)} 人を色付きで表示しています。`,
+              `The top ${Math.min(MAX_LINES, data.ranking.length)} are shown in color.`,
+            )}
+          </p>
           <RankingChart all={data.ranking} series={series} end={data.generatedAt} hidePoints={data.hidePoints} />
         </div>
       )}
-      <p className="muted small">最新にするには下の「更新」を押してください。</p>
+      <p className="muted small">
+        {t("最新にするには下の「更新」を押してください。", "Tap “Refresh” below to update.")}
+      </p>
     </>
   );
 }
