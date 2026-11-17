@@ -101,6 +101,16 @@ export function useT(): (ja: string, en: string) => string {
   return useCallback((ja: string, en: string) => (lang === "en" ? en : ja), [lang]);
 }
 
+/** 英語の点数（1 pt / 2 pts） */
+export function pts(n: number): string {
+  return `${n} ${n === 1 ? "pt" : "pts"}`;
+}
+
+/** 英語の人数（1 person / 2 people） */
+export function people(n: number): string {
+  return `${n} ${n === 1 ? "person" : "people"}`;
+}
+
 /** 日本語・English の切り替え */
 export function LanguageSwitch({ className }: { className?: string }) {
   const lang = useLang();

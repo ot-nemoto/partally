@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getLang, initialLang, setLang, tr } from "./i18n";
+import { getLang, initialLang, people, pts, setLang, tr } from "./i18n";
 
 describe("画面の言語", () => {
   it("覚えた言語があればそれ、無ければブラウザの言語（日本語以外は英語）", () => {
@@ -20,5 +20,12 @@ describe("画面の言語", () => {
     expect(tr("日本語", "English")).toBe("English");
     setLang("ja");
     expect(tr("日本語", "English")).toBe("日本語");
+  });
+
+  it("英語の点数と人数は単数・複数を分ける", () => {
+    expect(pts(1)).toBe("1 pt");
+    expect(pts(0)).toBe("0 pts");
+    expect(people(1)).toBe("1 person");
+    expect(people(3)).toBe("3 people");
   });
 });

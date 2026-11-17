@@ -2,7 +2,7 @@ import { type PointerEvent, useEffect, useMemo, useState } from "react";
 import { PageTitle } from "../../components/PageTitle";
 import { MAX_LINES, RankingChart } from "../../components/RankingChart";
 import { useRanking } from "../../hooks/useRanking";
-import { useT } from "../../i18n";
+import { people, useT } from "../../i18n";
 
 /**
  * 累計ポイントの推移。全員を灰色の線で描き、表で選んだ人（最大 10 人）を色付きで強調する。
@@ -89,7 +89,7 @@ export function AdminTrend() {
           <p className="muted">
             {t(
               `色を付けて出せるのは ${MAX_LINES} 人までです（ほかの人は灰色の線）。行にカーソルを合わせると、その人の線を強調します。最新にするには上の「更新」を押してください。`,
-              `Up to ${MAX_LINES} people can be shown in color (others are gray). Hover a row to highlight that person’s line. Press “Refresh” at the top to update.`,
+              `Up to ${people(MAX_LINES)} can be shown in color (others are gray). Hover a row to highlight that person’s line. Press “Refresh” at the top to update.`,
             )}
           </p>
           <div className="table-wrap">

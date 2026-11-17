@@ -1,5 +1,6 @@
 import { GAME_CHOICE_IMAGE_MAX_EDGE, PRIZE_IMAGE_MAX_EDGE } from "@partally/shared";
 import { useRef, useState } from "react";
+import { useT } from "../../i18n";
 import { processImage } from "../../photos/process";
 
 /**
@@ -23,7 +24,7 @@ const VARIANTS = {
     preview: "game-image-preview",
     actions: "game-image-actions",
     placeholder: "🖼",
-    remove: "外す",
+    remove: ["外す", "Remove"],
     maxEdge: PRIZE_IMAGE_MAX_EDGE,
   },
   choice: {
@@ -32,7 +33,7 @@ const VARIANTS = {
     preview: "game-image-preview",
     actions: "game-image-actions",
     placeholder: "🖼",
-    remove: "外す",
+    remove: ["外す", "Remove"],
     maxEdge: GAME_CHOICE_IMAGE_MAX_EDGE,
   },
   prize: {
@@ -41,7 +42,7 @@ const VARIANTS = {
     preview: "prize-image",
     actions: "prize-image-actions",
     placeholder: "🎁",
-    remove: "画像を外す",
+    remove: ["画像を外す", "Remove image"],
     maxEdge: PRIZE_IMAGE_MAX_EDGE,
   },
 } as const;
@@ -66,6 +67,7 @@ export function ImageField(props: {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string>();
   const fileRef = useRef<HTMLInputElement>(null);
+  const t = useT();
 
   async function pick(file: File | undefined) {
     if (!file) return;
@@ -78,7 +80,12 @@ export function ImageField(props: {
       props.onPicked(url);
       props.onChange({ blob, url });
     } catch {
-      setError("画像を読み込めませんでした。別の画像を選んでください。");
+      setError(
+        t(
+          "画像を読み込めませんでした。別の画像を選んでください。",
+          "The image couldn’t be read. Please choose another.",
+        ),
+      );
     } finally {
       setProcessing(false);
       props.onProcessing?.(false);
@@ -90,7 +97,7 @@ export function ImageField(props: {
       <span>{props.label}</span>
       <div className={v.body}>
         {image.url ? (
-          <img className={v.preview} src={image.url} alt="選んだ画像" />
+          <img className={v.preview} src={image.url} alt={t("選んだ画像", "Chosen image")} />
         ) : (
           <span className={`${v.preview} placeholder`} aria-hidden="true">
             {v.placeholder}
@@ -101,9 +108,17 @@ export function ImageField(props: {
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={processing || props.disabled}
-            aria-label={`${props.label}を${image.url ? "変える" : "選ぶ"}`}
+            aria-label={
+              image.url
+                ? t(`${props.label}を変える`, `Change ${props.label}`)
+                : t(`${props.label}を選ぶ`, `Choose ${props.label}`)
+            }
           >
-            {processing ? "読み込み中…" : image.url ? "画像を変える" : "画像を選ぶ"}
+            {processing
+              ? t("読み込み中…", "Loading…")
+              : image.url
+                ? t("画像を変える", "Change image")
+                : t("画像を選ぶ", "Choose image")}
           </button>
           <input
             ref={fileRef}
@@ -121,9 +136,9 @@ export function ImageField(props: {
               className="link"
               onClick={() => props.onChange({})}
               disabled={props.disabled}
-              aria-label={`${props.label}を外す`}
+              aria-label={t(`${props.label}を外す`, `Remove ${props.label}`)}
             >
-              {v.remove}
+              {t(v.remove[0], v.remove[1])}
             </button>
           )}
         </div>
