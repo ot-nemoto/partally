@@ -67,7 +67,7 @@ export function AdminTrend() {
 
   return (
     <section className="ranking">
-      <PageTitle en="Trend" ja={t("ポイントの推移", "Trend")} />
+      <PageTitle en="Trend" ja="ポイントの推移" />
       {error && <p className="error">{error}</p>}
       {data && data.ranking.length === 0 && (
         <p className="muted">{t("まだ参加者がいません。", "No participants yet.")}</p>

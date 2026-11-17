@@ -3,12 +3,12 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../api";
 import { PageTitle } from "../../components/PageTitle";
-import { formatDateTime } from "../../format";
 import { useOnReload } from "../../hooks/useReload";
-import { useT } from "../../i18n";
+import { useLang, useT } from "../../i18n";
 
 export function AdminTokens() {
   const t = useT();
+  const lang = useLang();
   const [tokens, setTokens] = useState<TokenDto[]>();
   const [count, setCount] = useState(10);
   const [error, setError] = useState<string>();
@@ -28,7 +28,15 @@ export function AdminTokens() {
 
   async function issue(e: FormEvent) {
     e.preventDefault();
-    if (!confirm(t(`QR コードを ${count} 件発行します。よろしいですか？`, `Issue ${count} QR codes?`))) return;
+    if (
+      !confirm(
+        t(
+          `QR コードを ${count} 件発行します。よろしいですか？`,
+          `Issue ${count} QR ${count === 1 ? "code" : "codes"}?`,
+        ),
+      )
+    )
+      return;
     setIssuing(true);
     try {
       await api("POST", "/admin/tokens", { count });
@@ -46,7 +54,7 @@ export function AdminTokens() {
 
   return (
     <section>
-      <PageTitle en="QR" ja={t("QR コード管理", "QR codes")}>
+      <PageTitle en="QR" ja="QR コード管理">
         <form className="inline-form title-actions" onSubmit={issue}>
           <label>
             {t("発行数", "Count")}
@@ -88,7 +96,7 @@ export function AdminTokens() {
                 <td>{tk.label}</td>
                 <td>{tk.status === "bound" ? t("登録済み", "Registered") : t("未使用", "Unused")}</td>
                 <td>{tk.displayName ?? "-"}</td>
-                <td>{tk.boundAt ? formatDateTime(tk.boundAt) : "-"}</td>
+                <td>{tk.boundAt ? new Date(tk.boundAt).toLocaleString(lang === "en" ? "en-US" : "ja-JP") : "-"}</td>
               </tr>
             ))}
           </tbody>

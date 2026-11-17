@@ -94,7 +94,7 @@ export function AdminUsers() {
 
   return (
     <section>
-      <PageTitle en="User" ja={t("ユーザ管理", "Users")} />
+      <PageTitle en="User" ja="ユーザ管理" />
       {error && <p className="error">{error}</p>}
       {users && (
         <p className="muted">

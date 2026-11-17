@@ -468,13 +468,6 @@ input {
   }
 }
 
-/* 言語の切り替えは小さめにする */
-.admin-lang button {
-  min-height: 1.8rem;
-  padding: 0 0.6rem;
-  font-size: 0.8rem;
-}
-
 .admin-nav a {
   color: var(--muted);
   text-decoration: none;
@@ -2767,4 +2760,11 @@ table.import-table td.nowrap {
   background: var(--accent);
   color: var(--accent-text);
   font-weight: 700;
+}
+
+/* 管理画面のヘッダーの切り替えは小さめにする（.lang-switch button より後に置く） */
+.admin-lang button {
+  min-height: 1.8rem;
+  padding: 0 0.6rem;
+  font-size: 0.8rem;
 }

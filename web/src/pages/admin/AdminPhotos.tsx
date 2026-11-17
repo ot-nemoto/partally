@@ -93,7 +93,7 @@ export function AdminPhotos() {
 
   return (
     <section>
-      <PageTitle en="Photo" ja={t("写真の確認・管理", "Photos")}>
+      <PageTitle en="Photo" ja="写真の確認・管理">
         <div className="tabs title-actions">
           {TABS.map((tab) => (
             <button

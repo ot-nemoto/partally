@@ -58,7 +58,7 @@ export function setLang(lang: Lang) {
   } catch {
     // 覚えられなくても、開いている間は切り替える
   }
-  applyDocumentLang(lang);
+  applyDocumentLang(fixed ?? lang);
   for (const listener of listeners) listener();
 }
 
@@ -82,6 +82,8 @@ export function tr(ja: string, en: string): string {
  * 共通の部品（写真の拡大・ランキングの表など）とエラーの文も、固定した言語にそろう
  */
 export function FixedLang({ lang, children }: { lang: Lang; children: ReactNode }) {
+  // 中の画面を描く前に固定する（初めて描くときに tr()・errorMessage を呼んでも固定した言語になる）
+  fixed = lang;
   useLayoutEffect(() => {
     fixed = lang;
     applyDocumentLang(lang);

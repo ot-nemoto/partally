@@ -21,7 +21,7 @@ export function AdminRanking() {
 
   return (
     <section className="ranking">
-      <PageTitle en="Ranking" ja={t("ランキング", "Ranking")}>
+      <PageTitle en="Ranking" ja="ランキング">
         {!race && data && data.ranking.length > 0 && (
           <button type="button" onClick={() => setRace(data)}>
             {t("▶ 推移を再生", "▶ Play the race")}

@@ -61,7 +61,9 @@ export function AdminTokensPrint() {
           <div key={token.token} className="qr-card">
             <img className="qr" src={src} alt={t(`QR コード No. ${token.label}`, `QR code No. ${token.label}`)} />
             <p className="qr-label">No. {token.label}</p>
-            <p className="qr-hint">スマホのカメラで読み込んでください</p>
+            <p className="qr-hint" lang="ja">
+              スマホのカメラで読み込んでください
+            </p>
             <p className="qr-hint" lang="en">
               Scan with your phone’s camera
             </p>
