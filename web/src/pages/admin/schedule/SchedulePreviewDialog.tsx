@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../api";
 import { Modal } from "../../../components/Modal";
 import { ScheduleContent } from "../../../components/ScheduleTimeline";
+import { useT } from "../../../i18n";
 
 /** 今の時刻（0:00 からの分。5 分単位に切り捨て） */
 function currentMinute(): number {
@@ -15,6 +16,7 @@ function currentMinute(): number {
  * 時刻を選ぶと、その時刻での「いま」「つぎ」と今の線を見られる（イベントの日付があれば、その日の時刻として見る）
  */
 export function SchedulePreviewDialog(props: { items: ScheduleItemDto[]; date: string; onClose: () => void }) {
+  const t = useT();
   const [minute, setMinute] = useState(currentMinute);
   const [visible, setVisible] = useState<boolean>();
   useEffect(() => {
@@ -33,17 +35,32 @@ export function SchedulePreviewDialog(props: { items: ScheduleItemDto[]; date: s
   }, [minute, props.date]);
 
   return (
-    <Modal className="dialog game-preview-dialog schedule-preview-dialog" label="プレビュー" onClose={props.onClose}>
+    <Modal
+      className="dialog game-preview-dialog schedule-preview-dialog"
+      label={t("プレビュー", "Preview")}
+      onClose={props.onClose}
+    >
       <div className="card">
-        <h2>プレビュー</h2>
+        <h2>{t("プレビュー", "Preview")}</h2>
         <p className="muted small">
-          参加者のスマホの「イベント情報」に出るスケジュールです。
-          {hiddenCount > 0 && `参加者に見せない列の項目（${hiddenCount} 件）は出ません。`}
-          {visible === false && "今は Setting で参加者に見せない設定なので、参加者には見えません。"}
+          {t(
+            "参加者のスマホの「イベント情報」に出るスケジュールです。",
+            "This is the schedule participants see in “Event info” on their phones.",
+          )}
+          {hiddenCount > 0 &&
+            t(
+              `参加者に見せない列の項目（${hiddenCount} 件）は出ません。`,
+              ` Items in hidden columns (${hiddenCount}) aren’t shown.`,
+            )}
+          {visible === false &&
+            t(
+              "今は Setting で参加者に見せない設定なので、参加者には見えません。",
+              " The schedule is currently hidden from participants in Setting.",
+            )}
         </p>
         <div className="schedule-preview-time">
           <label>
-            この時刻で見る
+            {t("この時刻で見る", "View at")}
             <input
               type="time"
               step={300}
@@ -55,7 +72,7 @@ export function SchedulePreviewDialog(props: { items: ScheduleItemDto[]; date: s
             />
           </label>
           <button type="button" className="link" onClick={() => setMinute(currentMinute())}>
-            今の時刻
+            {t("今の時刻", "Now")}
           </button>
         </div>
         <div className="game-preview-phone">
@@ -67,7 +84,7 @@ export function SchedulePreviewDialog(props: { items: ScheduleItemDto[]; date: s
         </div>
         <div className="buttons">
           <button type="button" onClick={props.onClose}>
-            閉じる
+            {t("閉じる", "Close")}
           </button>
         </div>
       </div>

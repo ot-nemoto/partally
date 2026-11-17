@@ -2,6 +2,7 @@ import { formatPositions, PRIZE_IMAGE_MAX_EDGE, type PrizeResponse, type PrizesR
 import type { PrizeArchiveItem } from "@partally/shared/prize-archive";
 import { useEffect, useState } from "react";
 import { api } from "../../../api";
+import { useT } from "../../../i18n";
 import { processImage } from "../../../photos/process";
 import { uploadPrizeImage } from "../prizeImage";
 import { fetchImage, imageFile } from "./files";
@@ -36,6 +37,7 @@ export async function importPrize(item: PrizeArchiveItem): Promise<void> {
 
 /** 取り込む景品の一覧（画像・名前・数量・渡す順位） */
 export function PrizePreview(props: { items: PrizeArchiveItem[] }) {
+  const t = useT();
   const { items } = props;
   // 画像のプレビュー用 URL。作った effect の片付けで解放する（作り直しても、表示中の URL を解放しないように）
   const [urls, setUrls] = useState<(string | undefined)[]>([]);
@@ -51,10 +53,10 @@ export function PrizePreview(props: { items: PrizeArchiveItem[] }) {
     <table className="import-table">
       <thead>
         <tr>
-          <th>画像</th>
-          <th>名前</th>
-          <th className="num">数量</th>
-          <th>渡す順位</th>
+          <th>{t("画像", "Image")}</th>
+          <th>{t("名前", "Name")}</th>
+          <th className="num">{t("数量", "Quantity")}</th>
+          <th>{t("渡す順位", "Positions")}</th>
         </tr>
       </thead>
       <tbody>
@@ -72,7 +74,13 @@ export function PrizePreview(props: { items: PrizeArchiveItem[] }) {
             </td>
             <td>{p.name}</td>
             <td className="num">{p.quantity}</td>
-            <td>{p.positions.length > 0 ? formatPositions(p.positions) : <span className="muted">なし</span>}</td>
+            <td>
+              {p.positions.length > 0 ? (
+                formatPositions(p.positions)
+              ) : (
+                <span className="muted">{t("なし", "None")}</span>
+              )}
+            </td>
           </tr>
         ))}
       </tbody>

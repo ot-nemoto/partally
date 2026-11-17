@@ -1,9 +1,10 @@
 import { ARCHIVE_MAX_BYTES, type GamesResponse, type PrizesResponse, type ScheduleResponse } from "@partally/shared";
 import type { DataArchive } from "@partally/shared/data-archive";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, errorMessage } from "../../api";
+import { ApiError, api, errorMessage } from "../../api";
 import { PageTitle } from "../../components/PageTitle";
 import { useOnReload } from "../../hooks/useReload";
+import { tr, useT } from "../../i18n";
 import { type CurrentData, DataImportDialog } from "./data/DataImportDialog";
 import { dateStamp, download } from "./data/files";
 import { exportGames } from "./data/games";
@@ -17,11 +18,11 @@ const loadArchive = () => import("@partally/shared/data-archive");
 type Kind = "prizes" | "games" | "schedule" | "settings";
 
 /** 並びはヘッダーのメニュー（Game・Prize・Schedule・Setting）と同じ */
-const KIND_LABEL: Record<Kind, string> = {
-  games: "ゲーム",
-  prizes: "景品",
-  schedule: "スケジュール",
-  settings: "設定",
+const KIND_LABEL: Record<Kind, [ja: string, en: string]> = {
+  games: ["ゲーム", "Games"],
+  prizes: ["景品", "Prizes"],
+  schedule: ["スケジュール", "Schedule"],
+  settings: ["設定", "Settings"],
 };
 
 /**
@@ -29,6 +30,7 @@ const KIND_LABEL: Record<Kind, string> = {
  * 次のイベントやリハーサル用の環境で取り込む
  */
 export function AdminData() {
+  const t = useT();
   const [current, setCurrent] = useState<CurrentData>();
   const [error, setError] = useState<string>();
   const [selected, setSelected] = useState<Record<Kind, boolean>>({
@@ -40,7 +42,8 @@ export function AdminData() {
   const [exporting, setExporting] = useState(false);
   const [reading, setReading] = useState(false);
   const [imported, setImported] = useState<DataArchive>();
-  const [message, setMessage] = useState<string>();
+  /** 知らせ（日本語・英語。表示するときに言語を選ぶ） */
+  const [message, setMessage] = useState<[ja: string, en: string]>();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -91,9 +94,16 @@ export function AdminData() {
       const now = new Date();
       const zip = buildDataArchive(data, now.toISOString());
       download(new Blob([zip as BlobPart], { type: "application/zip" }), `partally-data-${dateStamp(now)}.zip`);
-      setMessage(`${chosen.map((kind) => KIND_LABEL[kind]).join("・")}を書き出しました。`);
+      const en = chosen.map((kind) => KIND_LABEL[kind][1].toLowerCase());
+      setMessage([
+        `${chosen.map((kind) => KIND_LABEL[kind][0]).join("・")}を書き出しました。`,
+        `Exported ${en.length > 1 ? `${en.slice(0, -1).join(", ")} and ${en.at(-1)}` : en[0]}.`,
+      ]);
     } catch (e) {
-      alert(`エクスポートできませんでした。${errorMessage(e)}`);
+      // 画像を取れなかったときは、どの画像かを出す（通信の失敗・サーバのエラーは決まった文にする）
+      const reason =
+        e instanceof Error && !(e instanceof ApiError) && !(e instanceof TypeError) ? e.message : errorMessage(e);
+      alert(tr(`エクスポートできませんでした。${reason}`, `Export failed. ${reason}`));
     } finally {
       setExporting(false);
     }
@@ -104,7 +114,12 @@ export function AdminData() {
     setMessage(undefined);
     // 間違えて大きなファイルを選んでも画面が固まらないよう、読む前に大きさを確かめる
     if (file.size > ARCHIVE_MAX_BYTES) {
-      alert(`このファイルは取り込めません。\nファイルが大きすぎます（${ARCHIVE_MAX_BYTES / 1024 / 1024}MB まで）。`);
+      alert(
+        tr(
+          `このファイルは取り込めません。\nファイルが大きすぎます（${ARCHIVE_MAX_BYTES / 1024 / 1024}MB まで）。`,
+          `This file can’t be imported.\nIt’s too large (up to ${ARCHIVE_MAX_BYTES / 1024 / 1024} MB).`,
+        ),
+      );
       return;
     }
     setReading(true);
@@ -112,9 +127,10 @@ export function AdminData() {
       const { readDataArchive } = await loadArchive();
       const result = readDataArchive(new Uint8Array(await file.arrayBuffer()));
       if (result.ok) setImported(result.data);
-      else alert(`このファイルは取り込めません。\n${result.error}`);
+      else
+        alert(tr(`このファイルは取り込めません。\n${result.error}`, `This file can’t be imported.\n(${result.error})`));
     } catch (e) {
-      alert(`ファイルを読めませんでした。${errorMessage(e)}`);
+      alert(tr(`ファイルを読めませんでした。${errorMessage(e)}`, `The file couldn’t be read. ${errorMessage(e)}`));
     } finally {
       setReading(false);
     }
@@ -124,14 +140,16 @@ export function AdminData() {
     <section className="admin-data">
       <PageTitle en="Data" ja="データの移行" />
       <p className="muted small">
-        ゲーム・景品・スケジュール・設定を 1 つの ZIP
-        ファイルに書き出し、次のイベント（データを消した後）やリハーサル用の環境で取り込めます。
+        {t(
+          "ゲーム・景品・スケジュール・設定を 1 つの ZIP ファイルに書き出し、次のイベント（データを消した後）やリハーサル用の環境で取り込めます。",
+          "Export games, prizes, the schedule and settings into one ZIP file, and import it for the next event (after the data is cleared) or into a rehearsal environment.",
+        )}
       </p>
       {error && <p className="error">{error}</p>}
 
       <div className="card data-card">
-        <h2>エクスポート</h2>
-        <p className="muted small">書き出すものを選んでください。</p>
+        <h2>{t("エクスポート", "Export")}</h2>
+        <p className="muted small">{t("書き出すものを選んでください。", "Choose what to export.")}</p>
         <div className="data-kinds">
           {(Object.keys(KIND_LABEL) as Kind[]).map((kind) => (
             <label key={kind} className="import-option">
@@ -142,14 +160,19 @@ export function AdminData() {
                 onChange={(e) => setSelected({ ...selected, [kind]: e.target.checked })}
               />
               <span>
-                {KIND_LABEL[kind]}
-                {counts[kind] !== undefined && <span className="muted">（{counts[kind]} 件）</span>}
+                {t(...KIND_LABEL[kind])}
+                {counts[kind] !== undefined && (
+                  <span className="muted">{t(`（${counts[kind]} 件）`, ` (${counts[kind]})`)}</span>
+                )}
               </span>
             </label>
           ))}
         </div>
         <p className="muted small">
-          ゲームは作り直すのに要るもの（形式・名前・説明・画像・選択肢・枠・点数の範囲・正解の数・合言葉など）を入れ、開催・確定の状態、答え、抽選の順番、結果入力の枠に選んだ人は入れません。
+          {t(
+            "ゲームは作り直すのに要るもの（形式・名前・説明・画像・選択肢・枠・点数の範囲・正解の数・合言葉など）を入れ、開催・確定の状態、答え、抽選の順番、結果入力の枠に選んだ人は入れません。",
+            "Games include what’s needed to recreate them (format, name, description, images, choices, slots, points ranges, correct number, keyword, etc.), but not their status, answers, draw order or the people chosen for slots.",
+          )}
         </p>
         <div className="buttons">
           <button
@@ -158,20 +181,22 @@ export function AdminData() {
             onClick={exportNow}
             disabled={exporting || !current || chosen.length === 0}
           >
-            {exporting ? "書き出し中…" : "エクスポート"}
+            {exporting ? t("書き出し中…", "Exporting…") : t("エクスポート", "Export")}
           </button>
         </div>
       </div>
 
       <div className="card data-card">
-        <h2>インポート</h2>
+        <h2>{t("インポート", "Import")}</h2>
         <p className="muted small">
-          エクスポートした ZIP を選ぶと、中身を見て、取り込むものと取り込み方（追加か置き換えか）を選べます。
-          以前に景品・ゲーム・スケジュールの画面で書き出したファイル（ZIP・JSON）も取り込めます。
+          {t(
+            "エクスポートした ZIP を選ぶと、中身を見て、取り込むものと取り込み方（追加か置き換えか）を選べます。以前に景品・ゲーム・スケジュールの画面で書き出したファイル（ZIP・JSON）も取り込めます。",
+            "Choose an exported ZIP to see its contents and pick what to import and how (add or replace). Files exported earlier from the Prize, Game or Schedule screens (ZIP/JSON) can be imported too.",
+          )}
         </p>
         <div className="buttons">
           <button type="button" onClick={() => fileRef.current?.click()} disabled={reading || !current}>
-            {reading ? "読み込み中…" : "ファイルを選ぶ"}
+            {reading ? t("読み込み中…", "Loading…") : t("ファイルを選ぶ", "Choose file")}
           </button>
         </div>
         <input
@@ -185,7 +210,7 @@ export function AdminData() {
           }}
         />
       </div>
-      {message && <p className="small">{message}</p>}
+      {message && <p className="small">{t(...message)}</p>}
 
       {imported && current && (
         <DataImportDialog
@@ -194,7 +219,7 @@ export function AdminData() {
           onClose={() => setImported(undefined)}
           onDone={() => {
             setImported(undefined);
-            setMessage("取り込みました。");
+            setMessage(["取り込みました。", "Imported."]);
             void load();
           }}
         />

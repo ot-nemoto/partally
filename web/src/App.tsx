@@ -1,6 +1,6 @@
-import { Link, Navigate, Outlet, Route, Routes } from "react-router-dom";
+import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { ParticipantLayout } from "./components/ParticipantLayout";
-import { FixedLang, useT } from "./i18n";
+import { useT } from "./i18n";
 import { AdminData } from "./pages/admin/AdminData";
 import { AdminGames } from "./pages/admin/AdminGames";
 import { AdminLayout } from "./pages/admin/AdminLayout";
@@ -48,19 +48,10 @@ export function App() {
         <Route path="photos" element={<AdminPhotos />} />
         <Route path="quizzes" element={<Navigate to="/admin/games" replace />} />
         <Route path="games" element={<AdminGames />} />
-        {/* まだ英語に対応していない画面は、日本語に固定する */}
-        <Route
-          element={
-            <FixedLang lang="ja">
-              <Outlet />
-            </FixedLang>
-          }
-        >
-          <Route path="prizes" element={<AdminPrizes />} />
-          <Route path="schedule" element={<AdminSchedule />} />
-          <Route path="settings" element={<AdminSettings />} />
-          <Route path="data" element={<AdminData />} />
-        </Route>
+        <Route path="prizes" element={<AdminPrizes />} />
+        <Route path="schedule" element={<AdminSchedule />} />
+        <Route path="settings" element={<AdminSettings />} />
+        <Route path="data" element={<AdminData />} />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>

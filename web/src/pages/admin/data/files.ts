@@ -1,9 +1,17 @@
 /** エクスポート・インポートで使うファイルの部品（景品・ゲーム・スケジュールで共通） */
 
+import { tr } from "../../../i18n";
+
 /** 配信中の画像を取ってくる（エクスポートで ZIP に入れる） */
 export async function fetchImage(url: string, name: string): Promise<Uint8Array> {
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`「${name}」の画像を取得できませんでした（${res.status}）`);
+  if (!res.ok)
+    throw new Error(
+      tr(
+        `「${name}」の画像を取得できませんでした（${res.status}）`,
+        `Couldn’t get the image for “${name}” (${res.status})`,
+      ),
+    );
   return new Uint8Array(await res.arrayBuffer());
 }
 

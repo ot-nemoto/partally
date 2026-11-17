@@ -25,6 +25,12 @@ describe("parsePositions", () => {
     expect(parsePositions("5-3")).toHaveProperty("error");
     expect(parsePositions("1-1001")).toHaveProperty("error");
   });
+
+  it("英語の画面では英語の誤りの文", () => {
+    expect(parsePositions("1, a", "en")).toEqual({ error: "“a” isn’t a rank" });
+    expect(parsePositions("5-3", "en")).toEqual({ error: "“5-3” isn’t a valid rank range" });
+    expect(parsePositions("1-1001", "en")).toEqual({ error: "Ranks go up to 1000" });
+  });
 });
 
 describe("formatPositions", () => {

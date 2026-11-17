@@ -1,13 +1,14 @@
 import {
   GAME_CHOICE_IMAGE_MAX_EDGE,
-  GAME_FORMAT_LABEL,
   type GameRequest,
   type GameResponse,
   type GamesResponse,
+  gameFormatLabel,
   PRIZE_IMAGE_MAX_EDGE,
 } from "@partally/shared";
 import type { GameArchiveItem } from "@partally/shared/game-archive";
 import { api } from "../../../api";
+import { tr, useLang, useT } from "../../../i18n";
 import { processImage } from "../../../photos/process";
 import { FORMAT_ICON } from "../games/formats";
 import { uploadGameImage } from "../prizeImage";
@@ -31,7 +32,7 @@ export async function exportGames(): Promise<GameArchiveItem[]> {
         g.choices.map(async (ch) => ({
           text: ch.text,
           points: ch.points,
-          image: await image(ch.imageUrl, `${g.name}の選択肢「${ch.text}」`),
+          image: await image(ch.imageUrl, tr(`${g.name}の選択肢「${ch.text}」`, `${g.name} choice “${ch.text}”`)),
         })),
       ),
       slots: g.slots.map((s) => ({ name: s.name, points: s.points })),
@@ -73,14 +74,16 @@ export async function importGame(item: GameArchiveItem): Promise<void> {
 
 /** 取り込むゲームの一覧（形式・名前・中身・画像の数） */
 export function GamePreview(props: { items: GameArchiveItem[] }) {
+  const t = useT();
+  const lang = useLang();
   return (
     <table className="import-table">
       <thead>
         <tr>
-          <th>形式</th>
-          <th>名前</th>
-          <th>中身</th>
-          <th className="num">画像</th>
+          <th>{t("形式", "Format")}</th>
+          <th>{t("名前", "Name")}</th>
+          <th>{t("中身", "Contents")}</th>
+          <th className="num">{t("画像", "Images")}</th>
         </tr>
       </thead>
       <tbody>
@@ -89,7 +92,7 @@ export function GamePreview(props: { items: GameArchiveItem[] }) {
           <tr key={i}>
             <td className="nowrap">
               <span aria-hidden="true">{FORMAT_ICON[g.format]} </span>
-              {GAME_FORMAT_LABEL[g.format]}
+              {gameFormatLabel(g.format, lang)}
             </td>
             <td>{g.name}</td>
             <td>{contentsOf(g)}</td>
@@ -104,10 +107,13 @@ export function GamePreview(props: { items: GameArchiveItem[] }) {
 function contentsOf(g: GameArchiveItem): string {
   switch (g.format) {
     case "quiz":
-      return `選択肢 ${g.choices.length}`;
+      return tr(`選択肢 ${g.choices.length}`, `${g.choices.length} ${g.choices.length === 1 ? "choice" : "choices"}`);
     case "result":
-      return `枠 ${g.slots.length}`;
+      return tr(`枠 ${g.slots.length}`, `${g.slots.length} ${g.slots.length === 1 ? "slot" : "slots"}`);
     default:
-      return `点数の範囲 ${g.ranks.length}`;
+      return tr(
+        `点数の範囲 ${g.ranks.length}`,
+        `${g.ranks.length} ${g.ranks.length === 1 ? "points range" : "points ranges"}`,
+      );
   }
 }
