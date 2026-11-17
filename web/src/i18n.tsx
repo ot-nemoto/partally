@@ -102,12 +102,12 @@ export function useT(): (ja: string, en: string) => string {
 }
 
 /** 英語の点数（1 pt / 2 pts） */
-export function pts(n: number | undefined): string {
+export function pts(n: number): string {
   return `${n} ${n === 1 ? "pt" : "pts"}`;
 }
 
 /** 英語の人数（1 person / 2 people） */
-export function people(n: number | undefined): string {
+export function people(n: number): string {
   return `${n} ${n === 1 ? "person" : "people"}`;
 }
 

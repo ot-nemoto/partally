@@ -1,4 +1,4 @@
-import { ordinal } from "./ordinal.js";
+import { ordinalRange } from "./ordinal.js";
 /**
  * ゲームの決まり（形式によらない部分と、形式ごとの集計）。API と画面の両方で使う。
  * 数値予想の順位付け・投票の集計・合言葉の比べ方・抽選の並べ替え・確定の条件など
@@ -98,8 +98,7 @@ export function rankUnit(format: GameFormat): string {
 
 /** 「1〜5 位」「3 位」のように書く */
 export function formatRankRange(range: Pick<RankRange, "from" | "to">, unit = "位", lang: "ja" | "en" = "ja"): string {
-  if (lang === "en")
-    return range.from === range.to ? ordinal(range.from) : `${ordinal(range.from)}–${ordinal(range.to)}`;
+  if (lang === "en") return ordinalRange(range.from, range.to);
   return range.from === range.to ? `${range.from} ${unit}` : `${range.from}〜${range.to} ${unit}`;
 }
 

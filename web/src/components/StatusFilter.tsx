@@ -68,7 +68,7 @@ export function StatusFilter<S extends string>(props: {
           aria-pressed={props.shown.has(s)}
           onClick={() => props.onToggle(s)}
         >
-          {props.labels[s]}（{props.counts[s]}）
+          {t(`${props.labels[s]}（${props.counts[s]}）`, `${props.labels[s]} (${props.counts[s]})`)}
         </button>
       ))}
     </fieldset>

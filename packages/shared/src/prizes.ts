@@ -1,4 +1,4 @@
-import { ordinal } from "./ordinal.js";
+import { ordinalRange } from "./ordinal.js";
 import { PRIZE_POSITION_MAX } from "./schemas.js";
 import type { PrizeDto, RankingEntryDto } from "./types.js";
 
@@ -32,7 +32,7 @@ export function formatPositions(positions: number[]): string {
 export function formatPositionLabel(positions: number[], lang: "ja" | "en" = "ja"): string {
   if (lang === "en") {
     return positionRanges(positions)
-      .map(([from, to]) => (to === from ? ordinal(from) : `${ordinal(from)}–${ordinal(to)}`))
+      .map(([from, to]) => ordinalRange(from, to))
       .join(", ");
   }
   return positionRanges(positions)

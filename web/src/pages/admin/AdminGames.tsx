@@ -1,12 +1,11 @@
 import {
   formatRankRange,
-  GAME_FORMAT_LABEL,
-  GAME_FORMAT_LABEL_EN,
   type GameDto,
   type GameResponse,
   type GameStatus,
   type GamesResponse,
   gameConfirmProblem,
+  gameFormatLabel,
   hasGameAnswers,
   hasGameRanks,
   rankUnit,
@@ -222,7 +221,7 @@ export function AdminGames() {
             <span className="muted small">{t(`第 ${number} ゲーム`, `Game ${number}`)}</span>
             <span className="game-format small">
               <span aria-hidden="true">{FORMAT_ICON[g.format]} </span>
-              {(lang === "en" ? GAME_FORMAT_LABEL_EN : GAME_FORMAT_LABEL)[g.format]}
+              {gameFormatLabel(g.format, lang)}
             </span>
             <span className={`status status-${g.status}`}>{t(...STATUS_LABEL[g.status])}</span>
             {g.status === "open" && hasGameAnswers(g) && (
@@ -251,8 +250,8 @@ export function AdminGames() {
                     {ch.imageUrl && <img className="game-choice-thumb" src={ch.imageUrl} alt="" loading="lazy" />}
                     {ch.text}
                   </span>
-                  <span className="muted small">{t(`${ch.points} 点`, `${pts(ch.points)}`)}</span>
-                  <span className="num">{t(`${ch.answerCount} 人`, `${ch.answerCount}`)}</span>
+                  <span className="muted small">{t(`${ch.points} 点`, pts(ch.points))}</span>
+                  <span className="num">{t(`${ch.answerCount} 人`, people(ch.answerCount))}</span>
                 </li>
               ))}
             </ul>
@@ -273,7 +272,7 @@ export function AdminGames() {
               {g.format === "vote" && (
                 <p className="small game-number-correct">
                   {t("投票した人に: ", "To each voter: ")}
-                  <strong>{t(`${g.voterPoints} 点`, `${pts(g.voterPoints)}`)}</strong>
+                  <strong>{t(`${g.voterPoints} 点`, pts(g.voterPoints))}</strong>
                 </p>
               )}
               {g.format === "keyword" && (
@@ -294,7 +293,7 @@ export function AdminGames() {
                   {g.ranks.map((r) => (
                     <li key={r.from}>
                       <span>{formatRankRange(r, rankUnit(g.format), lang)}</span>
-                      <span className="muted small">{t(`${r.points} 点`, `${pts(r.points)}`)}</span>
+                      <span className="muted small">{t(`${r.points} 点`, pts(r.points))}</span>
                     </li>
                   ))}
                 </ul>
@@ -445,7 +444,7 @@ function confirmNote(g: GameDto): string {
     case "vote":
       return tr(
         `確定すると投票の受付が終わり、得票の順位で選ばれた人（投票 ${g.answerCount} 人）にポイントが入ります。`,
-        `Voting closes, and the people voted for get points by vote ranking (${g.answerCount} votes).`,
+        `Voting closes, and the people voted for get points by vote ranking (${g.answerCount} ${g.answerCount === 1 ? "vote" : "votes"}).`,
       );
     case "keyword":
       return tr(
@@ -455,7 +454,7 @@ function confirmNote(g: GameDto): string {
     case "lottery":
       return tr(
         `確定すると受付が終わり、参加した ${g.answerCount} 人から抽選して、当たった人にポイントが入ります。`,
-        `Entries close, a draw is made from the ${g.answerCount} entrants, and the winners get points.`,
+        `Entries close, a draw is made from ${g.answerCount} ${g.answerCount === 1 ? "entrant" : "entrants"}, and the winners get points.`,
       );
     default:
       return g.slots.some((s) => s.userIds.length > 0)

@@ -44,7 +44,9 @@ export function GameAnswersDialog(props: { game: GameDto; onClose: () => void })
           <p className="muted small">
             {t(
               `確定より後に届いた答え（${late.length} 件）は、ポイントと同じく数えていません。`,
-              `${late.length} answer(s) that arrived after finalizing aren’t counted, same as for points.`,
+              late.length === 1
+                ? "1 answer that arrived after finalizing isn’t counted, same as for points."
+                : `${late.length} answers that arrived after finalizing aren’t counted, same as for points.`,
             )}
           </p>
         )}
@@ -146,7 +148,7 @@ function NumberAnswers(props: { game: GameDto; answers: GameAnswersResponse["ans
               <td className="num">{r.answer.value}</td>
               <td className="num">{r.diff}</td>
               <td>{r.answer.displayName ?? t("（不明なユーザ）", "(unknown user)")}</td>
-              <td className="num">{t(`${r.points} 点`, `${pts(r.points)}`)}</td>
+              <td className="num">{t(`${r.points} 点`, pts(r.points))}</td>
             </tr>
           ))}
         </tbody>
@@ -210,7 +212,7 @@ function LotteryAnswers(props: { game: GameDto; answers: GameAnswersResponse["an
                 <td className="num">{w.order}</td>
                 <td>{names.get(w.userId) ?? t("（不明なユーザ）", "(unknown user)")}</td>
                 <td>{formatRankRange(w.range, "等", lang)}</td>
-                <td className="num">{t(`${w.range.points} 点`, `${pts(w.range.points)}`)}</td>
+                <td className="num">{t(`${w.range.points} 点`, pts(w.range.points))}</td>
               </tr>
             ))}
           </tbody>
@@ -269,7 +271,7 @@ function KeywordAnswers(props: { game: GameDto; answers: GameAnswersResponse["an
               <td className="num">
                 {t(
                   `${rankRangeOf(game.ranks, i + 1)?.points ?? 0} 点`,
-                  `${pts(rankRangeOf(game.ranks, i + 1)?.points ?? 0)}`,
+                  pts(rankRangeOf(game.ranks, i + 1)?.points ?? 0),
                 )}
               </td>
             </tr>
@@ -315,7 +317,7 @@ function VoteAnswers(props: { game: GameDto; answers: GameAnswersResponse["answe
                 <td className="num">{t(`${r.rank} 位`, ordinal(r.rank))}</td>
                 <td>{voters[0]?.targetDisplayName ?? unknown}</td>
                 <td className="num">{r.votes}</td>
-                <td className="num">{t(`${r.points} 点`, `${pts(r.points)}`)}</td>
+                <td className="num">{t(`${r.points} 点`, pts(r.points))}</td>
                 <td className="game-voters small">{voters.map((a) => a.displayName ?? unknown).join(t("、", ", "))}</td>
               </tr>
             );

@@ -263,6 +263,11 @@ export const GAME_FORMAT_LABEL: Record<(typeof GAME_FORMATS)[number], string> = 
   keyword: "合言葉",
   lottery: "抽選",
 };
+/** 形式の名前を言語に合わせて選ぶ */
+export function gameFormatLabel(format: (typeof GAME_FORMATS)[number], lang: "ja" | "en"): string {
+  return (lang === "en" ? GAME_FORMAT_LABEL_EN : GAME_FORMAT_LABEL)[format];
+}
+
 /** GAME_FORMAT_LABEL の英語（管理画面を英語にしたとき） */
 export const GAME_FORMAT_LABEL_EN: Record<(typeof GAME_FORMATS)[number], string> = {
   quiz: "Quiz",

@@ -62,12 +62,9 @@ export function errorMessage(e: unknown): string {
           "Too many wrong PINs, so this QR code is locked. Please ask the organizers.",
         );
       case "invalid_state":
-        return !en && detail
-          ? detail
-          : tr(
-              "他の操作で状態が変わっています。画面を更新してください。",
-              "Something changed in the meantime. Please refresh.",
-            );
+        // サーバの理由は日本語だけなので、英語の画面では決まった文に添える
+        if (en) return `This can’t be done right now.${detail ? ` (${detail})` : " Please refresh."}`;
+        return detail ?? "他の操作で状態が変わっています。画面を更新してください。";
       case "favorite_limit":
         return tr(
           "お気に入りは上限まで選んでいます。他の写真を外してから選んでください。",
@@ -85,7 +82,7 @@ export function errorMessage(e: unknown): string {
           "The image couldn’t be saved. Please choose it again and save.",
         );
       case "bad_request":
-        if (en) return "Please check what you entered.";
+        if (en) return `Please check what you entered.${detail ? ` (${detail})` : ""}`;
         return detail ? `入力内容を確認してください（${detail}）` : "入力内容を確認してください。";
       default:
         return tr(

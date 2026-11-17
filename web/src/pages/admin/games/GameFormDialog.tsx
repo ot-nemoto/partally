@@ -3,8 +3,6 @@ import {
   GAME_CHOICES_MAX,
   GAME_CHOICES_MIN,
   GAME_DESCRIPTION_MAX_LENGTH,
-  GAME_FORMAT_LABEL,
-  GAME_FORMAT_LABEL_EN,
   GAME_KEYWORD_MAX_LENGTH,
   GAME_NAME_MAX_LENGTH,
   GAME_NUMBER_MAX,
@@ -16,6 +14,7 @@ import {
   type GameDto,
   type GameFormat,
   type GameResponse,
+  gameFormatLabel,
   hasGameRanks,
   POINTS_MAX,
   rankUnit,
@@ -236,7 +235,7 @@ export function GameFormDialog(props: {
   const rankError = ranked ? rankProblem(ranks, unit) : undefined;
   const title = game ? t("ゲームの編集", "Edit game") : t("ゲームを作る", "New game");
   const label = quiz ? t("選択肢", "Choice") : t("枠", "Slot");
-  const formatLabel = lang === "en" ? GAME_FORMAT_LABEL_EN : GAME_FORMAT_LABEL;
+  const formatLabel = (f: GameFormat) => gameFormatLabel(f, lang);
 
   return (
     <Modal className="dialog game-dialog" label={title} onClose={props.onClose} closable={!saving}>
@@ -245,7 +244,7 @@ export function GameFormDialog(props: {
         {game ? (
           <p className="small">
             {t("形式: ", "Format: ")}
-            <span className="game-format">{formatLabel[format]}</span>
+            <span className="game-format">{formatLabel(format)}</span>
           </p>
         ) : (
           <fieldset className="game-format-choice">
@@ -257,7 +256,7 @@ export function GameFormDialog(props: {
                   <span className="game-format-icon" aria-hidden="true">
                     {FORMAT_ICON[f]}
                   </span>
-                  <strong>{formatLabel[f]}</strong>
+                  <strong>{formatLabel(f)}</strong>
                   <span className="muted small">{formatText(f, lang).summary}</span>
                 </label>
               ))}
