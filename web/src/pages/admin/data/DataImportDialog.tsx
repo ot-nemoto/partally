@@ -54,11 +54,17 @@ export function DataImportDialog(props: {
       include.prizes &&
         prizeMode === "replace" &&
         current.prizes.length > 0 &&
-        t(`景品 ${current.prizes.length} 件`, `${current.prizes.length} prizes`),
+        t(
+          `景品 ${current.prizes.length} 件`,
+          current.prizes.length === 1 ? "1 prize" : `${current.prizes.length} prizes`,
+        ),
       include.schedule &&
         scheduleMode === "replace" &&
         current.scheduleItems.length > 0 &&
-        t(`スケジュールの項目 ${current.scheduleItems.length} 件`, `${current.scheduleItems.length} schedule items`),
+        t(
+          `スケジュールの項目 ${current.scheduleItems.length} 件`,
+          current.scheduleItems.length === 1 ? "1 schedule item" : `${current.scheduleItems.length} schedule items`,
+        ),
     ].filter(Boolean);
     const notes = [
       removing.length > 0 &&
@@ -81,7 +87,7 @@ export function DataImportDialog(props: {
     const done: string[] = [];
     /** items を 1 件ずつ取り込む。置き換えのときは、取り込めてから今のものを消す（ほかの画面で消されていたら飛ばす） */
     async function step<T>(
-      [label, labelEn]: [ja: string, en: string],
+      [label, labelEn, singular]: [ja: string, en: string, enSingular: string],
       items: T[],
       nameOf: (item: T) => string,
       importOne: (item: T) => Promise<void>,
@@ -113,16 +119,18 @@ export function DataImportDialog(props: {
         }
       }
       removingNow = false;
-      done.push(t(`${label} ${items.length} 件`, `${items.length} ${labelEn.toLowerCase()}`));
+      done.push(
+        t(`${label} ${items.length} 件`, `${items.length} ${(items.length === 1 ? singular : labelEn).toLowerCase()}`),
+      );
     }
     try {
       if (include.games && data.games) {
-        await step(["ゲーム", "Games"], data.games, (g) => g.name, importGame);
+        await step(["ゲーム", "Games", "Game"], data.games, (g) => g.name, importGame);
       }
       if (include.prizes && data.prizes) {
         const removers =
           prizeMode === "replace" ? current.prizes.map((p) => () => api("DELETE", `/admin/prizes/${p.prizeId}`)) : [];
-        await step(["景品", "Prizes"], data.prizes, (p) => p.name, importPrize, removers);
+        await step(["景品", "Prizes", "Prize"], data.prizes, (p) => p.name, importPrize, removers);
       }
       if (include.schedule && data.schedule) {
         const removers =
@@ -137,7 +145,13 @@ export function DataImportDialog(props: {
         const ordered = [...data.schedule.items]
           .sort((a, b) => (a.column ?? 0) - (b.column ?? 0) || a.startMinute - b.startMinute)
           .map((item) => ({ ...item, column: (item.column ?? 0) + offset }));
-        await step(["スケジュール", "Schedule items"], ordered, (item) => item.title, importScheduleItem, removers);
+        await step(
+          ["スケジュール", "Schedule items", "Schedule item"],
+          ordered,
+          (item) => item.title,
+          importScheduleItem,
+          removers,
+        );
       }
       const date = include.schedule && withDate ? data.schedule?.date : undefined;
       if ((include.settings && data.settings) || date) {

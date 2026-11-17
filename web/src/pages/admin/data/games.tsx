@@ -107,10 +107,13 @@ export function GamePreview(props: { items: GameArchiveItem[] }) {
 function contentsOf(g: GameArchiveItem): string {
   switch (g.format) {
     case "quiz":
-      return tr(`選択肢 ${g.choices.length}`, `${g.choices.length} choices`);
+      return tr(`選択肢 ${g.choices.length}`, `${g.choices.length} ${g.choices.length === 1 ? "choice" : "choices"}`);
     case "result":
-      return tr(`枠 ${g.slots.length}`, `${g.slots.length} slots`);
+      return tr(`枠 ${g.slots.length}`, `${g.slots.length} ${g.slots.length === 1 ? "slot" : "slots"}`);
     default:
-      return tr(`点数の範囲 ${g.ranks.length}`, `${g.ranks.length} points ranges`);
+      return tr(
+        `点数の範囲 ${g.ranks.length}`,
+        `${g.ranks.length} ${g.ranks.length === 1 ? "points range" : "points ranges"}`,
+      );
   }
 }

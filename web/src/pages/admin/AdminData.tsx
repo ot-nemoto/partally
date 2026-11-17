@@ -1,7 +1,7 @@
 import { ARCHIVE_MAX_BYTES, type GamesResponse, type PrizesResponse, type ScheduleResponse } from "@partally/shared";
 import type { DataArchive } from "@partally/shared/data-archive";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, errorMessage } from "../../api";
+import { ApiError, api, errorMessage } from "../../api";
 import { PageTitle } from "../../components/PageTitle";
 import { useOnReload } from "../../hooks/useReload";
 import { tr, useT } from "../../i18n";
@@ -42,7 +42,8 @@ export function AdminData() {
   const [exporting, setExporting] = useState(false);
   const [reading, setReading] = useState(false);
   const [imported, setImported] = useState<DataArchive>();
-  const [message, setMessage] = useState<string>();
+  /** 知らせ（日本語・英語。表示するときに言語を選ぶ） */
+  const [message, setMessage] = useState<[ja: string, en: string]>();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -93,14 +94,16 @@ export function AdminData() {
       const now = new Date();
       const zip = buildDataArchive(data, now.toISOString());
       download(new Blob([zip as BlobPart], { type: "application/zip" }), `partally-data-${dateStamp(now)}.zip`);
-      setMessage(
-        tr(
-          `${chosen.map((kind) => KIND_LABEL[kind][0]).join("・")}を書き出しました。`,
-          `Exported ${chosen.map((kind) => KIND_LABEL[kind][1]).join(", ")}.`,
-        ),
-      );
+      const en = chosen.map((kind) => KIND_LABEL[kind][1].toLowerCase());
+      setMessage([
+        `${chosen.map((kind) => KIND_LABEL[kind][0]).join("・")}を書き出しました。`,
+        `Exported ${en.length > 1 ? `${en.slice(0, -1).join(", ")} and ${en.at(-1)}` : en[0]}.`,
+      ]);
     } catch (e) {
-      alert(tr(`エクスポートできませんでした。${errorMessage(e)}`, `Export failed. ${errorMessage(e)}`));
+      // 画像を取れなかったときは、どの画像かを出す（通信の失敗・サーバのエラーは決まった文にする）
+      const reason =
+        e instanceof Error && !(e instanceof ApiError) && !(e instanceof TypeError) ? e.message : errorMessage(e);
+      alert(tr(`エクスポートできませんでした。${reason}`, `Export failed. ${reason}`));
     } finally {
       setExporting(false);
     }
@@ -207,7 +210,7 @@ export function AdminData() {
           }}
         />
       </div>
-      {message && <p className="small">{message}</p>}
+      {message && <p className="small">{t(...message)}</p>}
 
       {imported && current && (
         <DataImportDialog
@@ -216,7 +219,7 @@ export function AdminData() {
           onClose={() => setImported(undefined)}
           onDone={() => {
             setImported(undefined);
-            setMessage(t("取り込みました。", "Imported."));
+            setMessage(["取り込みました。", "Imported."]);
             void load();
           }}
         />

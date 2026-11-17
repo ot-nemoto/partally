@@ -1,5 +1,6 @@
-import { tr } from "../../../i18n";
 /** エクスポート・インポートで使うファイルの部品（景品・ゲーム・スケジュールで共通） */
+
+import { tr } from "../../../i18n";
 
 /** 配信中の画像を取ってくる（エクスポートで ZIP に入れる） */
 export async function fetchImage(url: string, name: string): Promise<Uint8Array> {

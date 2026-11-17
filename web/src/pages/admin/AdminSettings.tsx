@@ -70,7 +70,8 @@ export function AdminSettings() {
   const [settings, setSettings] = useState<Settings>();
   const [saved, setSaved] = useState<Settings>();
   const [error, setError] = useState<string>();
-  const [message, setMessage] = useState<string>();
+  /** 知らせ（日本語・英語。表示するときに言語を選ぶ） */
+  const [message, setMessage] = useState<[ja: string, en: string]>();
 
   useEffect(() => {
     api<SettingsResponse>("GET", "/admin/settings")
@@ -95,7 +96,7 @@ export function AdminSettings() {
       const res = await api<SettingsResponse>("PUT", "/admin/settings", settings);
       setSettings(res.settings);
       setSaved(res.settings);
-      setMessage(t("保存しました。", "Saved."));
+      setMessage(["保存しました。", "Saved."]);
     } catch (err) {
       setError(errorMessage(err));
     }
@@ -120,7 +121,7 @@ export function AdminSettings() {
           {incomplete && (
             <p className="error">{t("空欄の項目に数値を入れてください。", "Enter numbers in the empty fields.")}</p>
           )}
-          {message && <p className="small">{message}</p>}
+          {message && <p className="small">{t(...message)}</p>}
         </div>
       </PageTitle>
       {!settings && !error && <p className="muted">{t("読み込み中…", "Loading…")}</p>}
