@@ -3,9 +3,12 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../api";
 import { PageTitle } from "../../components/PageTitle";
+import { formatDateTime } from "../../format";
 import { useOnReload } from "../../hooks/useReload";
+import { useT } from "../../i18n";
 
 export function AdminTokens() {
+  const t = useT();
   const [tokens, setTokens] = useState<TokenDto[]>();
   const [count, setCount] = useState(10);
   const [error, setError] = useState<string>();
@@ -25,7 +28,7 @@ export function AdminTokens() {
 
   async function issue(e: FormEvent) {
     e.preventDefault();
-    if (!confirm(`QR コードを ${count} 件発行します。よろしいですか？`)) return;
+    if (!confirm(t(`QR コードを ${count} 件発行します。よろしいですか？`, `Issue ${count} QR codes?`))) return;
     setIssuing(true);
     try {
       await api("POST", "/admin/tokens", { count });
@@ -43,46 +46,49 @@ export function AdminTokens() {
 
   return (
     <section>
-      <PageTitle en="QR" ja="QR コード管理">
+      <PageTitle en="QR" ja={t("QR コード管理", "QR codes")}>
         <form className="inline-form title-actions" onSubmit={issue}>
           <label>
-            発行数
+            {t("発行数", "Count")}
             <input type="number" min={1} max={200} value={count} onChange={(e) => setCount(Number(e.target.value))} />
           </label>
           <button type="submit" className="primary" disabled={issuing}>
-            発行
+            {t("発行", "Issue")}
           </button>
           <Link to="/admin/tokens/print?filter=unbound" target="_blank" className="button">
-            未使用分を印刷
+            {t("未使用分を印刷", "Print unused")}
           </Link>
           <Link to="/admin/tokens/print" target="_blank" className="button">
-            全件を印刷
+            {t("全件を印刷", "Print all")}
           </Link>
         </form>
       </PageTitle>
       {error && <p className="error">{error}</p>}
       {tokens && (
         <p className="muted">
-          全 {tokens.length} 件 / 登録済み {bound} 件 / 未使用 {tokens.length - bound} 件
+          {t(
+            `全 ${tokens.length} 件 / 登録済み ${bound} 件 / 未使用 ${tokens.length - bound} 件`,
+            `${tokens.length} total / ${bound} registered / ${tokens.length - bound} unused`,
+          )}
         </p>
       )}
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>番号</th>
-              <th>状態</th>
-              <th>登録者</th>
-              <th>登録日時</th>
+              <th>{t("番号", "No.")}</th>
+              <th>{t("状態", "Status")}</th>
+              <th>{t("登録者", "Registered by")}</th>
+              <th>{t("登録日時", "Registered at")}</th>
             </tr>
           </thead>
           <tbody>
-            {tokens?.map((t) => (
-              <tr key={t.token}>
-                <td>{t.label}</td>
-                <td>{t.status === "bound" ? "登録済み" : "未使用"}</td>
-                <td>{t.displayName ?? "-"}</td>
-                <td>{t.boundAt ? new Date(t.boundAt).toLocaleString("ja-JP") : "-"}</td>
+            {tokens?.map((tk) => (
+              <tr key={tk.token}>
+                <td>{tk.label}</td>
+                <td>{tk.status === "bound" ? t("登録済み", "Registered") : t("未使用", "Unused")}</td>
+                <td>{tk.displayName ?? "-"}</td>
+                <td>{tk.boundAt ? formatDateTime(tk.boundAt) : "-"}</td>
               </tr>
             ))}
           </tbody>

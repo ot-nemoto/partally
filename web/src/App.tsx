@@ -36,25 +36,25 @@ export function App() {
         <Route path="/favorites" element={<Navigate to="/gallery" replace />} />
       </Route>
       <Route path="/q/:token" element={<QrLanding />} />
-      {/* 管理画面は英語に対応するまで日本語に固定する */}
-      <Route
-        element={
-          <FixedLang lang="ja">
-            <Outlet />
-          </FixedLang>
-        }
-      >
-        <Route path="/admin/login" element={<AdminLogin />} />
-        <Route path="/admin/tokens/print" element={<AdminTokensPrint />} />
-        <Route path="/admin" element={<AdminLayout />}>
-          {/* User 画面のヘッダーのリンク（/admin/users）が選択状態になるよう、URL を移す */}
-          <Route index element={<Navigate to="users" replace />} />
-          <Route path="users" element={<AdminUsers />} />
-          <Route path="ranking" element={<AdminRanking />} />
-          <Route path="trend" element={<AdminTrend />} />
-          <Route path="tokens" element={<AdminTokens />} />
-          <Route path="photos" element={<AdminPhotos />} />
-          <Route path="quizzes" element={<Navigate to="/admin/games" replace />} />
+      <Route path="/admin/login" element={<AdminLogin />} />
+      <Route path="/admin/tokens/print" element={<AdminTokensPrint />} />
+      <Route path="/admin" element={<AdminLayout />}>
+        {/* User 画面のヘッダーのリンク（/admin/users）が選択状態になるよう、URL を移す */}
+        <Route index element={<Navigate to="users" replace />} />
+        <Route path="users" element={<AdminUsers />} />
+        <Route path="ranking" element={<AdminRanking />} />
+        <Route path="trend" element={<AdminTrend />} />
+        <Route path="tokens" element={<AdminTokens />} />
+        <Route path="photos" element={<AdminPhotos />} />
+        <Route path="quizzes" element={<Navigate to="/admin/games" replace />} />
+        {/* まだ英語に対応していない画面は、日本語に固定する */}
+        <Route
+          element={
+            <FixedLang lang="ja">
+              <Outlet />
+            </FixedLang>
+          }
+        >
           <Route path="games" element={<AdminGames />} />
           <Route path="prizes" element={<AdminPrizes />} />
           <Route path="schedule" element={<AdminSchedule />} />

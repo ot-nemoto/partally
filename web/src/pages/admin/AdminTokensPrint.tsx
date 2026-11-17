@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../../api";
+import { useT } from "../../i18n";
 
 interface Card {
   token: TokenDto;
@@ -12,6 +13,7 @@ interface Card {
 
 /** QR コードを並べた印刷用ページ。ブラウザの印刷機能で PDF 化・印刷する */
 export function AdminTokensPrint() {
+  const t = useT();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const onlyUnbound = params.get("filter") === "unbound";
@@ -45,19 +47,24 @@ export function AdminTokensPrint() {
     <main className="print-page">
       <div className="no-print print-toolbar">
         <span>
-          {onlyUnbound ? "未使用" : "全件"} {cards?.length ?? "…"} 枚
+          {onlyUnbound
+            ? t(`未使用 ${cards?.length ?? "…"} 枚`, `${cards?.length ?? "…"} unused`)
+            : t(`全件 ${cards?.length ?? "…"} 枚`, `All ${cards?.length ?? "…"}`)}
         </span>
         <button type="button" className="primary" onClick={() => window.print()} disabled={!cards}>
-          印刷
+          {t("印刷", "Print")}
         </button>
       </div>
       {error && <p className="error">{error}</p>}
       <div className="qr-grid">
         {cards?.map(({ token, src }) => (
           <div key={token.token} className="qr-card">
-            <img className="qr" src={src} alt={`QR コード No. ${token.label}`} />
+            <img className="qr" src={src} alt={t(`QR コード No. ${token.label}`, `QR code No. ${token.label}`)} />
             <p className="qr-label">No. {token.label}</p>
             <p className="qr-hint">スマホのカメラで読み込んでください</p>
+            <p className="qr-hint" lang="en">
+              Scan with your phone’s camera
+            </p>
           </div>
         ))}
       </div>

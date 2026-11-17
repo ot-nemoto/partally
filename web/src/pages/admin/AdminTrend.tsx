@@ -2,12 +2,14 @@ import { type PointerEvent, useEffect, useMemo, useState } from "react";
 import { PageTitle } from "../../components/PageTitle";
 import { MAX_LINES, RankingChart } from "../../components/RankingChart";
 import { useRanking } from "../../hooks/useRanking";
+import { useT } from "../../i18n";
 
 /**
  * 累計ポイントの推移。全員を灰色の線で描き、表で選んだ人（最大 10 人）を色付きで強調する。
  * 表の行や凡例にカーソルを合わせた人は、線を太くするか（灰色の人なら）濃い色で重ねる
  */
 export function AdminTrend() {
+  const t = useT();
   const { data, error } = useRanking();
   /** グラフに出す人と色の番号（0〜9）。更新しても色は人に付いたまま変えない */
   const [slots, setSlots] = useState<Map<string, number>>();
@@ -65,13 +67,15 @@ export function AdminTrend() {
 
   return (
     <section className="ranking">
-      <PageTitle en="Trend" ja="ポイントの推移" />
+      <PageTitle en="Trend" ja={t("ポイントの推移", "Trend")} />
       {error && <p className="error">{error}</p>}
-      {data && data.ranking.length === 0 && <p className="muted">まだ参加者がいません。</p>}
+      {data && data.ranking.length === 0 && (
+        <p className="muted">{t("まだ参加者がいません。", "No participants yet.")}</p>
+      )}
       {data && data.ranking.length > 0 && (
         <>
           <div className="card ranking-chart">
-            <h2>累計ポイントの推移</h2>
+            <h2>{t("累計ポイントの推移", "Total points over time")}</h2>
             <ul className="ranking-legend">
               {series.map(({ entry, slot }) => (
                 <li key={entry.userId} {...hoverProps(entry.userId)}>
@@ -83,17 +87,19 @@ export function AdminTrend() {
             <RankingChart all={data.ranking} series={series} focus={focus} end={data.generatedAt} />
           </div>
           <p className="muted">
-            色を付けて出せるのは {MAX_LINES}{" "}
-            人までです（ほかの人は灰色の線）。行にカーソルを合わせると、その人の線を強調します。最新にするには上の「更新」を押してください。
+            {t(
+              `色を付けて出せるのは ${MAX_LINES} 人までです（ほかの人は灰色の線）。行にカーソルを合わせると、その人の線を強調します。最新にするには上の「更新」を押してください。`,
+              `Up to ${MAX_LINES} people can be shown in color (others are gray). Hover a row to highlight that person’s line. Press “Refresh” at the top to update.`,
+            )}
           </p>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>強調</th>
-                  <th className="num">順位</th>
-                  <th>名前</th>
-                  <th className="num">ポイント</th>
+                  <th>{t("強調", "Color")}</th>
+                  <th className="num">{t("順位", "Rank")}</th>
+                  <th>{t("名前", "Name")}</th>
+                  <th className="num">{t("ポイント", "Points")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -114,7 +120,7 @@ export function AdminTrend() {
                             onChange={() => toggle(r.userId)}
                             onFocus={(e) => e.currentTarget.matches(":focus-visible") && setKeyFocus(r.userId)}
                             onBlur={() => setKeyFocus(undefined)}
-                            aria-label={`${r.displayName} をグラフで色付きにする`}
+                            aria-label={t(`${r.displayName} をグラフで色付きにする`, `Show ${r.displayName} in color`)}
                           />
                           <span
                             className="swatch"
@@ -125,7 +131,7 @@ export function AdminTrend() {
                       <td className="num">{r.rank}</td>
                       <td className="name-cell">
                         {r.displayName}
-                        {r.status === "unbound" && "（解除済み）"}
+                        {r.status === "unbound" && t("（解除済み）", " (unlinked)")}
                       </td>
                       <td className="num">
                         <strong>{r.points}</strong>
