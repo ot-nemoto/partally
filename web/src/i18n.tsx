@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useCallback, useContext, useLayoutEffect, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 /**
  * 画面の言語（日本語・英語）。文言は呼ぶ所に日本語と英語を並べて書く（`t("日本語", "English")`）。
@@ -31,21 +31,12 @@ let current: Lang = initialLang(
 const listeners = new Set<() => void>();
 applyDocumentLang(current);
 
-/** 言語を固定している画面（英語に対応していない管理画面）。固定している間は、選んだ言語より優先する */
-let fixed: Lang | undefined;
-const FixedLangContext = createContext<Lang | undefined>(undefined);
-
 function applyDocumentLang(lang: Lang) {
   if (typeof document !== "undefined") document.documentElement.lang = lang;
 }
 
 /** 今の言語（React の外で使う。画面の中では useLang・useT を使う） */
 export function getLang(): Lang {
-  return fixed ?? current;
-}
-
-/** 選んだ言語（固定していても、選んだ方を返す） */
-function getChosenLang(): Lang {
   return current;
 }
 
@@ -58,7 +49,7 @@ export function setLang(lang: Lang) {
   } catch {
     // 覚えられなくても、開いている間は切り替える
   }
-  applyDocumentLang(fixed ?? lang);
+  applyDocumentLang(lang);
   for (const listener of listeners) listener();
 }
 
@@ -68,31 +59,12 @@ function subscribe(listener: () => void) {
 }
 
 export function useLang(): Lang {
-  const chosen = useSyncExternalStore(subscribe, getChosenLang, getChosenLang);
-  return useContext(FixedLangContext) ?? chosen;
+  return useSyncExternalStore(subscribe, getLang, getLang);
 }
 
 /** 今の言語で、日本語と英語のどちらかを選ぶ（React の外で使う） */
 export function tr(ja: string, en: string): string {
   return getLang() === "en" ? en : ja;
-}
-
-/**
- * 中の画面の言語を固定する（選んだ言語は変えない）。英語に対応していない管理画面を日本語で出すために使う。
- * 共通の部品（写真の拡大・ランキングの表など）とエラーの文も、固定した言語にそろう
- */
-export function FixedLang({ lang, children }: { lang: Lang; children: ReactNode }) {
-  // 中の画面を描く前に固定する（初めて描くときに tr()・errorMessage を呼んでも固定した言語になる）
-  fixed = lang;
-  useLayoutEffect(() => {
-    fixed = lang;
-    applyDocumentLang(lang);
-    return () => {
-      fixed = undefined;
-      applyDocumentLang(current);
-    };
-  }, [lang]);
-  return <FixedLangContext.Provider value={lang}>{children}</FixedLangContext.Provider>;
 }
 
 /** 画面の中で使う、言語に合わせて文言を選ぶ関数。言語が変わると画面を描き直す */

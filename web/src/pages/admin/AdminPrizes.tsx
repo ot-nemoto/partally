@@ -15,6 +15,7 @@ import { NumberField } from "../../components/NumberField";
 import { PageTitle } from "../../components/PageTitle";
 import { PrizeChips, PrizeImage } from "../../components/PrizeChips";
 import { useOnReload } from "../../hooks/useReload";
+import { tr, useLang, useT } from "../../i18n";
 import { type ImageDraft, ImageField } from "./ImageField";
 import { ImageUploads, uploadPrizeImage } from "./prizeImage";
 
@@ -23,6 +24,7 @@ import { ImageUploads, uploadPrizeImage } from "./prizeImage";
  * 1 つの順位には複数の景品を割り当てられる
  */
 export function AdminPrizes() {
+  const t = useT();
   const [prizes, setPrizes] = useState<PrizeDto[]>();
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState<PrizeDto | "new">();
@@ -43,7 +45,7 @@ export function AdminPrizes() {
   useOnReload(load);
 
   async function remove(prize: PrizeDto) {
-    if (!confirm(`「${prize.name}」を削除します。よろしいですか？`)) return;
+    if (!confirm(tr(`「${prize.name}」を削除します。よろしいですか？`, `Delete “${prize.name}”?`))) return;
     setBusy(true);
     try {
       await api("DELETE", `/admin/prizes/${prize.prizeId}`);
@@ -62,20 +64,22 @@ export function AdminPrizes() {
       <PageTitle en="Prize" ja="景品">
         <div className="title-actions">
           <button type="button" className="primary" onClick={() => setEditing("new")}>
-            景品を登録
+            {t("景品を登録", "Add prize")}
           </button>
         </div>
       </PageTitle>
       <p className="muted small">
-        景品は、ランキングの上から何番目の人に渡すかで割り当てます（同じポイントのときは設定の「同じポイントのときの順位」に従います。紐づけを解除した人は数えません）。
-        1 つの景品は数量の分だけ割り当てられ、同じ順位に複数の景品を割り当てることもできます。
+        {t(
+          "景品は、ランキングの上から何番目の人に渡すかで割り当てます（同じポイントのときは設定の「同じポイントのときの順位」に従います。紐づけを解除した人は数えません）。1 つの景品は数量の分だけ割り当てられ、同じ順位に複数の景品を割り当てることもできます。",
+          "Assign each prize to positions from the top of the ranking (ties follow “Ranking for equal points” in Settings; unlinked people aren’t counted). A prize can be assigned to as many positions as its quantity, and a position can get more than one prize.",
+        )}
       </p>
       {error && <p className="error">{error}</p>}
-      {prizes?.length === 0 && <p className="muted">まだ景品がありません。</p>}
+      {prizes?.length === 0 && <p className="muted">{t("まだ景品がありません。", "No prizes yet.")}</p>}
 
       {prizes && prizes.length > 0 && (
         <>
-          <h2>登録した景品</h2>
+          <h2>{t("登録した景品", "Prizes")}</h2>
           <div className="prize-grid">
             {prizes.map((p) => (
               <article key={p.prizeId} className="card prize-card">
@@ -83,41 +87,46 @@ export function AdminPrizes() {
                 <div className="prize-card-body">
                   <h3>{p.name}</h3>
                   <p className="small">
-                    数量 {p.quantity}・割り当て {p.positions.length}
+                    {t(
+                      `数量 ${p.quantity}・割り当て ${p.positions.length}`,
+                      `Quantity ${p.quantity} · assigned ${p.positions.length}`,
+                    )}
                     {p.positions.length < p.quantity && (
-                      <span className="muted">（残り {p.quantity - p.positions.length}）</span>
+                      <span className="muted">
+                        {t(`（残り ${p.quantity - p.positions.length}）`, ` (${p.quantity - p.positions.length} left)`)}
+                      </span>
                     )}
                   </p>
                   <p className="small">
                     {p.positions.length > 0 ? (
-                      `順位: ${formatPositions(p.positions)}`
+                      t(`順位: ${formatPositions(p.positions)}`, `Positions: ${formatPositions(p.positions)}`)
                     ) : (
-                      <span className="muted">順位に割り当てていません</span>
+                      <span className="muted">{t("順位に割り当てていません", "Not assigned to any position")}</span>
                     )}
                   </p>
                 </div>
                 <div className="actions">
                   <button type="button" onClick={() => setEditing(p)} disabled={busy}>
-                    編集
+                    {t("編集", "Edit")}
                   </button>
                   <button type="button" className="danger" onClick={() => remove(p)} disabled={busy}>
-                    削除
+                    {t("削除", "Delete")}
                   </button>
                 </div>
               </article>
             ))}
           </div>
 
-          <h2>順位ごとの景品</h2>
+          <h2>{t("順位ごとの景品", "Prizes by position")}</h2>
           {byPosition.size === 0 ? (
-            <p className="muted">まだ順位に割り当てていません。</p>
+            <p className="muted">{t("まだ順位に割り当てていません。", "Nothing assigned yet.")}</p>
           ) : (
             <div className="table-wrap">
               <table className="prize-table">
                 <thead>
                   <tr>
-                    <th className="num">順位</th>
-                    <th>景品</th>
+                    <th className="num">{t("順位", "Position")}</th>
+                    <th>{t("景品", "Prize")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -151,6 +160,8 @@ export function AdminPrizes() {
 }
 
 function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved: () => void }) {
+  const t = useT();
+  const lang = useLang();
   const { prize } = props;
   const [name, setName] = useState(prize?.name ?? "");
   const [quantity, setQuantity] = useState(prize?.quantity ?? 1);
@@ -172,15 +183,18 @@ function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved
     [],
   );
 
-  const parsed = parsePositions(positionsText);
+  const parsed = parsePositions(positionsText, lang);
   const positions = "positions" in parsed ? parsed.positions : [];
   const problem =
     "error" in parsed
       ? parsed.error
       : Number.isNaN(quantity) || quantity < 1
-        ? "数量は 1 以上にしてください。"
+        ? t("数量は 1 以上にしてください。", "Quantity must be at least 1.")
         : positions.length > quantity
-          ? `割り当てた順位（${positions.length} 個）が数量（${quantity}）を超えています。`
+          ? t(
+              `割り当てた順位（${positions.length} 個）が数量（${quantity}）を超えています。`,
+              `More positions (${positions.length}) than the quantity (${quantity}).`,
+            )
           : undefined;
 
   async function onSubmit(e: FormEvent) {
@@ -206,14 +220,14 @@ function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved
   return (
     <Modal
       className="dialog prize-dialog"
-      label={prize ? "景品の編集" : "景品を登録"}
+      label={prize ? t("景品の編集", "Edit prize") : t("景品を登録", "Add prize")}
       onClose={props.onClose}
       closable={!saving}
     >
       <form className="card" onSubmit={onSubmit}>
-        <h2>{prize ? "景品の編集" : "景品を登録"}</h2>
+        <h2>{prize ? t("景品の編集", "Edit prize") : t("景品を登録", "Add prize")}</h2>
         <label className="field">
-          <span>名前</span>
+          <span>{t("名前", "Name")}</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -223,7 +237,7 @@ function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved
           />
         </label>
         <ImageField
-          label="画像"
+          label={t("画像", "Image")}
           variant="prize"
           image={image}
           onChange={(next) => {
@@ -235,29 +249,42 @@ function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved
           onProcessing={setProcessing}
           disabled={saving}
         />
-        <NumberField label="数量" value={quantity} min={1} max={PRIZE_QUANTITY_MAX} onChange={setQuantity} />
+        <NumberField
+          label={t("数量", "Quantity")}
+          value={quantity}
+          min={1}
+          max={PRIZE_QUANTITY_MAX}
+          onChange={setQuantity}
+        />
         <label className="field">
-          <span>渡す順位</span>
+          <span>{t("渡す順位", "Positions")}</span>
           <input
             value={positionsText}
             onChange={(e) => setPositionsText(e.target.value)}
-            placeholder="例: 1, 3, 5-10"
+            placeholder={t("例: 1, 3, 5-10", "e.g. 1, 3, 5-10")}
             inputMode="text"
             autoComplete="off"
           />
           <span className="muted small">
-            上から何番目の人に渡すかを、「,」区切りや「5-10」のような範囲で指定します（数量の分まで）。
-            {"positions" in parsed && ` 割り当て ${positions.length} / 数量 ${Number.isNaN(quantity) ? "-" : quantity}`}
+            {t(
+              "上から何番目の人に渡すかを、「,」区切りや「5-10」のような範囲で指定します（数量の分まで）。",
+              "Positions from the top, separated by “,” or as ranges like “5-10” (up to the quantity).",
+            )}
+            {"positions" in parsed &&
+              t(
+                ` 割り当て ${positions.length} / 数量 ${Number.isNaN(quantity) ? "-" : quantity}`,
+                ` Assigned ${positions.length} / quantity ${Number.isNaN(quantity) ? "-" : quantity}`,
+              )}
           </span>
         </label>
         {problem && <p className="error">{problem}</p>}
         {error && <p className="error">{error}</p>}
         <div className="buttons">
           <button type="button" onClick={props.onClose} disabled={saving}>
-            キャンセル
+            {t("キャンセル", "Cancel")}
           </button>
           <button type="submit" className="primary" disabled={saving || processing || problem !== undefined}>
-            {saving ? "保存中…" : "保存"}
+            {saving ? t("保存中…", "Saving…") : t("保存", "Save")}
           </button>
         </div>
       </form>

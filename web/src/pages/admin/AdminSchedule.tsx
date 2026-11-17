@@ -20,6 +20,7 @@ import { Modal } from "../../components/Modal";
 import { PageTitle } from "../../components/PageTitle";
 import { ScheduleBlockDetail } from "../../components/ScheduleTimeline";
 import { useOnReload } from "../../hooks/useReload";
+import { tr, useT } from "../../i18n";
 import { SchedulePreviewDialog } from "./schedule/SchedulePreviewDialog";
 
 /** タイムラインの 1 分の高さ（px）。1 時間 = 120px、10 分 = 20px */
@@ -77,6 +78,7 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
  * すぐ右に列を足して移し、何もない列は詰める（arrangeScheduleColumns。サーバも同じ決まりで保存する）
  */
 export function AdminSchedule() {
+  const t = useT();
   const [items, setItems] = useState<ScheduleItemDto[]>();
   const [date, setDate] = useState("");
   const [error, setError] = useState<string>();
@@ -273,11 +275,11 @@ export function AdminSchedule() {
       <PageTitle en="Schedule" ja="スケジュール">
         <div className="title-actions">
           <label className="schedule-date">
-            日付
+            {t("日付", "Date")}
             <input type="date" value={date} onChange={(e) => void saveDate(e.target.value)} />
           </label>
           <button type="button" onClick={() => setPreviewing(true)} disabled={!items}>
-            プレビュー
+            {t("プレビュー", "Preview")}
           </button>
           <button
             type="button"
@@ -287,18 +289,18 @@ export function AdminSchedule() {
               setEditing({ startMinute: start, durationMinutes: NEW_DURATION });
             }}
           >
-            項目を追加
+            {t("項目を追加", "Add item")}
           </button>
         </div>
       </PageTitle>
       <p className="muted small">
-        空いている所を押すと、その時刻・列に項目を作ります。項目を上下にドラッグすると開始時刻、左右にドラッグすると列、下の端をドラッグすると長さが変わります（5
-        分刻み。10
-        分以下の項目の長さは編集で変えます）。同じ列で時間が重なると、すぐ右に列を足して移し、何もない列は消えます。項目を押すと編集できます。列の上のボタンで、列ごとに参加者に見せるかを切り替えられます（見せない列は斜線。項目は置いた列に合わせます）。スケジュール全体を参加者に見せるかは
-        Setting で決めます。
+        {t(
+          "空いている所を押すと、その時刻・列に項目を作ります。項目を上下にドラッグすると開始時刻、左右にドラッグすると列、下の端をドラッグすると長さが変わります（5 分刻み。10 分以下の項目の長さは編集で変えます）。同じ列で時間が重なると、すぐ右に列を足して移し、何もない列は消えます。項目を押すと編集できます。列の上のボタンで、列ごとに参加者に見せるかを切り替えられます（見せない列は斜線。項目は置いた列に合わせます）。スケジュール全体を参加者に見せるかは Setting で決めます。",
+          "Click an empty spot to add an item at that time and column. Drag an item up/down to change its start time, left/right to change its column, and its bottom edge to change its length (in 5-minute steps; change items of 10 minutes or less in the editor). When items overlap in a column, the item moves to a new column right next to it, and empty columns disappear. Click an item to edit it. Use the buttons above the columns to show or hide each column for participants (hidden columns are striped; an item follows the column it’s placed in). Whether participants see the schedule at all is set in Setting.",
+        )}
       </p>
       {error && <p className="error">{error}</p>}
-      {!items && !error && <p className="muted">読み込み中…</p>}
+      {!items && !error && <p className="muted">{t("読み込み中…", "Loading…")}</p>}
       {items && (
         <>
           <button
@@ -307,7 +309,7 @@ export function AdminSchedule() {
             onClick={() => setExtra((x) => ({ ...x, before: x.before + 60 }))}
             disabled={rangeStart === 0}
           >
-            ↑ 前に 1 時間広げる
+            {t("↑ 前に 1 時間広げる", "↑ Show 1 more hour before")}
           </button>
           {list.length > 0 && (
             <div className="schedule-column-heads" style={{ gridTemplateColumns: `repeat(${shownColumns}, 1fr)` }}>
@@ -322,12 +324,16 @@ export function AdminSchedule() {
                     type="button"
                     className={`schedule-column-toggle${hidden ? " off" : ""}`}
                     aria-pressed={!hidden}
-                    aria-label={`列 ${c + 1} を参加者に見せる`}
-                    title={hidden ? "参加者に見せていません（押すと見せる）" : "参加者に見せています（押すと見せない）"}
+                    aria-label={t(`列 ${c + 1} を参加者に見せる`, `Show column ${c + 1} to participants`)}
+                    title={
+                      hidden
+                        ? t("参加者に見せていません（押すと見せる）", "Hidden from participants (click to show)")
+                        : t("参加者に見せています（押すと見せない）", "Shown to participants (click to hide)")
+                    }
                     disabled={drag?.moved}
                     onClick={() => void toggleColumn(c, !hidden)}
                   >
-                    {hidden ? "見せない" : "見せる"}
+                    {hidden ? t("見せない", "Hidden") : t("見せる", "Shown")}
                   </button>
                 ),
               )}
@@ -377,7 +383,7 @@ export function AdminSchedule() {
                       left: `${(shown.column / shownColumns) * 100}%`,
                       width: `calc(${100 / shownColumns}% - 4px)`,
                     }}
-                    aria-label={`${formatScheduleRange(shown)} ${item.title}${shown.hidden ? "（参加者に見せない）" : ""}（押すと編集）`}
+                    aria-label={`${formatScheduleRange(shown)} ${item.title}${shown.hidden ? t("（参加者に見せない）", " (hidden from participants)") : ""}${t("（押すと編集）", " (click to edit)")}`}
                     onPointerDown={(e) => onBlockPointerDown(e, item, "move")}
                     onPointerMove={onBlockPointerMove}
                     onPointerUp={(e) => onBlockPointerUp(e, item)}
@@ -416,9 +422,9 @@ export function AdminSchedule() {
             onClick={() => setExtra((x) => ({ ...x, after: x.after + 60 }))}
             disabled={rangeEnd === DAY_MINUTES}
           >
-            ↓ 後ろに 1 時間広げる
+            {t("↓ 後ろに 1 時間広げる", "↓ Show 1 more hour after")}
           </button>
-          {list.length === 0 && <p className="muted">まだ項目がありません。</p>}
+          {list.length === 0 && <p className="muted">{t("まだ項目がありません。", "No items yet.")}</p>}
         </>
       )}
       {previewing && items && <SchedulePreviewDialog items={items} date={date} onClose={() => setPreviewing(false)} />}
@@ -437,6 +443,7 @@ export function AdminSchedule() {
 }
 
 function ScheduleItemDialog(props: { editing: Editing; onClose: () => void; onSaved: () => void }) {
+  const t = useT();
   const { item } = props.editing;
   const [title, setTitle] = useState(item?.title ?? "");
   const [detail, setDetail] = useState(item?.detail ?? "");
@@ -448,9 +455,12 @@ function ScheduleItemDialog(props: { editing: Editing; onClose: () => void; onSa
   const end = startMinute + durationMinutes;
   const problem =
     durationMinutes < SCHEDULE_MIN_DURATION
-      ? `長さは ${SCHEDULE_MIN_DURATION} 分以上にしてください。`
+      ? t(
+          `長さは ${SCHEDULE_MIN_DURATION} 分以上にしてください。`,
+          `The length must be at least ${SCHEDULE_MIN_DURATION} minutes.`,
+        )
       : end > DAY_MINUTES
-        ? "終わりの時刻が 24:00 を越えています。"
+        ? t("終わりの時刻が 24:00 を越えています。", "It ends after 24:00.")
         : undefined;
 
   async function onSubmit(e: FormEvent) {
@@ -472,7 +482,7 @@ function ScheduleItemDialog(props: { editing: Editing; onClose: () => void; onSa
   }
 
   async function remove() {
-    if (!item || !confirm(`「${item.title}」を削除します。よろしいですか？`)) return;
+    if (!item || !confirm(tr(`「${item.title}」を削除します。よろしいですか？`, `Delete “${item.title}”?`))) return;
     setSaving(true);
     try {
       await api("DELETE", `/admin/schedule/${item.itemId}`);
@@ -486,14 +496,14 @@ function ScheduleItemDialog(props: { editing: Editing; onClose: () => void; onSa
   return (
     <Modal
       className="dialog schedule-dialog"
-      label={item ? "項目の編集" : "項目を追加"}
+      label={item ? t("項目の編集", "Edit item") : t("項目を追加", "Add item")}
       onClose={props.onClose}
       closable={!saving}
     >
       <form className="card" onSubmit={onSubmit}>
-        <h2>{item ? "項目の編集" : "項目を追加"}</h2>
+        <h2>{item ? t("項目の編集", "Edit item") : t("項目を追加", "Add item")}</h2>
         <label className="field">
-          <span>タイトル</span>
+          <span>{t("タイトル", "Title")}</span>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -504,7 +514,7 @@ function ScheduleItemDialog(props: { editing: Editing; onClose: () => void; onSa
         </label>
         <div className="schedule-time-fields">
           <label className="field">
-            <span>開始</span>
+            <span>{t("開始", "Start")}</span>
             <input
               type="time"
               step={SNAP * 60}
@@ -519,7 +529,7 @@ function ScheduleItemDialog(props: { editing: Editing; onClose: () => void; onSa
           <span className="schedule-time-end muted">〜 {formatMinute(end)}</span>
         </div>
         <fieldset className="schedule-durations">
-          <legend>長さ</legend>
+          <legend>{t("長さ", "Length")}</legend>
           {DURATION_CHOICES.map((m) => (
             <button
               key={m}
@@ -529,7 +539,11 @@ function ScheduleItemDialog(props: { editing: Editing; onClose: () => void; onSa
               onClick={() => setDurationMinutes(m)}
               disabled={startMinute + m > DAY_MINUTES}
             >
-              {m < 60 ? `${m} 分` : m % 60 === 0 ? `${m / 60} 時間` : `${Math.floor(m / 60)} 時間 ${m % 60} 分`}
+              {m < 60
+                ? t(`${m} 分`, `${m} min`)
+                : m % 60 === 0
+                  ? t(`${m / 60} 時間`, `${m / 60} h`)
+                  : t(`${Math.floor(m / 60)} 時間 ${m % 60} 分`, `${Math.floor(m / 60)} h ${m % 60} min`)}
             </button>
           ))}
           <label className="schedule-duration-custom">
@@ -541,13 +555,13 @@ function ScheduleItemDialog(props: { editing: Editing; onClose: () => void; onSa
               step={SNAP}
               value={durationMinutes}
               onChange={(e) => setDurationMinutes(Number(e.target.value))}
-              aria-label="長さ（分）"
+              aria-label={t("長さ（分）", "Length (minutes)")}
             />
-            分
+            {t("分", "min")}
           </label>
         </fieldset>
         <label className="field">
-          <span>詳細（任意）</span>
+          <span>{t("詳細（任意）", "Details (optional)")}</span>
           <textarea
             value={detail}
             onChange={(e) => setDetail(e.target.value)}
@@ -560,14 +574,14 @@ function ScheduleItemDialog(props: { editing: Editing; onClose: () => void; onSa
         <div className="buttons">
           {item && (
             <button type="button" className="danger schedule-delete" onClick={remove} disabled={saving}>
-              削除
+              {t("削除", "Delete")}
             </button>
           )}
           <button type="button" onClick={props.onClose} disabled={saving}>
-            キャンセル
+            {t("キャンセル", "Cancel")}
           </button>
           <button type="submit" className="primary" disabled={saving || problem !== undefined}>
-            {saving ? "保存中…" : "保存"}
+            {saving ? t("保存中…", "Saving…") : t("保存", "Save")}
           </button>
         </div>
       </form>

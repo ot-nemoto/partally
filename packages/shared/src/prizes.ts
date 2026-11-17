@@ -6,16 +6,21 @@ import type { PrizeDto, RankingEntryDto } from "./types.js";
  * 「1, 3, 5-10」のような順位の指定を読む。区切りは「,」「、」・空白、範囲は「-」「〜」「~」。
  * 全角数字も読める。小さい順・重複なしにして返す
  */
-export function parsePositions(text: string): { positions: number[] } | { error: string } {
+export function parsePositions(text: string, lang: "ja" | "en" = "ja"): { positions: number[] } | { error: string } {
+  const en = lang === "en";
   const normalized = text.normalize("NFKC").replace(/[〜~ー‐‑‒–—―−]/g, "-");
   const positions = new Set<number>();
   for (const part of normalized.split(/[,、\s]+/).filter(Boolean)) {
     const m = /^(\d+)(?:-(\d+))?$/.exec(part);
-    if (!m) return { error: `「${part}」を順位として読めません` };
+    if (!m) return { error: en ? `“${part}” isn’t a rank` : `「${part}」を順位として読めません` };
     const from = Number(m[1]);
     const to = m[2] === undefined ? from : Number(m[2]);
-    if (from < 1 || to < from) return { error: `「${part}」は順位の範囲になっていません` };
-    if (to > PRIZE_POSITION_MAX) return { error: `順位は ${PRIZE_POSITION_MAX} 位までです` };
+    if (from < 1 || to < from) {
+      return { error: en ? `“${part}” isn’t a valid rank range` : `「${part}」は順位の範囲になっていません` };
+    }
+    if (to > PRIZE_POSITION_MAX) {
+      return { error: en ? `Ranks go up to ${PRIZE_POSITION_MAX}` : `順位は ${PRIZE_POSITION_MAX} 位までです` };
+    }
     for (let p = from; p <= to; p++) positions.add(p);
   }
   return { positions: [...positions].sort((a, b) => a - b) };

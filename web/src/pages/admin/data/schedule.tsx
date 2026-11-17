@@ -1,6 +1,7 @@
 import { formatScheduleRange, type ScheduleItemResponse, type ScheduleResponse } from "@partally/shared";
 import type { ScheduleFile, ScheduleFileItem } from "@partally/shared/schedule-file";
 import { api } from "../../../api";
+import { useT } from "../../../i18n";
 
 /** 今のスケジュール（項目とイベントの日付）を書き出す形にする */
 export async function exportSchedule(): Promise<ScheduleFile> {
@@ -15,14 +16,15 @@ export async function importScheduleItem(item: ScheduleFileItem): Promise<void> 
 
 /** 取り込む項目の一覧（時刻・列（参加者に見せない列か）・タイトル・詳細の 1 行目） */
 export function SchedulePreview(props: { items: ScheduleFileItem[] }) {
+  const t = useT();
   return (
     <table className="import-table">
       <thead>
         <tr>
-          <th>時刻</th>
-          <th className="num">列</th>
-          <th>タイトル</th>
-          <th>詳細</th>
+          <th>{t("時刻", "Time")}</th>
+          <th className="num">{t("列", "Column")}</th>
+          <th>{t("タイトル", "Title")}</th>
+          <th>{t("詳細", "Details")}</th>
         </tr>
       </thead>
       <tbody>
@@ -32,7 +34,7 @@ export function SchedulePreview(props: { items: ScheduleFileItem[] }) {
             <td className="nowrap">{formatScheduleRange(item)}</td>
             <td className="num nowrap">
               {(item.column ?? 0) + 1}
-              {item.hidden && <span className="muted small">（見せない）</span>}
+              {item.hidden && <span className="muted small">{t("（見せない）", " (hidden)")}</span>}
             </td>
             <td>{item.title}</td>
             <td className="muted small">{item.detail.split("\n")[0]}</td>
