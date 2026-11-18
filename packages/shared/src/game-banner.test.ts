@@ -41,7 +41,7 @@ describe("開催中のゲームのお知らせ", () => {
       note: "第 1 問 · Tap to answer",
     });
     expect(gameBannerText(game("vote", { myTargetUserId: "U1" }), "en").note).toBe(
-      "第 1 問 · Voted (you can change it until it closes)",
+      "第 1 問 · Voted",
     );
     expect(gameBannerText(game("number", { myValue: 0 }), "en").note).toContain("Answered");
   });

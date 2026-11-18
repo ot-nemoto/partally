@@ -62,12 +62,6 @@ export function Game() {
               ? t("終わりました。結果の発表をお待ちください。", "It’s over. Please wait for the results.")
               : t("今は開催中のゲームはありません。", "No game is running right now.")}
           </p>
-          <p className="muted small">
-            {t(
-              "ゲームが始まると、画面の上にお知らせが出ます。",
-              "When a game starts, a notice appears at the top of the screen.",
-            )}
-          </p>
           <Link to="/">{t("ホームへ", "Back to home")}</Link>
         </section>
       </>
