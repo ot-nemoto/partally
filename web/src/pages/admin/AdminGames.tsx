@@ -28,7 +28,7 @@ import { type Member, MemberPickerDialog } from "./games/MemberPickerDialog";
 const STATUS_LABEL: Record<GameStatus, [ja: string, en: string]> = {
   draft: ["下書き", "Draft"],
   open: ["開催中", "Live"],
-  confirmed: ["確定", "Finalized"],
+  confirmed: ["締め切り", "Closed"],
 };
 
 /** 表示・非表示を切り替えるボタンの並び */
@@ -124,7 +124,7 @@ export function AdminGames() {
   const confirmGame = (g: GameDto) => {
     if (
       !confirm(
-        tr(`「${g.name}」を確定します。${confirmNote(g)}よろしいですか？`, `Finalize “${g.name}”? ${confirmNote(g)}`),
+        tr(`「${g.name}」を締め切ります。${confirmNote(g)}よろしいですか？`, `Close “${g.name}”? ${confirmNote(g)}`),
       )
     )
       return;
@@ -146,15 +146,15 @@ export function AdminGames() {
     const redraw =
       g.format === "lottery"
         ? tr(
-            "\n抽選の結果も消え、もう一度確定すると引き直しになります（発表した後は取り消さないでください）。",
-            "\nThe draw results are also removed, and finalizing again redraws (don’t undo after announcing).",
+            "\n抽選の結果も消え、開催し直してもう一度締め切ると引き直しになります（発表した後は取り消さないでください）。",
+            "\nThe draw results are also removed, and starting and closing it again redraws (don’t undo after announcing).",
           )
         : "";
     if (
       !confirm(
         tr(
-          `「${g.name}」の確定を取り消して下書きに戻します。入ったポイントも消えます。${redraw}\nよろしいですか？`,
-          `Undo finalizing “${g.name}” and return it to draft? The awarded points are removed.${redraw}`,
+          `「${g.name}」の締め切りを取り消して下書きに戻します。入ったポイントも消えます。${redraw}\nよろしいですか？`,
+          `Undo closing “${g.name}” and return it to draft? The awarded points are removed.${redraw}`,
         ),
       )
     )
@@ -199,8 +199,8 @@ export function AdminGames() {
       </PageTitle>
       <p className="muted small">
         {t(
-          "形式は「クイズ」「数値予想」「投票」「合言葉」「抽選」「結果入力」から選べます（それぞれの説明は「ゲームを作る」に出ます）。「開催する」と参加者の画面にお知らせが出ます（開催中にできるのは 1 つだけ）。「確定」でポイントが入ります。",
-          "Choose a format: Quiz, Number guess, Vote, Keyword, Lottery or Result entry (each is explained in “New game”). “Start” shows a notice on participants’ screens (only one game can be live at a time). “Finalize” awards the points.",
+          "形式は「クイズ」「数値予想」「投票」「合言葉」「抽選」「結果入力」から選べます（それぞれの説明は「ゲームを作る」に出ます）。「開催する」と参加者の画面にお知らせが出ます（開催中にできるのは 1 つだけ）。「締め切り」でポイントが入ります。",
+          "Choose a format: Quiz, Number guess, Vote, Keyword, Lottery or Result entry (each is explained in “New game”). “Start” shows a notice on participants’ screens (only one game can be live at a time). “Close” awards the points.",
         )}
       </p>
       {error && <p className="error">{error}</p>}
@@ -235,8 +235,18 @@ export function AdminGames() {
             )}
             {g.confirmedAt && (
               <span className="muted small">
-                {t(`${formatRecentTime(g.confirmedAt)} に確定`, `Finalized at ${formatRecentTime(g.confirmedAt)}`)}
+                {t(`${formatRecentTime(g.confirmedAt)} に締め切り`, `Closed at ${formatRecentTime(g.confirmedAt)}`)}
               </span>
+            )}
+            {g.status === "draft" && (
+              <button
+                type="button"
+                className="primary game-start"
+                onClick={() => post(g, "open")}
+                disabled={busy || hasOpen}
+              >
+                {t("開催する", "Start")}
+              </button>
             )}
           </header>
           <h2 className="game-name">{g.name}</h2>
@@ -262,7 +272,7 @@ export function AdminGames() {
                   {t("正解の数: ", "Correct number: ")}
                   {g.correctNumber === undefined ? (
                     <span className="muted">
-                      {t("未設定（「編集」で入れると確定できます）", "Not set (enter it in “Edit” to finalize)")}
+                      {t("未設定（「編集」で入れると締め切れます）", "Not set (enter it in “Edit” to close it)")}
                     </span>
                   ) : (
                     <strong>{g.correctNumber}</strong>
@@ -338,20 +348,19 @@ export function AdminGames() {
             </ul>
           )}
           <div className="actions">
-            {g.status === "draft" && (
-              <button type="button" className="primary" onClick={() => post(g, "open")} disabled={busy || hasOpen}>
-                {t("開催する", "Start")}
-              </button>
-            )}
             {g.status !== "confirmed" && (
               <button
                 type="button"
                 className={g.status === "open" ? "primary" : undefined}
                 onClick={() => confirmGame(g)}
-                disabled={busy || gameConfirmProblem(g) !== undefined}
-                title={gameConfirmProblem(g, lang)}
+                disabled={busy || g.status !== "open" || gameConfirmProblem(g) !== undefined}
+                title={
+                  g.status !== "open"
+                    ? t("開催してから締め切れます", "Start the game before closing it")
+                    : gameConfirmProblem(g, lang)
+                }
               >
-                {t("確定", "Finalize")}
+                {t("締め切り", "Close")}
               </button>
             )}
             {g.status === "open" && (
@@ -361,7 +370,7 @@ export function AdminGames() {
             )}
             {g.status === "confirmed" && (
               <button type="button" onClick={() => unconfirmGame(g)} disabled={busy}>
-                {t("確定を取り消す", "Undo finalize")}
+                {t("締め切りを取り消す", "Undo close")}
               </button>
             )}
             <button type="button" onClick={() => setPreviewing(g)}>
@@ -384,8 +393,8 @@ export function AdminGames() {
           {g.status === "draft" && hasOpen && (
             <p className="muted small">
               {t(
-                "開催中のゲームを確定するか、開催をやめると開催できます。",
-                "Finalize or stop the live game to start this one.",
+                "開催中のゲームを締め切るか、開催をやめると開催できます。",
+                "Close or stop the live game to start this one.",
               )}
               {!shown.has("open") && t("（開催中のゲームは非表示にしています）", " (the live game is hidden)")}
             </p>
@@ -433,32 +442,32 @@ function confirmNote(g: GameDto): string {
   switch (g.format) {
     case "quiz":
       return tr(
-        `確定すると答えの受付が終わり、選んだ答えの点数（${g.answerCount} 人）がポイントに入ります。`,
+        `締め切ると答えの受付が終わり、選んだ答えの点数（${g.answerCount} 人）がポイントに入ります。`,
         `Answers close, and the points of each chosen answer (${people(g.answerCount)}) are awarded.`,
       );
     case "number":
       return tr(
-        `確定すると答えの受付が終わり、正解 ${g.correctNumber} に近い順の順位で点数（${g.answerCount} 人）がポイントに入ります。`,
+        `締め切ると答えの受付が終わり、正解 ${g.correctNumber} に近い順の順位で点数（${g.answerCount} 人）がポイントに入ります。`,
         `Answers close, and points are awarded by how close each guess is to ${g.correctNumber} (${people(g.answerCount)}).`,
       );
     case "vote":
       return tr(
-        `確定すると投票の受付が終わり、得票の順位で選ばれた人（投票 ${g.answerCount} 人）にポイントが入ります。`,
+        `締め切ると投票の受付が終わり、得票の順位で選ばれた人（投票 ${g.answerCount} 人）にポイントが入ります。`,
         `Voting closes, and the people voted for get points by vote ranking (${g.answerCount} ${g.answerCount === 1 ? "vote" : "votes"}).`,
       );
     case "keyword":
       return tr(
-        `確定すると受付が終わり、正解した順で点数（正解 ${g.answerCount} 人）がポイントに入ります。`,
+        `締め切ると受付が終わり、正解した順で点数（正解 ${g.answerCount} 人）がポイントに入ります。`,
         `Entries close, and points are awarded in the order of correct answers (${g.answerCount} correct).`,
       );
     case "lottery":
       return tr(
-        `確定すると受付が終わり、参加した ${g.answerCount} 人から抽選して、当たった人にポイントが入ります。`,
+        `締め切ると受付が終わり、参加した ${g.answerCount} 人から抽選して、当たった人にポイントが入ります。`,
         `Entries close, a draw is made from ${g.answerCount} ${g.answerCount === 1 ? "entrant" : "entrants"}, and the winners get points.`,
       );
     default:
       return g.slots.some((s) => s.userIds.length > 0)
-        ? tr("確定すると、選んだ人にポイントが入ります。", "The chosen people get points.")
+        ? tr("締め切ると、選んだ人にポイントが入ります。", "The chosen people get points.")
         : tr("まだ誰も選んでいません。", "No one has been chosen yet.");
   }
 }

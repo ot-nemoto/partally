@@ -110,9 +110,11 @@ describe("API", () => {
       ).toBe(400);
       const game = (await admin("POST", "/api/admin/games", { format: "vote", name: "投票" })).body.game;
       expect(game.voterPoints).toBe(0);
+      await admin("POST", `/api/admin/games/${game.gameId}/open`);
       const res = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect(res.status).toBe(409);
-      expect(res.body.message).toBe("点数の範囲を追加してから確定してください");
+      expect(res.body.message).toBe("点数の範囲を追加してから締め切ってください");
+      await admin("POST", `/api/admin/games/${game.gameId}/stop`);
       const a = await participant("田中");
       expect((await a.request("GET", `/api/game/${game.gameId}/candidates`)).status).toBe(409);
       const quiz = (

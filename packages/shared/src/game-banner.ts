@@ -22,15 +22,15 @@ const BANNER_TITLE: Record<CurrentGameDto["format"], string> = {
 function bannerNote(game: CurrentGameDto): string {
   switch (game.format) {
     case "quiz":
-      return game.myChoiceId ? "回答済み（締め切りまで選び直せます）" : "タップして回答する";
+      return game.myChoiceId ? "回答済み" : "タップして回答する";
     case "number":
-      return game.myValue !== undefined ? "回答済み（締め切りまで答え直せます）" : "タップして数を予想する";
+      return game.myValue !== undefined ? "回答済み" : "タップして数を予想する";
     case "keyword":
       return game.myKeywordCorrect ? "正解しました" : "タップして合言葉を入れる";
     case "lottery":
-      return game.myEntry ? "参加済み（締め切られると抽選します）" : "タップして参加する";
+      return game.myEntry ? "参加済み" : "タップして参加する";
     case "vote":
-      return game.myTargetUserId ? "投票済み（締め切りまで選び直せます）" : "タップして投票する";
+      return game.myTargetUserId ? "投票済み" : "タップして投票する";
     default:
       return "タップして見る";
   }
@@ -48,15 +48,15 @@ const BANNER_TITLE_EN: Record<CurrentGameDto["format"], string> = {
 function bannerNoteEn(game: CurrentGameDto): string {
   switch (game.format) {
     case "quiz":
-      return game.myChoiceId ? "Answered (you can change it until it closes)" : "Tap to answer";
+      return game.myChoiceId ? "Answered" : "Tap to answer";
     case "number":
-      return game.myValue !== undefined ? "Answered (you can change it until it closes)" : "Tap to guess the number";
+      return game.myValue !== undefined ? "Answered" : "Tap to guess the number";
     case "keyword":
       return game.myKeywordCorrect ? "Correct!" : "Tap to enter the keyword";
     case "lottery":
-      return game.myEntry ? "Entered (the draw happens when it closes)" : "Tap to enter";
+      return game.myEntry ? "Entered" : "Tap to enter";
     case "vote":
-      return game.myTargetUserId ? "Voted (you can change it until it closes)" : "Tap to vote";
+      return game.myTargetUserId ? "Voted" : "Tap to vote";
     default:
       return "Tap to view";
   }

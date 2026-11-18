@@ -84,41 +84,20 @@ export function GameView(props: {
             })}
           </div>
           {error && <p className="error">{error}</p>}
-          <p className="muted small">
-            {game.myChoiceId
-              ? t("回答しました。締め切りまでは選び直せます。", "Answered. You can change it until it closes.")
-              : t("選択肢を 1 つ選んでください。", "Choose one answer.")}
-          </p>
         </>
       ) : game.format === "lottery" ? (
         <section className="card game-lottery">
           {game.myEntry ? (
-            <>
-              <p className="game-keyword-result correct">{t("参加しました", "You’re in")}</p>
-              <p className="muted small">
-                {t(
-                  "締め切られると抽選し、当たった人にポイントが入ります。",
-                  "The draw happens when it closes, and the winners get points.",
-                )}
-              </p>
-            </>
+            <p className="game-keyword-result correct">{t("参加しました", "You’re in")}</p>
           ) : (
-            <>
-              <button
-                type="button"
-                className="primary game-lottery-entry"
-                disabled={sending !== undefined}
-                onClick={() => onAnswer({ entry: true }, "entry")}
-              >
-                {t("参加する", "Enter")}
-              </button>
-              <p className="muted small">
-                {t(
-                  "押すと抽選に参加します。締め切られると抽選します。",
-                  "Tap to enter the lottery. The draw happens when it closes.",
-                )}
-              </p>
-            </>
+            <button
+              type="button"
+              className="primary game-lottery-entry"
+              disabled={sending !== undefined}
+              onClick={() => onAnswer({ entry: true }, "entry")}
+            >
+              {t("参加する", "Enter")}
+            </button>
           )}
           {error && <p className="error">{error}</p>}
         </section>
@@ -162,31 +141,15 @@ export function GameView(props: {
           </button>
           {error && <p className="error">{error}</p>}
           <p className="small" aria-live="polite">
-            {game.myValue === undefined ? (
-              <span className="muted">
-                {t(
-                  "数を入れて「答える」を押してください。正解に近い人ほど上位になります。",
-                  "Enter a number and tap “Answer”. The closer you are, the higher you rank.",
-                )}
-              </span>
-            ) : (
+            {game.myValue !== undefined && (
               <>
                 {t("あなたの答え: ", "Your answer: ")}
                 <strong className="game-number-mine">{game.myValue}</strong>
-                <span className="muted">
-                  {t("（締め切りまでは答え直せます）", " (you can change it until it closes)")}
-                </span>
               </>
             )}
           </p>
         </form>
-      ) : (
-        <section className="card">
-          <p className="muted small">
-            {t("結果が決まると、ポイントが入ります。", "Points are awarded when the results are final.")}
-          </p>
-        </section>
-      )}
+      ) : null}
     </>
   );
 }
@@ -196,7 +159,7 @@ const fold = (s: string) => s.normalize("NFKC").toLowerCase().replace(/\s+/g, ""
 
 /**
  * 投票。選べる人（自分と、紐づけを解除した人を除く全員）は、開いたときと、アプリに戻ったときに読む
- * （5 秒ごとの確認には含めない。途中で参加した人も、戻ったときか「一覧を読み直す」で出る）。
+ * （5 秒ごとの確認には含めない。途中で参加した人は、アプリに戻ったときに出る）。
  * 名前・二つ名で絞り込み、押すとその人に投票する（確定されるまで選び直せる）
  */
 function VoteSection(props: {
@@ -255,23 +218,16 @@ function VoteSection(props: {
             <strong className="game-vote-mine">
               {mine?.displayName ?? (candidates ? t("（今は選べない人）", "(someone you can’t choose now)") : "…")}
             </strong>
-            <span className="muted">
-              {mine || !candidates
-                ? t("（締め切りまでは選び直せます）", " (you can change it until it closes)")
-                : t(
-                    "（投票した人が参加をやめました。票はそのまま数えます。選び直すこともできます）",
-                    " (this person has left. Your vote still counts, and you can change it)",
-                  )}
-            </span>
-          </>
-        ) : (
-          <span className="muted">
-            {t(
-              "投票する人を 1 人選んでください。誰が誰に投票したかは、ほかの参加者には見えません。",
-              "Choose one person to vote for. Other participants can’t see who voted for whom.",
+            {!mine && candidates && (
+              <span className="muted">
+                {t(
+                  "（投票した人が参加をやめました。票はそのまま数えます。選び直すこともできます）",
+                  " (this person has left. Your vote still counts, and you can change it)",
+                )}
+              </span>
             )}
-          </span>
-        )}
+          </>
+        ) : null}
       </p>
       <input
         type="search"
@@ -285,14 +241,6 @@ function VoteSection(props: {
       {loadError && <p className="error">{loadError}</p>}
       {!candidates && !loadError && <p className="muted">{t("読み込み中…", "Loading…")}</p>}
       {shown && shown.length === 0 && <p className="muted small">{t("見つかりません。", "No one found.")}</p>}
-      {candidates && (
-        <p className="small">
-          <button type="button" className="link" onClick={reload}>
-            {t("一覧を読み直す", "Reload the list")}
-          </button>
-          <span className="muted">{t("（後から参加した人を出す）", " (to show people who joined later)")}</span>
-        </p>
-      )}
       <div className="quiz-choices game-vote-list">
         {shown?.map((c) => {
           const selected = game.myTargetUserId === c.userId;
@@ -353,12 +301,6 @@ function KeywordSection(props: {
       {game.myKeywordCorrect ? (
         <section className="card game-keyword-done">
           <p className="game-keyword-result correct">{t("正解です！", "Correct!")}</p>
-          <p className="muted small">
-            {t(
-              "締め切られると、正解した順に点数が入ります。",
-              "When it closes, points are awarded in the order of correct answers.",
-            )}
-          </p>
         </section>
       ) : (
         <form className="card game-number-form" onSubmit={onSubmit}>
@@ -381,16 +323,9 @@ function KeywordSection(props: {
           </button>
           {props.error && <p className="error">{props.error}</p>}
           <p className="small" aria-live="polite">
-            {result === false ? (
+            {result === false && (
               <span className="game-keyword-result wrong">
                 {t("ちがいます。もう一度どうぞ。", "Not quite. Try again.")}
-              </span>
-            ) : (
-              <span className="muted">
-                {t(
-                  "見つけた合言葉を入れて「送る」を押してください。何度でも試せます（全角・半角、カタカナ・ひらがなの違いは気にしなくて大丈夫です）。",
-                  "Enter the keyword you found and tap “Send”. You can try as many times as you like (full-/half-width and katakana/hiragana differences don’t matter).",
-                )}
               </span>
             )}
           </p>

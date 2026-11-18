@@ -282,7 +282,7 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
         c,
         409,
         "invalid_state",
-        "確定したゲームの枠・正解の数・点数の範囲は、全部は外せません。先に確定を取り消してください",
+        "締め切ったゲームの枠・正解の数・点数の範囲は、全部は外せません。先に締め切りを取り消してください",
       );
     }
     const changes = {
@@ -315,15 +315,14 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
   });
 
   /**
-   * 参加者の一覧（GSI）は結果整合なので、確定の直前の参加がまだ出ていないことがある。開催中の抽選を確定するときは、
+   * 参加者の一覧（GSI）は結果整合なので、締め切りの直前の参加がまだ出ていないことがある。抽選を締め切るとき（開催中だけ）は、
    * 一度読んでから少し待ってもう一度読み、どちらかに出た人を合わせる（抽選は確定のときの順番を保存し、後から直らないため）。
    * 確定の時刻は 2 回目の読み取りの直前に決めるので、待っている間の参加も数える
    */
   const readLotteryEntrants = async (game: GameRecord) => {
     const read = async () => (await repo.listGameAnswersByGame(game.gameId)).filter((a) => a.entry);
-    // 下書きからの確定は、新しい参加が無い（開催中しか参加できない）ので待たない
-    const first = game.status === "open" ? await read() : [];
-    if (game.status === "open") await settle();
+    const first = await read();
+    await settle();
     const at = now().toISOString();
     const entrants = [...first, ...(await read())].filter((a) => a.answeredAt <= at).map((a) => a.userId);
     return { at, entrants: [...new Set(entrants)] };
@@ -348,7 +347,7 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
     } catch (e) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
       if (e instanceof GameAlreadyOpenError) {
-        return fail(c, 409, "invalid_state", "別のゲームが開催中です。確定するか、開催をやめてから開催してください");
+        return fail(c, 409, "invalid_state", "別のゲームが開催中です。締め切るか、開催をやめてから開催してください");
       }
       if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state", message);
       throw e;
@@ -377,9 +376,9 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
   // 入るポイントが決まらないゲーム（枠の無い結果入力、正解の数か点数の範囲が無い数値予想）は確定させない
   app.post(
     "/admin/games/:gameId/confirm",
-    gameAction("confirmed", ["draft", "open"], "既に確定しています", gameConfirmProblem),
+    gameAction("confirmed", ["open"], "開催中のゲームだけ締め切れます", gameConfirmProblem),
   );
-  app.post("/admin/games/:gameId/unconfirm", gameAction("draft", ["confirmed"], "確定していません"));
+  app.post("/admin/games/:gameId/unconfirm", gameAction("draft", ["confirmed"], "締め切っていません"));
 
   app.delete("/admin/games/:gameId", async (c) => {
     const game = await repo.getGame(c.req.param("gameId"));

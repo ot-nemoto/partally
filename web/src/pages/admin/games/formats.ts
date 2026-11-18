@@ -70,12 +70,12 @@ const FORMAT_TEXT: Record<GameFormat, FormatText> = {
   },
   lottery: {
     summary: "参加して抽選",
-    about: "参加者が「参加する」を押し、確定したときにアプリが無作為に決めた順番で点数が入ります",
+    about: "参加者が「参加する」を押し、締め切ったときにアプリが無作為に決めた順番で点数が入ります",
     name: "例: ラッキー賞",
     descriptionLabel: "説明（任意）",
     description: "例: 参加ボタンを押した人の中から、抽選で 5 名にポイントをプレゼント",
     imageLabel: "画像（任意）",
-    note: "確定したときに、参加した人の順番を無作為に決めて保存し、順番が入る範囲の点数が入ります（どの範囲にも入らない人は 0 点）。確定した後に範囲や点数を直しても、順番は変わりません。確定を取り消してもう一度確定すると、引き直します。点数は参加者には見せません。",
+    note: "締め切ったときに、参加した人の順番を無作為に決めて保存し、順番が入る範囲の点数が入ります（どの範囲にも入らない人は 0 点）。締め切った後に範囲や点数を直しても、順番は変わりません。締め切りを取り消して開催し直してもう一度締め切ると、引き直します。点数は参加者には見せません。",
   },
   result: {
     summary: "幹事が結果を入れる",
@@ -84,7 +84,7 @@ const FORMAT_TEXT: Record<GameFormat, FormatText> = {
     descriptionLabel: "説明（任意）",
     description: "例: 負けた人は座ってください。最後まで残った人が優勝です",
     imageLabel: "画像（任意）",
-    note: "枠は後から追加することもできます（枠が無いゲームは確定できません）。人は、保存した後に枠ごとの「人を選ぶ」で選びます。枠を削除すると、その枠で選んだ人も外れます。枠の点数は参加者には見せません。",
+    note: "枠は後から追加することもできます（枠が無いゲームは締め切れません）。人は、保存した後に枠ごとの「人を選ぶ」で選びます。枠を削除すると、その枠で選んだ人も外れます。枠の点数は参加者には見せません。",
   },
 };
 
@@ -127,12 +127,12 @@ const FORMAT_TEXT_EN: Record<GameFormat, FormatText> = {
   },
   lottery: {
     summary: "Enter and draw",
-    about: "Participants tap “Enter”, and when you finalize, the app draws a random order that decides the points",
+    about: "Participants tap “Enter”, and when you close it, the app draws a random order that decides the points",
     name: "e.g. Lucky prize",
     descriptionLabel: "Description (optional)",
     description: "e.g. 5 people who enter will win points in a draw",
     imageLabel: "Image (optional)",
-    note: "When you finalize, the entrants are put in a random order that is saved, and each range of the order gets its points (people outside every range get 0). Changing the ranges or points after finalizing doesn’t change the order. Undoing and finalizing again redraws. Participants don’t see the points.",
+    note: "When you close it, the entrants are put in a random order that is saved, and each range of the order gets its points (people outside every range get 0). Changing the ranges or points after closing doesn’t change the order. Undoing, starting it again and closing redraws. Participants don’t see the points.",
   },
   result: {
     summary: "You enter the results",
@@ -142,6 +142,6 @@ const FORMAT_TEXT_EN: Record<GameFormat, FormatText> = {
     descriptionLabel: "Description (optional)",
     description: "e.g. Sit down when you lose. The last one standing wins",
     imageLabel: "Image (optional)",
-    note: "You can add slots later (a game with no slots can’t be finalized). Choose people for each slot with “Choose people” after saving. Deleting a slot also removes the people chosen for it. Participants don’t see the slot points.",
+    note: "You can add slots later (a game with no slots can’t be closed). Choose people for each slot with “Choose people” after saving. Deleting a slot also removes the people chosen for it. Participants don’t see the slot points.",
   },
 };

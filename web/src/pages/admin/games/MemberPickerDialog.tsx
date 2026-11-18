@@ -169,8 +169,8 @@ export function MemberPickerDialog(props: {
         {game.status === "confirmed" && (
           <p className="muted small">
             {t(
-              "確定済みなので、保存するとすぐにポイントが変わります。",
-              "It’s finalized, so points change as soon as you save.",
+              "締め切り済みなので、保存するとすぐにポイントが変わります。",
+              "It’s closed, so points change as soon as you save.",
             )}
           </p>
         )}

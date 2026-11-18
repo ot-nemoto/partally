@@ -52,6 +52,7 @@ describe("API", () => {
       expect(edited.body.game.slots.map((s: any) => s.slotId)).toEqual([win.slotId, expect.any(String), best.slotId]);
       expect(await pointsOf(admin)).toMatchObject({ 田中: [0, 0], 鈴木: [0, 0], 佐藤: [0, 0] });
 
+      await admin("POST", `/api/admin/games/${game.gameId}/open`);
       const confirmed = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect(confirmed.status).toBe(200);
       expect(confirmed.body.game.status).toBe("confirmed");
@@ -94,6 +95,7 @@ describe("API", () => {
       expect(await pointsOf(admin)).toMatchObject({ 田中: [0, 0], 鈴木: [0, 0], 佐藤: [0, 0] });
       expect((await admin("POST", `/api/admin/games/${game.gameId}/unconfirm`)).status).toBe(409);
 
+      await admin("POST", `/api/admin/games/${game.gameId}/open`);
       await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect((await admin("DELETE", `/api/admin/games/${game.gameId}`)).status).toBe(200);
       expect((await admin("GET", "/api/admin/games")).body.games).toEqual([]);
@@ -177,6 +179,7 @@ describe("API", () => {
         );
         expect(ok.status).toBe(200);
         vi.setSystemTime(new Date("2026-01-01T01:03:00.000Z"));
+        await admin("POST", `/api/admin/games/${game.gameId}/open`);
         const confirmed = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
         expect(confirmed.body.game.updatedAt).toBe("2026-01-01T01:03:00.000Z");
         expect(
@@ -194,14 +197,15 @@ describe("API", () => {
       expect(created.status).toBe(201);
       const { game } = created.body;
       expect(game.slots).toEqual([]);
+      const opened = (await admin("POST", `/api/admin/games/${game.gameId}/open`)).body.game;
       expect((await admin("POST", `/api/admin/games/${game.gameId}/confirm`)).status).toBe(409);
-      expect((await admin("GET", "/api/admin/games")).body.games[0].status).toBe("draft");
+      expect((await admin("GET", "/api/admin/games")).body.games[0].status).toBe("open");
 
       const added = await admin("PUT", `/api/admin/games/${game.gameId}`, {
         format: "result",
         name: "ビンゴ",
         slots: [{ name: "1 番乗り", points: 10, userIds: [a.userId] }],
-        baseUpdatedAt: game.updatedAt,
+        baseUpdatedAt: opened.updatedAt,
       });
       expect(added.status).toBe(200);
       expect((await admin("POST", `/api/admin/games/${game.gameId}/confirm`)).status).toBe(200);
@@ -213,7 +217,7 @@ describe("API", () => {
         slots: [],
       });
       expect(emptied.status).toBe(409);
-      expect(emptied.body.message).toContain("先に確定を取り消してください");
+      expect(emptied.body.message).toContain("先に締め切りを取り消してください");
       expect(await pointsOf(admin)).toMatchObject({ 田中: [10, 10] });
       // 確定を取り消せば、枠を全部外せる
       expect((await admin("POST", `/api/admin/games/${game.gameId}/unconfirm`)).status).toBe(200);
@@ -280,6 +284,7 @@ describe("API", () => {
           slots: [{ name: "勝ち残り", points: 10, userIds: [a.userId] }],
         })
       ).body;
+      await admin("POST", `/api/admin/games/${game.gameId}/open`);
       await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       const settings = (await admin("GET", "/api/admin/settings")).body.settings;
       await admin("PUT", "/api/admin/settings", { ...settings, showGamePoints: false });

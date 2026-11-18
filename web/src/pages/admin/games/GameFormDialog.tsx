@@ -303,7 +303,7 @@ export function GameFormDialog(props: {
                 label={
                   lockAnswer
                     ? t("正解の数", "Correct number")
-                    : t("正解の数（任意・確定までに入れる）", "Correct number (optional; enter it before finalizing)")
+                    : t("正解の数（任意・締め切りまでに入れる）", "Correct number (optional; enter it before closing)")
                 }
                 value={correctNumber}
                 min={GAME_NUMBER_MIN}
@@ -333,8 +333,8 @@ export function GameFormDialog(props: {
                 />
                 <span className="muted small">
                   {t(
-                    "参加者には見せません。確定した後に直すと、今の合言葉に合う答えだけで数え直します。",
-                    "Not shown to participants. If you change it after finalizing, only answers that match the new keyword are counted.",
+                    "参加者には見せません。締め切った後に直すと、今の合言葉に合う答えだけで数え直します。",
+                    "Not shown to participants. If you change it after closing, only answers that match the new keyword are counted.",
                   )}
                 </span>
               </label>
@@ -442,8 +442,8 @@ export function GameFormDialog(props: {
                       title={
                         lastSlotLocked && rows.length <= minRows
                           ? t(
-                              "確定済みなので、最後の枠は消せません（先に確定を取り消してください）",
-                              "It’s finalized, so the last slot can’t be deleted (undo finalizing first)",
+                              "締め切り済みなので、最後の枠は消せません（先に締め切りを取り消してください）",
+                              "It’s closed, so the last slot can’t be deleted (undo closing first)",
                             )
                           : undefined
                       }
@@ -484,8 +484,8 @@ export function GameFormDialog(props: {
             ) : (
               <p className="muted small">
                 {t(
-                  "答えがある・開催した後は、選択肢の追加・削除はできません。文言と点数は直せます（点数を直すと、確定した分も数え直します）。",
-                  "Once it has answers or has been started, choices can’t be added or deleted. You can still edit their text and points (changing points recounts finalized results too).",
+                  "答えがある・開催した後は、選択肢の追加・削除はできません。文言と点数は直せます（点数を直すと、締め切った分も数え直します）。",
+                  "Once it has answers or has been started, choices can’t be added or deleted. You can still edit their text and points (changing points recounts closed games too).",
                 )}
               </p>
             )}
@@ -495,13 +495,13 @@ export function GameFormDialog(props: {
           {text.note}
           {lastSlotLocked &&
             t(
-              "確定済みなので、枠を全部は消せません（消すなら先に確定を取り消してください）。",
-              " It’s finalized, so you can’t delete every slot (undo finalizing first).",
+              "締め切り済みなので、枠を全部は消せません（消すなら先に締め切りを取り消してください）。",
+              " It’s closed, so you can’t delete every slot (undo closing first).",
             )}
           {game?.status === "confirmed" &&
             t(
-              "確定済みなので、保存するとすぐにポイントが変わります。",
-              " It’s finalized, so points change as soon as you save.",
+              "締め切り済みなので、保存するとすぐにポイントが変わります。",
+              " It’s closed, so points change as soon as you save.",
             )}
         </p>
         {error && <p className="error">{error}</p>}
