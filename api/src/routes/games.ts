@@ -315,15 +315,14 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
   });
 
   /**
-   * 参加者の一覧（GSI）は結果整合なので、確定の直前の参加がまだ出ていないことがある。開催中の抽選を確定するときは、
+   * 参加者の一覧（GSI）は結果整合なので、締め切りの直前の参加がまだ出ていないことがある。抽選を締め切るとき（開催中だけ）は、
    * 一度読んでから少し待ってもう一度読み、どちらかに出た人を合わせる（抽選は確定のときの順番を保存し、後から直らないため）。
    * 確定の時刻は 2 回目の読み取りの直前に決めるので、待っている間の参加も数える
    */
   const readLotteryEntrants = async (game: GameRecord) => {
     const read = async () => (await repo.listGameAnswersByGame(game.gameId)).filter((a) => a.entry);
-    // 下書きからの確定は、新しい参加が無い（開催中しか参加できない）ので待たない
-    const first = game.status === "open" ? await read() : [];
-    if (game.status === "open") await settle();
+    const first = await read();
+    await settle();
     const at = now().toISOString();
     const entrants = [...first, ...(await read())].filter((a) => a.answeredAt <= at).map((a) => a.userId);
     return { at, entrants: [...new Set(entrants)] };

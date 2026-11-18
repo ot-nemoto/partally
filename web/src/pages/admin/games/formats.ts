@@ -75,7 +75,7 @@ const FORMAT_TEXT: Record<GameFormat, FormatText> = {
     descriptionLabel: "説明（任意）",
     description: "例: 参加ボタンを押した人の中から、抽選で 5 名にポイントをプレゼント",
     imageLabel: "画像（任意）",
-    note: "締め切ったときに、参加した人の順番を無作為に決めて保存し、順番が入る範囲の点数が入ります（どの範囲にも入らない人は 0 点）。締め切った後に範囲や点数を直しても、順番は変わりません。締め切りを取り消してもう一度締め切ると、引き直します。点数は参加者には見せません。",
+    note: "締め切ったときに、参加した人の順番を無作為に決めて保存し、順番が入る範囲の点数が入ります（どの範囲にも入らない人は 0 点）。締め切った後に範囲や点数を直しても、順番は変わりません。締め切りを取り消して開催し直してもう一度締め切ると、引き直します。点数は参加者には見せません。",
   },
   result: {
     summary: "幹事が結果を入れる",
@@ -132,7 +132,7 @@ const FORMAT_TEXT_EN: Record<GameFormat, FormatText> = {
     descriptionLabel: "Description (optional)",
     description: "e.g. 5 people who enter will win points in a draw",
     imageLabel: "Image (optional)",
-    note: "When you close it, the entrants are put in a random order that is saved, and each range of the order gets its points (people outside every range get 0). Changing the ranges or points after closing doesn’t change the order. Undoing and closing again redraws. Participants don’t see the points.",
+    note: "When you close it, the entrants are put in a random order that is saved, and each range of the order gets its points (people outside every range get 0). Changing the ranges or points after closing doesn’t change the order. Undoing, starting it again and closing redraws. Participants don’t see the points.",
   },
   result: {
     summary: "You enter the results",

@@ -146,8 +146,8 @@ export function AdminGames() {
     const redraw =
       g.format === "lottery"
         ? tr(
-            "\n抽選の結果も消え、もう一度締め切ると引き直しになります（発表した後は取り消さないでください）。",
-            "\nThe draw results are also removed, and closing again redraws (don’t undo after announcing).",
+            "\n抽選の結果も消え、開催し直してもう一度締め切ると引き直しになります（発表した後は取り消さないでください）。",
+            "\nThe draw results are also removed, and starting and closing it again redraws (don’t undo after announcing).",
           )
         : "";
     if (

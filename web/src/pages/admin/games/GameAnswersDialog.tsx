@@ -221,8 +221,8 @@ function LotteryAnswers(props: { game: GameDto; answers: GameAnswersResponse["an
       {missed.length > 0 && (
         <p className="muted small">
           {t(
-            `抽選に入っていない参加者（${missed.length} 人）: ${missed.map((a) => names.get(a.userId)).join("、")}。紐づけを解除した人と、締め切りの直前に参加して間に合わなかった人です。入れるなら締め切りを取り消してもう一度締め切ります（引き直しになります）。`,
-            `Entrants not in the draw (${missed.length}): ${missed.map((a) => names.get(a.userId)).join(", ")}. These are unlinked people and people who entered just before closing. To include them, undo closing and close it again (this redraws).`,
+            `抽選に入っていない参加者（${missed.length} 人）: ${missed.map((a) => names.get(a.userId)).join("、")}。紐づけを解除した人と、締め切りの直前に参加して間に合わなかった人です。入れるなら締め切りを取り消して開催し直してもう一度締め切ります（引き直しになります）。`,
+            `Entrants not in the draw (${missed.length}): ${missed.map((a) => names.get(a.userId)).join(", ")}. These are unlinked people and people who entered just before closing. To include them, undo closing, start it again and close it (this redraws).`,
           )}
         </p>
       )}
