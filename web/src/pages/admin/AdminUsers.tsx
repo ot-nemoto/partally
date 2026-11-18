@@ -3,6 +3,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
 import { Modal } from "../../components/Modal";
 import { PageTitle } from "../../components/PageTitle";
+import { StatusFilter, useShownStatuses } from "../../components/StatusFilter";
 import { useOnReload } from "../../hooks/useReload";
 import { useT } from "../../i18n";
 
@@ -12,8 +13,37 @@ const PIN_LABEL: Record<PinStatus, [ja: string, en: string]> = {
   locked: ["ロック中", "Locked"],
 };
 
+/** 出し入れできる列（ポイントの内訳）。初めは隠す */
+const DETAIL_COLUMNS = ["upload", "public", "received", "given", "game"] as const;
+type DetailColumn = (typeof DETAIL_COLUMNS)[number];
+
+const DETAIL_LABEL: Record<DetailColumn, [ja: string, en: string]> = {
+  upload: ["アップロード", "Uploads"],
+  public: ["公開", "Public"],
+  received: ["選ばれた", "Favorited"],
+  given: ["選んだ", "Gave"],
+  game: ["ゲーム点", "Game pts"],
+};
+
+const DETAIL_VALUE: Record<DetailColumn, (u: UserDto) => number | undefined> = {
+  upload: (u) => u.uploadCount,
+  public: (u) => u.approvedCount,
+  received: (u) => u.favoritesReceived,
+  given: (u) => u.favoritesGiven,
+  game: (u) => u.gamePoints,
+};
+
 export function AdminUsers() {
   const t = useT();
+  const { shown, toggle } = useShownStatuses("partally.admin.userColumns", DETAIL_COLUMNS, {
+    initial: [],
+    scrollToTop: false,
+  });
+  const columns = DETAIL_COLUMNS.filter((c) => shown.has(c));
+  const labels = Object.fromEntries(DETAIL_COLUMNS.map((c) => [c, t(...DETAIL_LABEL[c])])) as Record<
+    DetailColumn,
+    string
+  >;
   const [users, setUsers] = useState<UserDto[]>();
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState<UserDto>();
@@ -94,7 +124,11 @@ export function AdminUsers() {
 
   return (
     <section>
-      <PageTitle en="User" ja="ユーザ管理" />
+      <PageTitle en="User" ja="ユーザ管理">
+        <div className="title-actions">
+          <StatusFilter statuses={DETAIL_COLUMNS} labels={labels} shown={shown} onToggle={toggle} />
+        </div>
+      </PageTitle>
       {error && <p className="error">{error}</p>}
       {users && (
         <p className="muted">
@@ -109,11 +143,11 @@ export function AdminUsers() {
             <tr>
               <th>{t("表示名", "Name")}</th>
               <th className="num">{t("ポイント", "Points")}</th>
-              <th className="num">{t("アップロード", "Uploads")}</th>
-              <th className="num">{t("公開", "Public")}</th>
-              <th className="num">{t("選ばれた", "Favorited")}</th>
-              <th className="num">{t("選んだ", "Gave")}</th>
-              <th className="num">{t("ゲーム点", "Game pts")}</th>
+              {columns.map((c) => (
+                <th key={c} className="num">
+                  {labels[c]}
+                </th>
+              ))}
               <th>{t("状態", "Status")}</th>
               <th>{t("暗証番号", "PIN")}</th>
               <th />
@@ -126,11 +160,11 @@ export function AdminUsers() {
                 <td className="num">
                   <strong>{u.points}</strong>
                 </td>
-                <td className="num">{u.uploadCount}</td>
-                <td className="num">{u.approvedCount}</td>
-                <td className="num">{u.favoritesReceived}</td>
-                <td className="num">{u.favoritesGiven}</td>
-                <td className="num">{u.gamePoints}</td>
+                {columns.map((c) => (
+                  <td key={c} className="num">
+                    {DETAIL_VALUE[c](u)}
+                  </td>
+                ))}
                 <td>{u.status === "active" ? t("登録済み", "Active") : t("解除済み", "Unlinked")}</td>
                 <td className={u.pin === "locked" ? "pin-locked nowrap" : "nowrap"}>
                   {u.status === "active" && u.pin ? t(...PIN_LABEL[u.pin]) : ""}
