@@ -282,7 +282,7 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
         c,
         409,
         "invalid_state",
-        "確定したゲームの枠・正解の数・点数の範囲は、全部は外せません。先に確定を取り消してください",
+        "締め切ったゲームの枠・正解の数・点数の範囲は、全部は外せません。先に締め切りを取り消してください",
       );
     }
     const changes = {
@@ -348,7 +348,7 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
     } catch (e) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
       if (e instanceof GameAlreadyOpenError) {
-        return fail(c, 409, "invalid_state", "別のゲームが開催中です。確定するか、開催をやめてから開催してください");
+        return fail(c, 409, "invalid_state", "別のゲームが開催中です。締め切るか、開催をやめてから開催してください");
       }
       if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state", message);
       throw e;
@@ -377,9 +377,9 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
   // 入るポイントが決まらないゲーム（枠の無い結果入力、正解の数か点数の範囲が無い数値予想）は確定させない
   app.post(
     "/admin/games/:gameId/confirm",
-    gameAction("confirmed", ["draft", "open"], "既に確定しています", gameConfirmProblem),
+    gameAction("confirmed", ["open"], "開催中のゲームだけ締め切れます", gameConfirmProblem),
   );
-  app.post("/admin/games/:gameId/unconfirm", gameAction("draft", ["confirmed"], "確定していません"));
+  app.post("/admin/games/:gameId/unconfirm", gameAction("draft", ["confirmed"], "締め切っていません"));
 
   app.delete("/admin/games/:gameId", async (c) => {
     const game = await repo.getGame(c.req.param("gameId"));

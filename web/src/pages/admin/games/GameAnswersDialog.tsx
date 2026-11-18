@@ -43,10 +43,10 @@ export function GameAnswersDialog(props: { game: GameDto; onClose: () => void })
         {counted && late.length > 0 && (
           <p className="muted small">
             {t(
-              `確定より後に届いた答え（${late.length} 件）は、ポイントと同じく数えていません。`,
+              `締め切りより後に届いた答え（${late.length} 件）は、ポイントと同じく数えていません。`,
               late.length === 1
-                ? "1 answer that arrived after finalizing isn’t counted, same as for points."
-                : `${late.length} answers that arrived after finalizing aren’t counted, same as for points.`,
+                ? "1 answer that arrived after closing isn’t counted, same as for points."
+                : `${late.length} answers that arrived after closing aren’t counted, same as for points.`,
             )}
           </p>
         )}
@@ -168,8 +168,8 @@ function LotteryAnswers(props: { game: GameDto; answers: GameAnswersResponse["an
       <>
         <p className="small">
           {t(
-            `参加 ${props.answers.length} 人（確定したときに抽選します）`,
-            `${props.answers.length} entered (the draw happens when you finalize)`,
+            `参加 ${props.answers.length} 人（締め切ったときに抽選します）`,
+            `${props.answers.length} entered (the draw happens when you close it)`,
           )}
         </p>
         <p className="small">
@@ -221,8 +221,8 @@ function LotteryAnswers(props: { game: GameDto; answers: GameAnswersResponse["an
       {missed.length > 0 && (
         <p className="muted small">
           {t(
-            `抽選に入っていない参加者（${missed.length} 人）: ${missed.map((a) => names.get(a.userId)).join("、")}。紐づけを解除した人と、確定の直前に参加して間に合わなかった人です。入れるなら確定を取り消してもう一度確定します（引き直しになります）。`,
-            `Entrants not in the draw (${missed.length}): ${missed.map((a) => names.get(a.userId)).join(", ")}. These are unlinked people and people who entered just before finalizing. To include them, undo finalizing and finalize again (this redraws).`,
+            `抽選に入っていない参加者（${missed.length} 人）: ${missed.map((a) => names.get(a.userId)).join("、")}。紐づけを解除した人と、締め切りの直前に参加して間に合わなかった人です。入れるなら締め切りを取り消してもう一度締め切ります（引き直しになります）。`,
+            `Entrants not in the draw (${missed.length}): ${missed.map((a) => names.get(a.userId)).join(", ")}. These are unlinked people and people who entered just before closing. To include them, undo closing and close it again (this redraws).`,
           )}
         </p>
       )}

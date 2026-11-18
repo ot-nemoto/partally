@@ -81,6 +81,7 @@ describe("API", () => {
       expect(undone.body.game.drawOrder).toBeUndefined();
       expect(await pts()).toEqual([0, 0, 0, 0, 0]);
       t.randomInts = [3, 2, 1];
+      await admin("POST", `/api/admin/games/${game.gameId}/open`);
       const again = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect(again.body.game.drawOrder).toEqual([a, b, c, d]);
       expect(await pts()).toEqual([0, 0, 0, 7, 0]);
@@ -129,9 +130,10 @@ describe("API", () => {
     it("入力の検証と、範囲が無いと確定できないこと", async () => {
       const admin = await t.adminClient();
       const game = (await admin("POST", "/api/admin/games", { format: "lottery", name: "抽選" })).body.game;
+      await admin("POST", `/api/admin/games/${game.gameId}/open`);
       const res = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect(res.status).toBe(409);
-      expect(res.body.message).toBe("点数の範囲を追加してから確定してください");
+      expect(res.body.message).toBe("点数の範囲を追加してから締め切ってください");
       expect(
         await admin("POST", "/api/admin/games", { format: "lottery", name: "x", keyword: "a" }).then((r) => r.status),
       ).toBe(400);

@@ -61,7 +61,7 @@ describe("API", () => {
       // 正解の数が無いうちは確定できない
       const noAnswer = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect(noAnswer.status).toBe(409);
-      expect(noAnswer.body.message).toBe("正解の数を入れてから確定してください");
+      expect(noAnswer.body.message).toBe("正解の数を入れてから締め切ってください");
 
       const list = (await admin("GET", "/api/admin/games")).body.games.find((g: any) => g.gameId === game.gameId);
       const set = await admin("PUT", `/api/admin/games/${game.gameId}`, {
@@ -143,9 +143,10 @@ describe("API", () => {
       const game = (await admin("POST", "/api/admin/games", { format: "number", name: "数", correctNumber: 0 })).body
         .game;
       expect(game.correctNumber).toBe(0);
+      await admin("POST", `/api/admin/games/${game.gameId}/open`);
       const res = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect(res.status).toBe(409);
-      expect(res.body.message).toBe("点数の範囲を追加してから確定してください");
+      expect(res.body.message).toBe("点数の範囲を追加してから締め切ってください");
     });
   });
 });

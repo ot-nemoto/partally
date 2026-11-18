@@ -1599,6 +1599,11 @@ textarea {
   gap: 0.75rem;
 }
 
+/* 下書きのゲームの「開催する」は、カードの右上に置く */
+.quiz-card-header .game-start {
+  margin-left: auto;
+}
+
 .status {
   padding: 0 0.5rem;
   border-radius: 0.25rem;

@@ -170,7 +170,7 @@ export function AdminData() {
         </div>
         <p className="muted small">
           {t(
-            "ゲームは作り直すのに要るもの（形式・名前・説明・画像・選択肢・枠・点数の範囲・正解の数・合言葉など）を入れ、開催・確定の状態、答え、抽選の順番、結果入力の枠に選んだ人は入れません。",
+            "ゲームは作り直すのに要るもの（形式・名前・説明・画像・選択肢・枠・点数の範囲・正解の数・合言葉など）を入れ、開催・締め切りの状態、答え、抽選の順番、結果入力の枠に選んだ人は入れません。",
             "Games include what’s needed to recreate them (format, name, description, images, choices, slots, points ranges, correct number, keyword, etc.), but not their status, answers, draw order or the people chosen for slots.",
           )}
         </p>
