@@ -35,7 +35,10 @@ const DETAIL_VALUE: Record<DetailColumn, (u: UserDto) => number | undefined> = {
 
 export function AdminUsers() {
   const t = useT();
-  const { shown, toggle } = useShownStatuses("partally.admin.userColumns", DETAIL_COLUMNS, []);
+  const { shown, toggle } = useShownStatuses("partally.admin.userColumns", DETAIL_COLUMNS, {
+    initial: [],
+    scrollToTop: false,
+  });
   const columns = DETAIL_COLUMNS.filter((c) => shown.has(c));
   const labels = Object.fromEntries(DETAIL_COLUMNS.map((c) => [c, t(...DETAIL_LABEL[c])])) as Record<
     DetailColumn,
