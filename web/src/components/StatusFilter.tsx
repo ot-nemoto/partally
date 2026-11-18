@@ -3,17 +3,17 @@ import { useT } from "../i18n";
 
 /**
  * 一覧に出す状態を選ぶ切り替え（複数選べる）。どれを出すかはこのブラウザに覚える（storageKey ごと）。
- * タイトルの行に置き、切り替えたら一覧の先頭から見せる
+ * タイトルの行に置き、切り替えたら一覧の先頭から見せる。初めに出すもの（initial）を省くと全部出す
  */
-export function useShownStatuses<S extends string>(storageKey: string, statuses: readonly S[]) {
+export function useShownStatuses<S extends string>(storageKey: string, statuses: readonly S[], initial?: readonly S[]) {
   const [shown, setShown] = useState<Set<S>>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null");
       if (Array.isArray(saved)) return new Set(statuses.filter((s) => saved.includes(s)));
     } catch {
-      // 読めない・壊れているときは全部出す
+      // 読めない・壊れているときは初めの状態にする
     }
-    return new Set(statuses);
+    return new Set(initial ?? statuses);
   });
 
   function change(next: (prev: Set<S>) => Set<S>) {
@@ -48,11 +48,11 @@ export function useShownStatuses<S extends string>(storageKey: string, statuses:
   };
 }
 
-/** 状態ごとの表示・非表示の切り替え（件数つき） */
+/** 状態ごとの表示・非表示の切り替え（counts を渡すと件数を添える） */
 export function StatusFilter<S extends string>(props: {
   statuses: readonly S[];
   labels: Record<S, string>;
-  counts: Record<S, number>;
+  counts?: Record<S, number>;
   shown: Set<S>;
   onToggle: (status: S) => void;
 }) {
@@ -68,7 +68,9 @@ export function StatusFilter<S extends string>(props: {
           aria-pressed={props.shown.has(s)}
           onClick={() => props.onToggle(s)}
         >
-          {t(`${props.labels[s]}（${props.counts[s]}）`, `${props.labels[s]} (${props.counts[s]})`)}
+          {props.counts
+            ? t(`${props.labels[s]}（${props.counts[s]}）`, `${props.labels[s]} (${props.counts[s]})`)
+            : props.labels[s]}
         </button>
       ))}
     </fieldset>
