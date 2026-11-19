@@ -43,10 +43,10 @@ export function GameAnswersDialog(props: { game: GameDto; onClose: () => void })
         {counted && late.length > 0 && (
           <p className="muted small">
             {t(
-              `締め切りより後に届いた答え（${late.length} 件）は、ポイントと同じく数えていません。`,
+              `終了より後に届いた答え（${late.length} 件）は、ポイントと同じく数えていません。`,
               late.length === 1
-                ? "1 answer that arrived after closing isn’t counted, same as for points."
-                : `${late.length} answers that arrived after closing aren’t counted, same as for points.`,
+                ? "1 answer that arrived after ending isn’t counted, same as for points."
+                : `${late.length} answers that arrived after ending aren’t counted, same as for points.`,
             )}
           </p>
         )}
@@ -78,7 +78,7 @@ export function GameAnswersDialog(props: { game: GameDto; onClose: () => void })
         })}
         <div className="buttons">
           <button type="button" onClick={props.onClose}>
-            {t("閉じる", "Close")}
+            {t("閉じる", "End")}
           </button>
         </div>
       </div>
@@ -168,8 +168,8 @@ function LotteryAnswers(props: { game: GameDto; answers: GameAnswersResponse["an
       <>
         <p className="small">
           {t(
-            `参加 ${props.answers.length} 人（締め切ったときに抽選します）`,
-            `${props.answers.length} entered (the draw happens when you close it)`,
+            `参加 ${props.answers.length} 人（終了したときに抽選します）`,
+            `${props.answers.length} entered (the draw happens when you end it)`,
           )}
         </p>
         <p className="small">
@@ -221,8 +221,8 @@ function LotteryAnswers(props: { game: GameDto; answers: GameAnswersResponse["an
       {missed.length > 0 && (
         <p className="muted small">
           {t(
-            `抽選に入っていない参加者（${missed.length} 人）: ${missed.map((a) => names.get(a.userId)).join("、")}。紐づけを解除した人と、締め切りの直前に参加して間に合わなかった人です。入れるなら締め切りを取り消して開催し直してもう一度締め切ります（引き直しになります）。`,
-            `Entrants not in the draw (${missed.length}): ${missed.map((a) => names.get(a.userId)).join(", ")}. These are unlinked people and people who entered just before closing. To include them, undo closing, start it again and close it (this redraws).`,
+            `抽選に入っていない参加者（${missed.length} 人）: ${missed.map((a) => names.get(a.userId)).join("、")}。紐づけを解除した人と、終了の直前に参加して間に合わなかった人です。入れるなら終了を取り消して開始し直してもう一度終了します（引き直しになります）。`,
+            `Entrants not in the draw (${missed.length}): ${missed.map((a) => names.get(a.userId)).join(", ")}. These are unlinked people and people who entered just before ending. To include them, undo ending, start it again and end it (this redraws).`,
           )}
         </p>
       )}

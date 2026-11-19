@@ -1599,9 +1599,14 @@ textarea {
   gap: 0.75rem;
 }
 
-/* 下書きのゲームの「開催する」は、カードの右上に置く */
+/* ゲームの進行のボタン（開始・終了）は、カードの右上に置く */
 .quiz-card-header .game-start {
   margin-left: auto;
+}
+
+/* 削除（開催中は中断）は左端に置き、ほかのボタン（右寄せ）から離す */
+.game-actions .game-actions-left {
+  margin-right: auto;
 }
 
 .status {
@@ -2772,4 +2777,51 @@ table.import-table td.nowrap {
   min-height: 1.8rem;
   padding: 0 0.6rem;
   font-size: 0.8rem;
+}
+
+/* ゲームの「決定」（選んだ答えを送る） */
+.game-decide {
+  display: block;
+  width: 100%;
+  min-height: 3rem;
+  margin-top: 0.75rem;
+  font-size: 1.1rem;
+}
+
+/* 投票の一覧が長くても「決定」を押せるよう、画面の下に留める */
+.game-decide-bar {
+  position: sticky;
+  /* 下のタブに隠れないよう、タブの上に留める */
+  bottom: calc(3.25rem + env(safe-area-inset-bottom));
+  padding: 0.5rem 0;
+  background: var(--surface);
+}
+
+.game-decide-bar .game-decide {
+  margin-top: 0;
+}
+
+.game-vote-picked {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* 答えた印（はんこのような丸い枠） */
+.game-done-stamp {
+  width: fit-content;
+  margin: 1rem auto 0.25rem;
+  padding: 0.35rem 1.1rem;
+  border: 3px double var(--accent);
+  border-radius: 0.5rem;
+  color: var(--accent);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  transform: rotate(-6deg);
+}
+
+/* 答えた後も、選んだ選択肢ははっきり見せる（ほかの選択肢は薄くする） */
+.quiz-choice.selected:disabled {
+  opacity: 1;
 }

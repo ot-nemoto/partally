@@ -14,7 +14,7 @@ describe("API", () => {
       { from: 2, to: 3, points: 10 },
     ];
 
-    it("開催 → 投票（選び直し可）→ 確定で、得票の順位に応じた点数と、投票した人の点数が入る", async () => {
+    it("開催 → 投票（決定したら選び直せない）→ 終了で、得票の順位に応じた点数と、投票した人の点数が入る", async () => {
       const admin = await t.adminClient();
       const created = await admin("POST", "/api/admin/games", { format: "vote", name: "MVP", ranks, voterPoints: 2 });
       expect(created.status).toBe(201);
@@ -56,9 +56,9 @@ describe("API", () => {
       expect((await vote(a, "NOBODY")).status).toBe(400);
       expect((await a.request("PUT", `/api/game/${game.gameId}/answer`, { value: 1 })).status).toBe(400);
 
-      // A → C から B に選び直す。B → C、C → B、D → A
-      expect((await vote(a, c.userId)).body.game.myTargetUserId).toBe(c.userId);
-      await vote(a, b.userId);
+      // A → B（選び直しは受け付けない）。B → C、C → B、D → A
+      expect((await vote(a, b.userId)).body.game.myTargetUserId).toBe(b.userId);
+      expect((await vote(a, c.userId)).status).toBe(409);
       await vote(b, c.userId);
       await vote(c, b.userId);
       await vote(d, a.userId);
@@ -113,7 +113,7 @@ describe("API", () => {
       await admin("POST", `/api/admin/games/${game.gameId}/open`);
       const res = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect(res.status).toBe(409);
-      expect(res.body.message).toBe("点数の範囲を追加してから締め切ってください");
+      expect(res.body.message).toBe("点数の範囲を追加してから終了してください");
       await admin("POST", `/api/admin/games/${game.gameId}/stop`);
       const a = await participant("田中");
       expect((await a.request("GET", `/api/game/${game.gameId}/candidates`)).status).toBe(409);

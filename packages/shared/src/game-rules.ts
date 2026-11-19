@@ -139,13 +139,13 @@ export function gameConfirmProblem(
 ): string | undefined {
   const en = lang === "en";
   if (game.format === "result" && game.slots.length === 0) {
-    return en ? "Add a slot before closing" : "枠を追加してから締め切ってください";
+    return en ? "Add a slot before ending" : "枠を追加してから終了してください";
   }
   if (game.format === "number" && game.correctNumber === undefined) {
-    return en ? "Enter the correct number before closing" : "正解の数を入れてから締め切ってください";
+    return en ? "Enter the correct number before ending" : "正解の数を入れてから終了してください";
   }
   if (hasGameRanks(game) && game.ranks.length === 0) {
-    return en ? "Add a points range before closing" : "点数の範囲を追加してから締め切ってください";
+    return en ? "Add a points range before ending" : "点数の範囲を追加してから終了してください";
   }
   return undefined;
 }

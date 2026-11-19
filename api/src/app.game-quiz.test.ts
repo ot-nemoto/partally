@@ -25,7 +25,7 @@ describe("API", () => {
     const choicesOf = (game: any) =>
       game.choices.map((ch: any) => ({ choiceId: ch.choiceId, text: ch.text, points: ch.points }));
 
-    it("開催 → 答える（選び直し可）→ 確定で、選んだ選択肢の点数がポイントに加わる", async () => {
+    it("開催 → 答える（決定したら答え直せない）→ 終了で、選んだ選択肢の点数がポイントに加わる", async () => {
       const admin = await t.adminClient();
       const a = await participant("田中");
       const b = await participant("鈴木");
@@ -56,8 +56,11 @@ describe("API", () => {
         choices: quiz.choices.map((ch: any) => ({ choiceId: ch.choiceId, text: ch.text })),
       });
 
-      expect((await answer(a, c1)).status).toBe(200);
       expect((await answer(a, c3)).body.game.myChoiceId).toBe(c3);
+      // 答え直しは受け付けず、先の答えのまま
+      const again = await answer(a, c1);
+      expect(again.status).toBe(409);
+      expect(again.body.error).toBe("already_answered");
       await answer(b, c2);
       expect((await a.request("GET", "/api/game/current")).body.game.myChoiceId).toBe(c3);
       expect((await answer(a, "NOPE")).status).toBe(400);
@@ -109,15 +112,14 @@ describe("API", () => {
         ["鈴木", 0, 0],
       ]);
 
-      // 取り消すとポイントが消え、もう一度開催すれば答え直せる（前の答えは残る）
+      // 取り消すとポイントが消える。もう一度開始しても、前の答えのまま（答え直せない）
       expect((await admin("POST", `/api/admin/games/${quiz.gameId}/unconfirm`)).body.game.status).toBe("draft");
       expect((await me(a.request)).user.points).toBe(0);
       await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
       expect((await a.request("GET", "/api/game/current")).body.game.myChoiceId).toBe(c3);
-      await answer(a, c1);
-      await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
+      expect((await answer(a, c1)).status).toBe(409);
       await admin("POST", `/api/admin/games/${quiz.gameId}/confirm`);
-      expect((await me(a.request)).user.points).toBe(10);
+      expect((await me(a.request)).user.points).toBe(5);
     });
 
     /** 管理画面と同じく、アップロード URL をもらって画像を置く */
