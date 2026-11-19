@@ -288,14 +288,22 @@ input {
   font-weight: 600;
 }
 
+/* 二つ名が現れる演出。透明から始めると、出た直後は背景に溶けて読めないので、大きさだけを変える */
 @keyframes reveal {
   from {
-    opacity: 0;
     transform: scale(0.6);
   }
+  70% {
+    transform: scale(1.08);
+  }
   to {
-    opacity: 1;
     transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal .epithet {
+    animation: none;
   }
 }
 
