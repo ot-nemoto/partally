@@ -32,6 +32,10 @@ export function RoundsSection(props: {
   /** ゲームかラウンドが開催中（開始できない） */
   hasOpen: boolean;
   onChanged: () => Promise<void>;
+  /** 保存・状態を変えたラウンドを、一覧の取り直しを待たずに画面へ入れる */
+  onSaved: (round: RoundDto) => void;
+  /** 削除したラウンドを、一覧の取り直しを待たずに画面から外す */
+  onRemoved: (roundId: string) => void;
 }) {
   const { rounds, games } = props;
   const t = useT();
@@ -53,7 +57,7 @@ export function RoundsSection(props: {
     }
   }
   const post = (r: RoundDto, action: string) =>
-    run(() => api<RoundResponse>("POST", `/admin/rounds/${r.roundId}/${action}`));
+    run(async () => props.onSaved((await api<RoundResponse>("POST", `/admin/rounds/${r.roundId}/${action}`)).round));
 
   const start = (r: RoundDto) => {
     if (
@@ -126,7 +130,10 @@ export function RoundsSection(props: {
       )
     )
       return;
-    return run(() => api("DELETE", `/admin/rounds/${r.roundId}`));
+    return run(async () => {
+      await api("DELETE", `/admin/rounds/${r.roundId}`);
+      props.onRemoved(r.roundId);
+    });
   };
   const move = (index: number, delta: number) => {
     const ids = rounds.map((r) => r.roundId);
@@ -240,8 +247,9 @@ export function RoundsSection(props: {
           rounds={rounds}
           games={games}
           onClose={() => setEditing(undefined)}
-          onSaved={async () => {
+          onSaved={async (round) => {
             setEditing(undefined);
+            props.onSaved(round);
             await props.onChanged();
           }}
         />
@@ -256,7 +264,7 @@ function RoundDialog(props: {
   rounds: RoundDto[];
   games: GameDto[];
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: (round: RoundDto) => Promise<void>;
 }) {
   const t = useT();
   const lang = useLang();
@@ -286,9 +294,10 @@ function RoundDialog(props: {
     setError(undefined);
     try {
       const body = { name, gameIds };
-      if (props.round) await api<RoundResponse>("PUT", `/admin/rounds/${props.round.roundId}`, body);
-      else await api<RoundResponse>("POST", "/admin/rounds", body);
-      await props.onSaved();
+      const res = props.round
+        ? await api<RoundResponse>("PUT", `/admin/rounds/${props.round.roundId}`, body)
+        : await api<RoundResponse>("POST", "/admin/rounds", body);
+      await props.onSaved(res.round);
     } catch (err) {
       setError(errorMessage(err));
       setSaving(false);

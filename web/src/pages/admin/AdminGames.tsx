@@ -19,6 +19,7 @@ import { api, errorMessage } from "../../api";
 import { PageTitle } from "../../components/PageTitle";
 import { StatusFilter, useShownStatuses } from "../../components/StatusFilter";
 import { formatRecentTime } from "../../format";
+import { useFreshList } from "../../hooks/useFreshList";
 import { useOnReload } from "../../hooks/useReload";
 import { people, pts, tr, useLang, useT } from "../../i18n";
 import { FORMAT_ICON } from "./games/formats";
@@ -39,6 +40,10 @@ const STATUSES: GameStatus[] = ["open", "draft", "confirmed"];
 
 /** 保存した直後の一覧の取得が古い内容を返しうる間（一覧は少し遅れて反映される） */
 const FRESH_MS = 10_000;
+const roundIdOf = (r: RoundDto) => r.roundId;
+
+/** 「更新」で、もう一度取り直すまでの間 */
+const RELOAD_AGAIN_MS = 2_000;
 
 /**
  * ゲーム。形式はクイズ・数値予想・投票・合言葉・抽選・結果入力（アイコンと説明は games/formats.ts）。
@@ -54,6 +59,9 @@ export function AdminGames() {
   };
   const [games, setGames] = useState<GameDto[]>();
   const [rounds, setRounds] = useState<RoundDto[]>([]);
+  // ラウンドも、保存・削除の直後に取り直した一覧が古くても、保存したものを出し、削除したものを出さない
+  const roundsFresh = useFreshList(roundIdOf);
+  const mergeRounds = roundsFresh.merge;
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState<GameDto | "new">();
@@ -76,7 +84,7 @@ export function AdminGames() {
         api<TokensResponse>("GET", "/admin/tokens"),
         api<RoundsResponse>("GET", "/admin/rounds"),
       ]);
-      setRounds(r.rounds);
+      setRounds(mergeRounds(r.rounds));
       const labels = new Map(t.tokens.flatMap((tok) => (tok.userId ? [[tok.userId, tok.label] as const] : [])));
       setGames((prev) => mergeGames(prev, g.games, deleted.current, fresh.current));
       setMembers(
@@ -91,12 +99,22 @@ export function AdminGames() {
     } catch (e) {
       setError(errorMessage(e));
     }
-  }, []);
+  }, [mergeRounds]);
 
   useEffect(() => {
     void load();
   }, [load]);
-  useOnReload(load);
+  // 回答数は答えの一覧から数えるが、一覧は少し遅れて反映される。「更新」では、すぐ取り直したうえで、
+  // 少し後にもう一度取り直す（答えた直後に押しても、数が増えるように）
+  const reloadTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(reloadTimer.current), []);
+  useOnReload(
+    useCallback(() => {
+      void load();
+      clearTimeout(reloadTimer.current);
+      reloadTimer.current = setTimeout(() => void load(), RELOAD_AGAIN_MS);
+    }, [load]),
+  );
 
   const byId = useMemo(() => new Map(members.map((m) => [m.user.userId, m.user])), [members]);
 
@@ -209,7 +227,22 @@ export function AdminGames() {
         )}
       </p>
       {error && <p className="error">{error}</p>}
-      {games && <RoundsSection rounds={rounds} games={games} hasOpen={hasOpen} onChanged={load} />}
+      {games && (
+        <RoundsSection
+          rounds={rounds}
+          games={games}
+          hasOpen={hasOpen}
+          onChanged={load}
+          onSaved={(round) => {
+            roundsFresh.saved(round);
+            setRounds((prev) => roundsFresh.merge(prev));
+          }}
+          onRemoved={(roundId) => {
+            roundsFresh.removed(roundId);
+            setRounds((prev) => roundsFresh.merge(prev));
+          }}
+        />
+      )}
       {games?.length === 0 && <p className="muted">{t("まだゲームがありません。", "No games yet.")}</p>}
       {hiddenCount > 0 && (
         <p className="muted small">{t(`${hiddenCount} 件を非表示にしています。`, `${hiddenCount} hidden.`)}</p>

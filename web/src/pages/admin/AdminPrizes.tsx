@@ -14,6 +14,7 @@ import { Modal } from "../../components/Modal";
 import { NumberField } from "../../components/NumberField";
 import { PageTitle } from "../../components/PageTitle";
 import { PrizeChips, PrizeImage } from "../../components/PrizeChips";
+import { useFreshList } from "../../hooks/useFreshList";
 import { useOnReload } from "../../hooks/useReload";
 import { tr, useLang, useT } from "../../i18n";
 import { type ImageDraft, ImageField } from "./ImageField";
@@ -29,15 +30,17 @@ export function AdminPrizes() {
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState<PrizeDto | "new">();
   const [busy, setBusy] = useState(false);
+  // 保存・削除の直後に取り直した一覧が古くても、保存したものを出し、削除したものを出さない
+  const { saved, removed, merge, apply } = useFreshList(prizeIdOf);
 
   const load = useCallback(async () => {
     try {
-      setPrizes((await api<PrizesResponse>("GET", "/admin/prizes")).prizes);
+      setPrizes(merge((await api<PrizesResponse>("GET", "/admin/prizes")).prizes));
       setError(undefined);
     } catch (e) {
       setError(errorMessage(e));
     }
-  }, []);
+  }, [merge]);
 
   useEffect(() => {
     void load();
@@ -49,6 +52,8 @@ export function AdminPrizes() {
     setBusy(true);
     try {
       await api("DELETE", `/admin/prizes/${prize.prizeId}`);
+      removed(prize.prizeId);
+      setPrizes(apply);
       await load();
     } catch (e) {
       alert(errorMessage(e));
@@ -149,8 +154,10 @@ export function AdminPrizes() {
         <PrizeFormDialog
           prize={editing === "new" ? undefined : editing}
           onClose={() => setEditing(undefined)}
-          onSaved={() => {
+          onSaved={(prize) => {
             setEditing(undefined);
+            saved(prize);
+            setPrizes(apply);
             void load();
           }}
         />
@@ -159,7 +166,9 @@ export function AdminPrizes() {
   );
 }
 
-function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved: () => void }) {
+const prizeIdOf = (p: PrizeDto) => p.prizeId;
+
+function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved: (prize: PrizeDto) => void }) {
   const t = useT();
   const lang = useLang();
   const { prize } = props;
@@ -203,13 +212,15 @@ function PrizeFormDialog(props: { prize?: PrizeDto; onClose: () => void; onSaved
     setSaving(true);
     setError(undefined);
     try {
+      let result: PrizeDto | undefined;
       await uploads.save(async () => {
         const imageId = image.blob ? await uploads.idOf(image.blob) : image.imageId;
         const body = { name, quantity, positions, imageId };
-        if (prize) await api<PrizeResponse>("PUT", `/admin/prizes/${prize.prizeId}`, body);
-        else await api<PrizeResponse>("POST", "/admin/prizes", body);
+        result = prize
+          ? (await api<PrizeResponse>("PUT", `/admin/prizes/${prize.prizeId}`, body)).prize
+          : (await api<PrizeResponse>("POST", "/admin/prizes", body)).prize;
       });
-      props.onSaved();
+      if (result) props.onSaved(result);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
