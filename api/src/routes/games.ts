@@ -62,9 +62,13 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
       Promise.all((state?.gameIds ?? []).map((id) => repo.getGame(id))),
     ]);
     const open = games.filter((g): g is GameRecord => g?.status === "open");
+    // 1 問なら自分の答えを 1 件だけ読み、ラウンドなら自分の答えをまとめて 1 回で読む（数秒ごとに呼ばれるため）
+    const answers =
+      open.length > 1 ? new Map((await repo.listGameAnswersByUser(userId)).map((a) => [a.gameId, a])) : undefined;
     const dtos = await Promise.all(
       open.map(async (game) => {
-        const answer = hasGameAnswers(game) ? await repo.getGameAnswer(userId, game.gameId) : undefined;
+        if (!hasGameAnswers(game)) return toCurrentGameDto(game, undefined, imageUrlOf);
+        const answer = answers ? answers.get(game.gameId) : await repo.getGameAnswer(userId, game.gameId);
         return toCurrentGameDto(game, answer, imageUrlOf);
       }),
     );
