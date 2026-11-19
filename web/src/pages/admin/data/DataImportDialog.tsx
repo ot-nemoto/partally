@@ -3,7 +3,8 @@ import type { DataArchive } from "@partally/shared/data-archive";
 import { type ReactNode, useState } from "react";
 import { ApiError, api, errorMessage } from "../../../api";
 import { Modal } from "../../../components/Modal";
-import { GamePreview, importGame } from "./games";
+import { useT } from "../../../i18n";
+import { GamePreview, importGame, importRounds } from "./games";
 import { importPrize, PrizePreview } from "./prizes";
 import { importScheduleItem, SchedulePreview } from "./schedule";
 import { SettingsPreview, saveSettings } from "./settings";
@@ -29,6 +30,7 @@ export function DataImportDialog(props: {
   onClose: () => void;
   onDone: () => void;
 }) {
+  const t = useT();
   const { data, current } = props;
   const [include, setInclude] = useState({
     prizes: !!data.prizes,
@@ -49,17 +51,32 @@ export function DataImportDialog(props: {
 
   async function run() {
     const removing = [
-      include.prizes && prizeMode === "replace" && current.prizes.length > 0 && `景品 ${current.prizes.length} 件`,
+      include.prizes &&
+        prizeMode === "replace" &&
+        current.prizes.length > 0 &&
+        t(
+          `景品 ${current.prizes.length} 件`,
+          current.prizes.length === 1 ? "1 prize" : `${current.prizes.length} prizes`,
+        ),
       include.schedule &&
         scheduleMode === "replace" &&
         current.scheduleItems.length > 0 &&
-        `スケジュールの項目 ${current.scheduleItems.length} 件`,
+        t(
+          `スケジュールの項目 ${current.scheduleItems.length} 件`,
+          current.scheduleItems.length === 1 ? "1 schedule item" : `${current.scheduleItems.length} schedule items`,
+        ),
     ].filter(Boolean);
     const notes = [
-      removing.length > 0 && `今の${removing.join("・")}を削除し、取り込んだものに置き換えます。`,
-      include.settings && "設定は、取り込んだ内容に置き換わります。",
+      removing.length > 0 &&
+        t(
+          `今の${removing.join("・")}を削除し、取り込んだものに置き換えます。`,
+          `The current ${removing.join(" and ")} will be deleted and replaced with the imported ones.`,
+        ),
+      include.settings &&
+        t("設定は、取り込んだ内容に置き換わります。", "Settings will be replaced with the imported ones."),
     ].filter(Boolean);
-    if (notes.length > 0 && !confirm(`${notes.join("\n")}\nよろしいですか？`)) return;
+    if (notes.length > 0 && !confirm(t(`${notes.join("\n")}\nよろしいですか？`, `${notes.join("\n")}\nContinue?`)))
+      return;
 
     setRunning(true);
     setError(undefined);
@@ -70,21 +87,31 @@ export function DataImportDialog(props: {
     const done: string[] = [];
     /** items を 1 件ずつ取り込む。置き換えのときは、取り込めてから今のものを消す（ほかの画面で消されていたら飛ばす） */
     async function step<T>(
-      label: string,
+      [label, labelEn, singular]: [ja: string, en: string, enSingular: string],
       items: T[],
       nameOf: (item: T) => string,
       importOne: (item: T) => Promise<void>,
       removers: (() => Promise<unknown>)[] = [],
     ) {
       for (const [i, item] of items.entries()) {
-        doing = `${label}の ${i + 1} 件目（${nameOf(item)}）`;
-        setProgress(`${label}を取り込み中… ${i + 1} / ${items.length}`);
+        doing = t(`${label}の ${i + 1} 件目（${nameOf(item)}）`, `${labelEn} item ${i + 1} (${nameOf(item)})`);
+        setProgress(
+          t(
+            `${label}を取り込み中… ${i + 1} / ${items.length}`,
+            `Importing ${labelEn.toLowerCase()}… ${i + 1} / ${items.length}`,
+          ),
+        );
         await importOne(item);
       }
       removingNow = removers.length > 0;
       for (const [i, remove] of removers.entries()) {
-        doing = `今の${label}の削除`;
-        setProgress(`今の${label}を削除中… ${i + 1} / ${removers.length}`);
+        doing = t(`今の${label}の削除`, `deleting the current ${labelEn.toLowerCase()}`);
+        setProgress(
+          t(
+            `今の${label}を削除中… ${i + 1} / ${removers.length}`,
+            `Deleting the current ${labelEn.toLowerCase()}… ${i + 1} / ${removers.length}`,
+          ),
+        );
         try {
           await remove();
         } catch (e) {
@@ -92,16 +119,33 @@ export function DataImportDialog(props: {
         }
       }
       removingNow = false;
-      done.push(`${label} ${items.length} 件`);
+      done.push(
+        t(`${label} ${items.length} 件`, `${items.length} ${(items.length === 1 ? singular : labelEn).toLowerCase()}`),
+      );
     }
     try {
       if (include.games && data.games) {
-        await step("ゲーム", data.games, (g) => g.name, importGame);
+        // 作ったゲームの ID を覚え、ファイルのラウンドを作り直す
+        const ids: string[] = [];
+        await step(
+          ["ゲーム", "Games", "Game"],
+          data.games,
+          (g) => g.name,
+          async (g) => {
+            ids.push(await importGame(g));
+          },
+        );
+        if (data.games.some((g) => g.round)) {
+          doing = t("ラウンドの作成", "creating rounds");
+          setProgress(t("ラウンドを作成中…", "Creating rounds…"));
+          const created = await importRounds(data.games, ids);
+          done.push(t(`ラウンド ${created} 件`, `${created} ${created === 1 ? "round" : "rounds"}`));
+        }
       }
       if (include.prizes && data.prizes) {
         const removers =
           prizeMode === "replace" ? current.prizes.map((p) => () => api("DELETE", `/admin/prizes/${p.prizeId}`)) : [];
-        await step("景品", data.prizes, (p) => p.name, importPrize, removers);
+        await step(["景品", "Prizes", "Prize"], data.prizes, (p) => p.name, importPrize, removers);
       }
       if (include.schedule && data.schedule) {
         const removers =
@@ -116,19 +160,33 @@ export function DataImportDialog(props: {
         const ordered = [...data.schedule.items]
           .sort((a, b) => (a.column ?? 0) - (b.column ?? 0) || a.startMinute - b.startMinute)
           .map((item) => ({ ...item, column: (item.column ?? 0) + offset }));
-        await step("スケジュール", ordered, (item) => item.title, importScheduleItem, removers);
+        await step(
+          ["スケジュール", "Schedule items", "Schedule item"],
+          ordered,
+          (item) => item.title,
+          importScheduleItem,
+          removers,
+        );
       }
       const date = include.schedule && withDate ? data.schedule?.date : undefined;
       if ((include.settings && data.settings) || date) {
-        doing = "設定の保存";
-        setProgress("設定を保存中…");
+        doing = t("設定の保存", "saving settings");
+        setProgress(t("設定を保存中…", "Saving settings…"));
         await saveSettings({ settings: include.settings ? data.settings : undefined, scheduleDate: date });
       }
       props.onDone();
     } catch (e) {
-      const before = done.length > 0 ? `（${done.join("・")}は取り込み済み）` : "";
-      const left = removingNow ? "今のもののうち、まだ消していない分は残っています。" : "";
-      setError(`${doing}で止まりました${before}。${left}${errorMessage(e)}`);
+      const before =
+        done.length > 0 ? t(`（${done.join("・")}は取り込み済み）`, ` (already imported: ${done.join(", ")})`) : "";
+      const left = removingNow
+        ? t("今のもののうち、まだ消していない分は残っています。", "Current items not yet deleted are still there. ")
+        : "";
+      setError(
+        t(
+          `${doing}で止まりました${before}。${left}${errorMessage(e)}`,
+          `Stopped at ${doing}${before}. ${left}${errorMessage(e)}`,
+        ),
+      );
       setFinished(true);
     } finally {
       setRunning(false);
@@ -137,27 +195,39 @@ export function DataImportDialog(props: {
   }
 
   return (
-    <Modal className="dialog import-dialog" label="インポート" onClose={props.onClose} closable={!running}>
+    <Modal
+      className="dialog import-dialog"
+      label={t("インポート", "Import")}
+      onClose={props.onClose}
+      closable={!running}
+    >
       <div className="card">
-        <h2>インポート</h2>
-        <p className="small">取り込むものを選んでください。上から順に取り込みます。</p>
+        <h2>{t("インポート", "Import")}</h2>
+        <p className="small">
+          {t(
+            "取り込むものを選んでください。上から順に取り込みます。",
+            "Choose what to import. Items are imported from the top.",
+          )}
+        </p>
         {data.games && (
           <Section
-            title={`ゲーム（${data.games.length} 件）`}
+            title={t(`ゲーム（${data.games.length} 件）`, `Games (${data.games.length})`)}
             checked={include.games}
             onCheck={(v) => setInclude({ ...include, games: v })}
             disabled={locked}
             preview={<GamePreview items={data.games} />}
           >
             <p className="muted small">
-              作った順に、<strong>下書き</strong>として後ろに追加します（今のゲームは消しません）。
-              結果入力の枠に選ぶ人は、取り込んだ後に選んでください。
+              {t(
+                "作った順に、下書きとして後ろに追加します（今のゲームは消しません）。結果入力の枠に選ぶ人は、取り込んだ後に選んでください。",
+                "Added at the end as drafts, in the order they were made (current games aren’t deleted). Choose people for result-entry slots after importing.",
+              )}
             </p>
           </Section>
         )}
         {data.prizes && (
           <Section
-            title={`景品（${data.prizes.length} 件）`}
+            title={t(`景品（${data.prizes.length} 件）`, `Prizes (${data.prizes.length})`)}
             checked={include.prizes}
             onCheck={(v) => setInclude({ ...include, prizes: v })}
             disabled={locked}
@@ -165,17 +235,20 @@ export function DataImportDialog(props: {
           >
             <ModeChoice
               name="prize-mode"
-              noun="景品"
+              noun={t("景品", "prizes")}
               count={current.prizes.length}
               mode={prizeMode}
               onChange={setPrizeMode}
-              addNote="同じ順位に、今の景品と取り込んだ景品の両方が割り当たることがあります。"
+              addNote={t(
+                "同じ順位に、今の景品と取り込んだ景品の両方が割り当たることがあります。",
+                "A position may end up with both a current and an imported prize.",
+              )}
             />
           </Section>
         )}
         {data.schedule && (
           <Section
-            title={`スケジュール（${data.schedule.items.length} 件）`}
+            title={t(`スケジュール（${data.schedule.items.length} 件）`, `Schedule (${data.schedule.items.length})`)}
             checked={include.schedule}
             onCheck={(v) => setInclude({ ...include, schedule: v })}
             disabled={locked}
@@ -183,31 +256,39 @@ export function DataImportDialog(props: {
           >
             <ModeChoice
               name="schedule-mode"
-              noun="項目"
+              noun={t("項目", "items")}
               count={current.scheduleItems.length}
               mode={scheduleMode}
               onChange={setScheduleMode}
-              addNote="取り込んだ項目は、今の項目の右の列に、ファイルの列の並びのまま置きます。"
+              addNote={t(
+                "取り込んだ項目は、今の項目の右の列に、ファイルの列の並びのまま置きます。",
+                "Imported items go in columns to the right of the current ones, keeping the file’s column order.",
+              )}
             />
             {data.schedule.date && (
               <label className="import-option">
                 <input type="checkbox" checked={withDate} onChange={(e) => setWithDate(e.target.checked)} />
-                イベントの日付も取り込む（{data.schedule.date}。今は
-                {current.scheduleDate ? ` ${current.scheduleDate}` : "決めていない"}）
+                {t(
+                  `イベントの日付も取り込む（${data.schedule.date}。今は${current.scheduleDate ? ` ${current.scheduleDate}` : "決めていない"}）`,
+                  `Also import the event date (${data.schedule.date}; currently ${current.scheduleDate || "not set"})`,
+                )}
               </label>
             )}
           </Section>
         )}
         {data.settings && (
           <Section
-            title="設定"
+            title={t("設定", "Settings")}
             checked={include.settings}
             onCheck={(v) => setInclude({ ...include, settings: v })}
             disabled={locked}
             preview={<SettingsPreview settings={data.settings} />}
           >
             <p className="muted small">
-              今の設定を、取り込んだ内容に置き換えます（イベントの日付はそのまま）。写真の公開方法や参加者への公開も変わるので、選んだときだけ取り込みます。
+              {t(
+                "今の設定を、取り込んだ内容に置き換えます（イベントの日付はそのまま）。写真の公開方法や参加者への公開も変わるので、選んだときだけ取り込みます。",
+                "Replaces the current settings with the imported ones (the event date stays). This also changes how photos go public and what participants see, so it’s imported only when chosen.",
+              )}
             </p>
           </Section>
         )}
@@ -216,15 +297,15 @@ export function DataImportDialog(props: {
         <div className="buttons">
           {finished ? (
             <button type="button" className="primary" onClick={props.onDone}>
-              閉じる
+              {t("閉じる", "Close")}
             </button>
           ) : (
             <>
               <button type="button" onClick={props.onClose} disabled={running}>
-                キャンセル
+                {t("キャンセル", "Cancel")}
               </button>
               <button type="button" className="primary" onClick={run} disabled={running || nothing}>
-                {running ? "取り込み中…" : "取り込む"}
+                {running ? t("取り込み中…", "Importing…") : t("取り込む", "Import")}
               </button>
             </>
           )}
@@ -270,15 +351,16 @@ function ModeChoice(props: {
   onChange: (mode: Mode) => void;
   addNote: string;
 }) {
+  const t = useT();
   if (props.count === 0) return null;
   return (
     <div className="import-mode">
       <span className="small">
-        今ある{props.noun}（{props.count} 件）は
+        {t(`今ある${props.noun}（${props.count} 件）は`, `The current ${props.noun} (${props.count}):`)}
       </span>
       <label>
         <input type="radio" name={props.name} checked={props.mode === "add"} onChange={() => props.onChange("add")} />
-        残して、後ろに追加する
+        {t("残して、後ろに追加する", "Keep them and add after")}
       </label>
       <label>
         <input
@@ -287,7 +369,7 @@ function ModeChoice(props: {
           checked={props.mode === "replace"}
           onChange={() => props.onChange("replace")}
         />
-        消して、取り込んだ{props.noun}に置き換える
+        {t(`消して、取り込んだ${props.noun}に置き換える`, `Delete them and replace with the imported ${props.noun}`)}
       </label>
       {props.mode === "add" && <p className="muted small">{props.addNote}</p>}
     </div>

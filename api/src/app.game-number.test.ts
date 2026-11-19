@@ -14,7 +14,7 @@ describe("API", () => {
       { from: 1, to: 2, points: 10 },
     ];
 
-    it("開催 → 数を答える（答え直し可）→ 正解の数を入れて確定で、近い順の順位に応じた点数が入る", async () => {
+    it("開催 → 数を答える（決定したら答え直せない）→ 正解の数を入れて終了で、近い順の順位に応じた点数が入る", async () => {
       const admin = await t.adminClient();
       const created = await admin("POST", "/api/admin/games", {
         format: "number",
@@ -54,14 +54,15 @@ describe("API", () => {
       }
       // 正解 40 に対して: A 0 → 40, B 30 → 10, C 50 → 10, D 45 → 5, E 40 → 0, F 100 → 60, G 70 → 30
       const values = [0, 30, 50, 45, 40, 100, 70];
-      expect((await answer(people[0]!, { value: 99 })).body.game.myValue).toBe(99);
       for (const [i, v] of values.entries()) expect((await answer(people[i]!, { value: v })).status).toBe(200);
+      // 答え直しは受け付けず、先の答えのまま
+      expect((await answer(people[0]!, { value: 99 })).status).toBe(409);
       expect((await people[0]!.request("GET", "/api/game/current")).body.game.myValue).toBe(0);
 
       // 正解の数が無いうちは確定できない
       const noAnswer = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect(noAnswer.status).toBe(409);
-      expect(noAnswer.body.message).toBe("正解の数を入れてから確定してください");
+      expect(noAnswer.body.message).toBe("正解の数を入れてから終了してください");
 
       const list = (await admin("GET", "/api/admin/games")).body.games.find((g: any) => g.gameId === game.gameId);
       const set = await admin("PUT", `/api/admin/games/${game.gameId}`, {
@@ -143,9 +144,10 @@ describe("API", () => {
       const game = (await admin("POST", "/api/admin/games", { format: "number", name: "数", correctNumber: 0 })).body
         .game;
       expect(game.correctNumber).toBe(0);
+      await admin("POST", `/api/admin/games/${game.gameId}/open`);
       const res = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect(res.status).toBe(409);
-      expect(res.body.message).toBe("点数の範囲を追加してから確定してください");
+      expect(res.body.message).toBe("点数の範囲を追加してから終了してください");
     });
   });
 });

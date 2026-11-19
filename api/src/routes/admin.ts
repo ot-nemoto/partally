@@ -2,7 +2,8 @@ import { issueTokensRequestSchema, updateSettingsRequestSchema, updateUserReques
 import type { Hono } from "hono";
 import { toTokenDto, toUserDto } from "../dto.js";
 import { type Env, fail, parseBody } from "../http.js";
-import { EpithetTakenError, NotFoundError } from "../repository.js";
+import { EpithetTakenError, InvalidStateError, NotFoundError } from "../repository.js";
+import { snapshotCounts } from "../scoring.js";
 import type { AppContext } from "./context.js";
 
 export function registerAdminRoutes(app: Hono<Env>, ctx: AppContext) {
@@ -23,8 +24,31 @@ export function registerAdminRoutes(app: Hono<Env>, ctx: AppContext) {
   });
 
   app.get("/admin/users", async (c) => {
-    const [users, settings, scores] = await Promise.all([repo.listUsers(), repo.getSettings(), scoresOfAll()]);
-    return c.json({ users: users.map((u) => toUserDto(u, settings, scores(u.userId))) });
+    const end = await repo.getEventEnd();
+    const [users, settings, scores] = await Promise.all([repo.listUsers(), repo.getSettings(), scoresOfAll(end)]);
+    return c.json({ users: users.map((u) => toUserDto(u, settings, scores(u.userId), end)) });
+  });
+
+  // ---- イベントの終了（押した時刻より後の出来事をポイントに数えない。受付は続ける） ----
+
+  app.get("/admin/event", async (c) => c.json({ endedAt: (await repo.getEventEnd())?.endedAt }));
+
+  app.post("/admin/event/end", async (c) => {
+    // 押した時点の全員の数を残す（この後の写真・お気に入りは数えない）
+    const endedAt = now().toISOString();
+    const counts = snapshotCounts(await repo.listUsers());
+    try {
+      await repo.putEventEnd({ endedAt, counts });
+    } catch (e) {
+      if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state", "イベントは既に終了しています");
+      throw e;
+    }
+    return c.json({ endedAt });
+  });
+
+  app.post("/admin/event/reopen", async (c) => {
+    await repo.deleteEventEnd();
+    return c.json({});
   });
 
   app.patch("/admin/users/:userId", async (c) => {
@@ -44,6 +68,26 @@ export function registerAdminRoutes(app: Hono<Env>, ctx: AppContext) {
     try {
       const user = await repo.unbindUser(c.req.param("userId"), now().toISOString());
       return c.json({ user: await adminUser(user) });
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      throw e;
+    }
+  });
+
+  // 暗証番号のロックを解除する（間違えた回数を 0 に戻す）
+  app.post("/admin/users/:userId/pin/unlock", async (c) => {
+    try {
+      return c.json({ user: await adminUser(await repo.resetPinFailures(c.req.param("userId"))) });
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      throw e;
+    }
+  });
+
+  // 暗証番号を消す（忘れた人。次にほかの端末で QR コードを読み込んだときに決め直す）
+  app.delete("/admin/users/:userId/pin", async (c) => {
+    try {
+      return c.json({ user: await adminUser(await repo.clearUserPin(c.req.param("userId"))) });
     } catch (e) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
       throw e;

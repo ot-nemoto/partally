@@ -78,9 +78,10 @@ PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`
 
 - lint と整形は [Biome](https://biomejs.dev/) で行います。設定は `biome.json`。エディタに Biome の拡張機能（VS Code なら `biomejs.biome`）を入れると、保存時に整形できます。
 - `style/noNonNullAssertion` は無効にしています。`noUncheckedIndexedAccess` を有効にしているため、添字アクセスの後の `!` を意図して使います。テストでは `any` を許可しています。
-- コメントと画面の文言は日本語で書きます。
+- コメントは日本語で書きます。画面の文言は日本語と英語を、呼ぶ所に並べて書きます（`web/src/i18n.tsx` の `t("日本語", "English")`。画面の中では `useT()`、React の外では `tr()`）。新しい画面も、日本語と英語の両方で書きます。英語の点数・人数は `pts(n)`・`people(n)` で書きます。
+- 英語は短く平易に書き、ボタンは動詞で始めます（例: Register, Log in）。数で変わる語は単数・複数を分けます（1 point / 2 points）。幹事や参加者が入れた内容と二つ名は訳しません。
 - 設定（`Settings`）に項目を足すときは、`updateSettingsRequestSchema` で省略可にし、`DEFAULT_SETTINGS` に既定値を入れます。保存済みの設定に無い項目は既定値で補われます（古い画面から保存されても 400 にしないため）。
-- ゲームの形式ごとの決まりは表にまとめています。答えに使う項目と順位の単位は `packages/shared/src/game-rules.ts` の `GAME_FORMAT_RULES`、点数の数え方は `api/src/scoring.ts` の `GAME_SCORING` に書きます。形式を足すときは、`GAME_FORMATS` と、この 2 つの表と、形式ごとの名前・表示の表（`GAME_FORMAT_LABEL`、お知らせの `game-banner.ts`、管理画面の `web/src/pages/admin/games/formats.ts` のアイコン・説明・並び）と、画面（`GameView`・管理画面のゲーム）を直します。足し忘れた表は型チェックで分かります。
+- ゲームの形式ごとの決まりは表にまとめています。答えに使う項目と順位の単位は `packages/shared/src/game-rules.ts` の `GAME_FORMAT_RULES`、点数の数え方は `api/src/scoring.ts` の `GAME_SCORING` に書きます。形式を足すときは、`GAME_FORMATS` と、この 2 つの表と、形式ごとの名前・表示の表（`GAME_FORMAT_LABEL` と英語の `GAME_FORMAT_LABEL_EN`、お知らせの `game-banner.ts`（日本語と英語）、管理画面の `web/src/pages/admin/games/formats.ts` のアイコン・説明（`FORMAT_TEXT` と英語の `FORMAT_TEXT_EN`）・並び）と、画面（`GameView`・管理画面のゲーム）を直します。足し忘れた表は型チェックで分かります。
 - 個人や環境の情報（AWS アカウント ID、ロール ARN、メールアドレス、パスワード、実際のドメインなど）はリポジトリに書きません。
 
 ## ブランチ・PR・リリース

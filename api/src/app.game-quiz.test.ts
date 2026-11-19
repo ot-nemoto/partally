@@ -25,7 +25,7 @@ describe("API", () => {
     const choicesOf = (game: any) =>
       game.choices.map((ch: any) => ({ choiceId: ch.choiceId, text: ch.text, points: ch.points }));
 
-    it("開催 → 答える（選び直し可）→ 確定で、選んだ選択肢の点数がポイントに加わる", async () => {
+    it("開催 → 答える（決定したら答え直せない）→ 終了で、選んだ選択肢の点数がポイントに加わる", async () => {
       const admin = await t.adminClient();
       const a = await participant("田中");
       const b = await participant("鈴木");
@@ -56,8 +56,11 @@ describe("API", () => {
         choices: quiz.choices.map((ch: any) => ({ choiceId: ch.choiceId, text: ch.text })),
       });
 
-      expect((await answer(a, c1)).status).toBe(200);
       expect((await answer(a, c3)).body.game.myChoiceId).toBe(c3);
+      // 答え直しは受け付けず、先の答えのまま
+      const again = await answer(a, c1);
+      expect(again.status).toBe(409);
+      expect(again.body.error).toBe("already_answered");
       await answer(b, c2);
       expect((await a.request("GET", "/api/game/current")).body.game.myChoiceId).toBe(c3);
       expect((await answer(a, "NOPE")).status).toBe(400);
@@ -65,6 +68,7 @@ describe("API", () => {
       // 開催中は点数に数えない（選び直して正解を探れないように）
       expect((await me(a.request)).user).toMatchObject({ gamePoints: 0, points: 0, gameAwards: [] });
 
+      await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
       const confirmed = await admin("POST", `/api/admin/games/${quiz.gameId}/confirm`);
       expect(confirmed.body.game).toMatchObject({ status: "confirmed", answerCount: 2 });
       // 確定の直前に受け付けて確定より後に保存された答えは、点数と同じく回答数・選択肢ごとの人数にも数えない
@@ -108,14 +112,14 @@ describe("API", () => {
         ["鈴木", 0, 0],
       ]);
 
-      // 取り消すとポイントが消え、もう一度開催すれば答え直せる（前の答えは残る）
+      // 取り消すとポイントが消える。もう一度開始しても、前の答えのまま（答え直せない）
       expect((await admin("POST", `/api/admin/games/${quiz.gameId}/unconfirm`)).body.game.status).toBe("draft");
       expect((await me(a.request)).user.points).toBe(0);
       await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
       expect((await a.request("GET", "/api/game/current")).body.game.myChoiceId).toBe(c3);
-      await answer(a, c1);
+      expect((await answer(a, c1)).status).toBe(409);
       await admin("POST", `/api/admin/games/${quiz.gameId}/confirm`);
-      expect((await me(a.request)).user.points).toBe(10);
+      expect((await me(a.request)).user.points).toBe(5);
     });
 
     /** 管理画面と同じく、アップロード URL をもらって画像を置く */
@@ -286,10 +290,14 @@ describe("API", () => {
       expect(await post(q1.gameId, "stop")).toBe(200);
       expect(await post(r1.gameId, "open")).toBe(200);
       expect(await post(r1.gameId, "confirm")).toBe(409); // 枠が無い
-      expect(await post(q2.gameId, "confirm")).toBe(200); // 下書きから直接確定もできる
+      expect(await post(q2.gameId, "confirm")).toBe(409); // 下書きからは締め切れない（開催してから）
+      expect(await post(r1.gameId, "stop")).toBe(200);
+      expect(await post(q2.gameId, "open")).toBe(200);
+      expect(await post(q2.gameId, "confirm")).toBe(200);
       expect(await post(q2.gameId, "confirm")).toBe(409);
       expect(await post(q2.gameId, "unconfirm")).toBe(200);
       expect(await post(q2.gameId, "unconfirm")).toBe(409);
+      expect(await post(r1.gameId, "open")).toBe(200);
       // 開催中のゲームがあっても、無いゲームは 404
       expect(await post("NOPE", "open")).toBe(404);
       const list = (await admin("GET", "/api/admin/games")).body.games;
@@ -316,11 +324,13 @@ describe("API", () => {
       await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
       await a.request("PUT", `/api/game/${quiz.gameId}/answer`, { choiceId: c1 });
       expect((await put({ choices: kept.slice(0, 3) })).status).toBe(409);
+      await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
       await admin("POST", `/api/admin/games/${quiz.gameId}/confirm`);
       expect((await me(a.request)).user.points).toBe(10);
       // 答えがあれば、下書きに戻しても増減はできない
       await admin("POST", `/api/admin/games/${quiz.gameId}/unconfirm`);
       expect((await put({ choices: kept.slice(0, 3) })).status).toBe(409);
+      await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
       await admin("POST", `/api/admin/games/${quiz.gameId}/confirm`);
 
       expect((await put({ choices: [...kept.slice(0, 3), { choiceId: "NOPE", text: "x", points: 0 }] })).status).toBe(
@@ -349,6 +359,7 @@ describe("API", () => {
       await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
       await a.request("PUT", `/api/game/${quiz.gameId}/answer`, { choiceId: quiz.choices[0].choiceId });
       expect((await admin("DELETE", `/api/admin/games/${quiz.gameId}`)).status).toBe(409);
+      await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
       await admin("POST", `/api/admin/games/${quiz.gameId}/confirm`);
       expect((await me(a.request)).user.points).toBe(10);
 
@@ -365,6 +376,7 @@ describe("API", () => {
       const quiz = await createQuiz(admin);
       await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
       await a.request("PUT", `/api/game/${quiz.gameId}/answer`, { choiceId: quiz.choices[0].choiceId });
+      await admin("POST", `/api/admin/games/${quiz.gameId}/open`);
       await admin("POST", `/api/admin/games/${quiz.gameId}/confirm`);
 
       // ゲームの点数だけを伏せる。合計のポイント（ゲームの分を含む）は見える

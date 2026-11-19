@@ -89,6 +89,37 @@ describe("DynamoRepository", () => {
     });
   });
 
+  describe("イベントの終了", () => {
+    const record = {
+      endedAt: "2026-01-01T21:00:00.000Z",
+      counts: { u1: { approvedCount: 2, favoritesReceived: 1, favoritesGiven: 3 } },
+    };
+
+    it("無いときだけ作る（既に終了していれば InvalidStateError）。読むと時刻と数が入る", async () => {
+      ddb.on(PutCommand).resolves({});
+      await repo.putEventEnd(record);
+      const put = ddb.commandCalls(PutCommand)[0]!.args[0].input;
+      expect(put).toMatchObject({
+        Item: { PK: "EVENT", SK: "END", ...record },
+        ConditionExpression: "attribute_not_exists(PK)",
+      });
+
+      ddb.on(PutCommand).rejects(new ConditionalCheckFailedException({ message: "x", $metadata: {} }));
+      await expect(repo.putEventEnd(record)).rejects.toBeInstanceOf(InvalidStateError);
+
+      ddb.on(GetCommand).resolves({ Item: { PK: "EVENT", SK: "END", ...record } });
+      expect(await repo.getEventEnd()).toEqual(record);
+      ddb.on(GetCommand).resolves({});
+      expect(await repo.getEventEnd()).toBeUndefined();
+    });
+
+    it("取り消すと消す", async () => {
+      ddb.on(DeleteCommand).resolves({});
+      await repo.deleteEventEnd();
+      expect(ddb.commandCalls(DeleteCommand)[0]!.args[0].input.Key).toEqual({ PK: "EVENT", SK: "END" });
+    });
+  });
+
   describe("registerUser", () => {
     it("トークン紐づけ・ユーザ作成・二つ名ロックを 1 トランザクションで書く", async () => {
       ddb.on(TransactWriteCommand).resolves({});
@@ -149,6 +180,64 @@ describe("DynamoRepository", () => {
     it("二つ名ロックの条件チェック失敗は EpithetTakenError", async () => {
       ddb.on(TransactWriteCommand).rejects(canceled(["None", "None", "ConditionalCheckFailed"]));
       await expect(repo.registerUser(user)).rejects.toBeInstanceOf(EpithetTakenError);
+    });
+  });
+
+  describe("暗証番号", () => {
+    const failed = () => new ConditionalCheckFailedException({ message: "failed", $metadata: {} });
+
+    it("試す前に、ロック中でないときだけ回数を 1 つ増やす。ロック中なら false", async () => {
+      ddb.on(UpdateCommand).resolves({});
+      await expect(repo.reservePinAttempt("U1", 5)).resolves.toBe(true);
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input).toMatchObject({
+        Key: { PK: "USER#U1", SK: "PROFILE" },
+        UpdateExpression: "ADD pinFailures :one",
+        ConditionExpression: "attribute_exists(PK) AND (attribute_not_exists(pinFailures) OR pinFailures < :max)",
+        ExpressionAttributeValues: { ":one": 1, ":max": 5 },
+      });
+      ddb.reset();
+      ddb.on(UpdateCommand).rejects(failed());
+      await expect(repo.reservePinAttempt("U1", 5)).resolves.toBe(false);
+    });
+
+    it("決めるときは回数も 0 に戻す。まだ決めていない人だけに決めるときは条件を付け、決まっていれば false", async () => {
+      ddb.on(UpdateCommand).resolves({});
+      await expect(repo.setUserPin("U1", "scrypt$a$b", true)).resolves.toBe(true);
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input).toMatchObject({
+        UpdateExpression: "SET pinHash = :hash, pinFailures = :zero",
+        ConditionExpression: "attribute_exists(PK) AND #status = :active AND attribute_not_exists(pinHash)",
+        ExpressionAttributeValues: { ":hash": "scrypt$a$b", ":zero": 0, ":active": "active" },
+      });
+      ddb.reset();
+      ddb.on(UpdateCommand).rejects(failed());
+      await expect(repo.setUserPin("U1", "scrypt$a$b", true)).resolves.toBe(false);
+    });
+
+    it("回数を戻す・消すと、変えた後のユーザを返す。無いユーザは NotFoundError。読むと番号と回数が入る", async () => {
+      const attrs = {
+        userId: "U1",
+        name: "田中",
+        epithet: "e",
+        status: "active",
+        pinHash: "scrypt$a$b",
+        pinFailures: 0,
+      };
+      ddb.on(UpdateCommand).resolves({ Attributes: attrs });
+      expect(await repo.resetPinFailures("U1")).toMatchObject({ pinHash: "scrypt$a$b", pinFailures: 0 });
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input).toMatchObject({
+        UpdateExpression: "SET pinFailures = :zero",
+        ConditionExpression: "attribute_exists(PK)",
+      });
+      ddb.reset();
+      ddb.on(UpdateCommand).resolves({ Attributes: { userId: "U1", name: "田中", epithet: "e", status: "active" } });
+      const cleared = await repo.clearUserPin("U1");
+      expect(cleared).not.toHaveProperty("pinHash");
+      expect(cleared).not.toHaveProperty("pinFailures");
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input.UpdateExpression).toBe("REMOVE pinHash, pinFailures");
+      ddb.reset();
+      ddb.on(UpdateCommand).rejects(failed());
+      await expect(repo.clearUserPin("U1")).rejects.toBeInstanceOf(NotFoundError);
+      await expect(repo.resetPinFailures("U1")).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 
@@ -657,6 +746,69 @@ describe("DynamoRepository", () => {
         UpdateExpression: "SET #status = :to, updatedAt = :at, confirmedAt = :at, drawOrder = :drawOrder",
         ExpressionAttributeValues: { ":drawOrder": ["u2", "u1"] },
       });
+    });
+
+    it("開催中の印は、ラウンドならラウンドと全問、1 問なら gameId だけ（前の版の印）でも読める", async () => {
+      ddb
+        .on(GetCommand)
+        .resolvesOnce({ Item: { roundId: "R1", gameIds: ["G2", "G1"] } })
+        .resolvesOnce({
+          Item: { gameId: "G1" },
+        });
+      expect(await repo.getOpenState()).toEqual({ roundId: "R1", gameIds: ["G2", "G1"] });
+      expect(await repo.getOpenState()).toEqual({ gameIds: ["G1"] });
+    });
+
+    it("ラウンドの開始は、印・ラウンド・全問を 1 トランザクションで変え、ほかが開催中なら断る", async () => {
+      const round = {
+        roundId: "R1",
+        name: "第 1 部",
+        gameIds: ["G2", "G1"],
+        status: "draft" as const,
+        position: 0,
+        createdAt: "t0",
+        updatedAt: "t0",
+      };
+      ddb
+        .on(TransactWriteCommand)
+        .resolvesOnce({})
+        .rejectsOnce(canceled(["ConditionalCheckFailed", "None", "None", "None"]));
+      ddb.on(GetCommand).resolves({ Item: { PK: "ROUND#R1", SK: "META", ...round, status: "open" } });
+      expect((await repo.changeRoundStatus(round, "draft", "open", "t1")).status).toBe("open");
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items).toHaveLength(4);
+      expect(items[0]!.Put).toMatchObject({
+        Item: { PK: "GAME_STATE", SK: "OPEN", roundId: "R1", gameIds: ["G2", "G1"] },
+        ConditionExpression: "attribute_not_exists(PK)",
+      });
+      expect(items[1]!.Update).toMatchObject({
+        Key: { PK: "ROUND#R1", SK: "META" },
+        ConditionExpression: "#status = :from AND gameIds = :gameIds",
+      });
+      expect(items.slice(2).map((i) => i.Update!.Key)).toEqual([
+        { PK: "GAME#G2", SK: "META" },
+        { PK: "GAME#G1", SK: "META" },
+      ]);
+      await expect(repo.changeRoundStatus(round, "draft", "open", "t2")).rejects.toBeInstanceOf(GameAlreadyOpenError);
+    });
+
+    it("ラウンドの終了は、印を消し、抽選のゲームには順番を付ける", async () => {
+      const round = {
+        roundId: "R1",
+        name: "R",
+        gameIds: ["G1", "G2"],
+        status: "open" as const,
+        position: 0,
+        createdAt: "t0",
+        updatedAt: "t0",
+      };
+      ddb.on(TransactWriteCommand).resolves({});
+      ddb.on(GetCommand).resolves({ Item: { PK: "ROUND#R1", SK: "META", ...round, status: "confirmed" } });
+      await repo.changeRoundStatus(round, "open", "confirmed", "t1", { G2: ["u1"] });
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items[0]!.Delete).toMatchObject({ ConditionExpression: "roundId = :roundId" });
+      expect(items[2]!.Update!.UpdateExpression).toBe("SET #status = :to, updatedAt = :at, confirmedAt = :at");
+      expect(items[3]!.Update!.ExpressionAttributeValues).toMatchObject({ ":drawOrder": ["u1"] });
     });
 
     it("答えはユーザの下に保存する（ゲームを含むトランザクションにはしない）", async () => {

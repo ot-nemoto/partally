@@ -2,6 +2,7 @@ import type { GameStatus, PhotoStatus, Settings } from "@partally/shared";
 import {
   DEFAULT_SETTINGS,
   EpithetTakenError,
+  type EventEndRecord,
   FavoriteLimitError,
   formatLabel,
   GameAlreadyOpenError,
@@ -11,10 +12,12 @@ import {
   InvalidCursorError,
   InvalidStateError,
   NotFoundError,
+  type OpenState,
   type Page,
   type PhotoRecord,
   type PrizeRecord,
   type Repository,
+  type RoundRecord,
   type ScheduleItemRecord,
   type ScheduleLayoutChange,
   TokenNotAvailableError,
@@ -34,7 +37,8 @@ export class MemoryRepository implements Repository {
   private prizes = new Map<string, PrizeRecord>();
   private scheduleItems = new Map<string, ScheduleItemRecord>();
   private games = new Map<string, GameRecord>();
-  private openGameId: string | undefined;
+  private openState: OpenState | undefined;
+  private rounds = new Map<string, RoundRecord>();
   /** キーは `${userId}#${gameId}` */
   private gameAnswers = new Map<string, GameAnswerRecord>();
   private settings: Settings = { ...DEFAULT_SETTINGS };
@@ -96,6 +100,36 @@ export class MemoryRepository implements Repository {
     const updated = { ...user, ...definedOnly(changes), updatedAt };
     this.users.set(userId, updated);
     return clone(updated);
+  }
+
+  async setUserPin(userId: string, pinHash: string, onlyIfUnset: boolean) {
+    const user = this.users.get(userId);
+    if (!user || (onlyIfUnset && (user.status !== "active" || user.pinHash))) return false;
+    user.pinHash = pinHash;
+    user.pinFailures = 0;
+    return true;
+  }
+
+  async reservePinAttempt(userId: string, max: number) {
+    const user = this.users.get(userId);
+    if (!user || (user.pinFailures ?? 0) >= max) return false;
+    user.pinFailures = (user.pinFailures ?? 0) + 1;
+    return true;
+  }
+
+  async resetPinFailures(userId: string) {
+    const user = this.users.get(userId);
+    if (!user) throw new NotFoundError();
+    user.pinFailures = 0;
+    return clone(user);
+  }
+
+  async clearUserPin(userId: string) {
+    const user = this.users.get(userId);
+    if (!user) throw new NotFoundError();
+    delete user.pinHash;
+    delete user.pinFailures;
+    return clone(user);
   }
 
   async unbindUser(userId: string, updatedAt: string) {
@@ -313,27 +347,68 @@ export class MemoryRepository implements Repository {
     const game = this.games.get(gameId);
     if (!game) throw new NotFoundError();
     if (game.status !== from || from === to) throw new InvalidStateError();
-    if (to === "open" && this.openGameId !== undefined) throw new GameAlreadyOpenError();
-    if (to === "open") {
-      this.openGameId = gameId;
-      game.openedAt = at;
-    }
-    if (from === "open") this.openGameId = undefined;
-    if (to === "confirmed") {
-      game.confirmedAt = at;
-      if (drawOrder) game.drawOrder = [...drawOrder];
-    }
-    if (from === "confirmed") {
-      delete game.confirmedAt;
-      delete game.drawOrder;
-    }
-    game.status = to;
-    game.updatedAt = at;
+    if (to === "open" && this.openState !== undefined) throw new GameAlreadyOpenError();
+    if (to === "open") this.openState = { gameIds: [gameId] };
+    if (from === "open") this.openState = undefined;
+    applyStatus(game, from, to, at, drawOrder);
     return clone(game);
   }
 
-  async getOpenGameId() {
-    return this.openGameId;
+  async getOpenState() {
+    return clone(this.openState);
+  }
+
+  async createRound(round: RoundRecord) {
+    this.rounds.set(round.roundId, clone(round));
+  }
+
+  async getRound(roundId: string) {
+    return clone(this.rounds.get(roundId));
+  }
+
+  async listRounds() {
+    return [...this.rounds.values()]
+      .sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt))
+      .map(clone);
+  }
+
+  async updateRound(
+    roundId: string,
+    changes: Partial<Pick<RoundRecord, "name" | "gameIds" | "position">>,
+    updatedAt: string,
+    options: { anyStatus?: boolean } = {},
+  ) {
+    const round = this.rounds.get(roundId);
+    if (!round) throw new NotFoundError();
+    if (changes.gameIds && !options.anyStatus && round.status !== "draft") throw new InvalidStateError();
+    Object.assign(round, clone(changes), { updatedAt });
+    return clone(round);
+  }
+
+  async deleteRound(roundId: string) {
+    const round = this.rounds.get(roundId);
+    if (!round) throw new NotFoundError();
+    if (round.status === "open") throw new InvalidStateError();
+    this.rounds.delete(roundId);
+  }
+
+  async changeRoundStatus(
+    round: RoundRecord,
+    from: GameStatus,
+    to: GameStatus,
+    at: string,
+    drawOrders: Record<string, string[]> = {},
+  ) {
+    const saved = this.rounds.get(round.roundId);
+    if (!saved) throw new NotFoundError();
+    const games = saved.gameIds.map((id) => this.games.get(id));
+    if (saved.status !== from || from === to || games.some((g) => g?.status !== from)) throw new InvalidStateError();
+    if (to === "open" && this.openState !== undefined) throw new GameAlreadyOpenError();
+    if (to === "open") this.openState = { gameIds: [...saved.gameIds], roundId: saved.roundId };
+    if (from === "open") this.openState = undefined;
+    for (const game of games) applyStatus(game!, from, to, at, drawOrders[game!.gameId]);
+    applyStatus(saved, from, to, at);
+    return clone(saved);
   }
 
   async deleteGame(gameId: string) {
@@ -370,6 +445,21 @@ export class MemoryRepository implements Repository {
     this.settings = { ...settings };
   }
 
+  private eventEnd: EventEndRecord | undefined;
+
+  async getEventEnd() {
+    return clone(this.eventEnd);
+  }
+
+  async putEventEnd(record: EventEndRecord) {
+    if (this.eventEnd) throw new InvalidStateError();
+    this.eventEnd = clone(record);
+  }
+
+  async deleteEventEnd() {
+    this.eventEnd = undefined;
+  }
+
   private sortedPhotos() {
     return [...this.photos.values()].sort(
       (a, b) => b.createdAt.localeCompare(a.createdAt) || b.photoId.localeCompare(a.photoId),
@@ -396,4 +486,25 @@ function definedOnly<T extends object>(obj: T): Partial<T> {
 
 function clone<T>(value: T): T {
   return value === undefined ? value : structuredClone(value);
+}
+
+/** 状態を変え、開始・終了の時刻を付ける（終了から戻すときは終了の時刻と抽選の順番を消す） */
+function applyStatus(
+  target: { status: GameStatus; updatedAt: string; openedAt?: string; confirmedAt?: string; drawOrder?: string[] },
+  from: GameStatus,
+  to: GameStatus,
+  at: string,
+  drawOrder?: string[],
+) {
+  if (to === "open") target.openedAt = at;
+  if (to === "confirmed") {
+    target.confirmedAt = at;
+    if (drawOrder) target.drawOrder = [...drawOrder];
+  }
+  if (from === "confirmed") {
+    delete target.confirmedAt;
+    delete target.drawOrder;
+  }
+  target.status = to;
+  target.updatedAt = at;
 }

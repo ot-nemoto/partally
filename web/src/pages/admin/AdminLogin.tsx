@@ -3,9 +3,11 @@ import "@fontsource/righteous/latin-400.css";
 import { type FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../../api";
+import { LanguageSwitch, useT } from "../../i18n";
 
 export function AdminLogin() {
   const navigate = useNavigate();
+  const t = useT();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
@@ -18,7 +20,11 @@ export function AdminLogin() {
       await api("POST", "/admin/login", { password });
       navigate("/admin/users", { replace: true });
     } catch (err) {
-      setError(err instanceof ApiError && err.status === 401 ? "パスワードが違います。" : errorMessage(err));
+      setError(
+        err instanceof ApiError && err.status === 401
+          ? t("パスワードが違います。", "Wrong password.")
+          : errorMessage(err),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -26,7 +32,10 @@ export function AdminLogin() {
 
   return (
     <main className="page">
-      <form className="card admin-login" onSubmit={onSubmit} aria-label="管理者ログイン">
+      <div className="lang-row">
+        <LanguageSwitch />
+      </div>
+      <form className="card admin-login" onSubmit={onSubmit} aria-label={t("管理者ログイン", "Admin login")}>
         <h1 className="guest-title admin-login-title">
           <span className="gradient-title" lang="en">
             partally
@@ -35,9 +44,11 @@ export function AdminLogin() {
             admin
           </span>
         </h1>
-        <p className="muted small admin-login-note">管理者のパスワードを入れてください。</p>
+        <p className="muted small admin-login-note">
+          {t("管理者のパスワードを入れてください。", "Enter the admin password.")}
+        </p>
         <label className="field">
-          <span>パスワード</span>
+          <span>{t("パスワード", "Password")}</span>
           <input
             type="password"
             value={password}
@@ -48,7 +59,7 @@ export function AdminLogin() {
         </label>
         {error && <p className="error">{error}</p>}
         <button type="submit" className="primary" disabled={submitting}>
-          ログイン
+          {t("ログイン", "Log in")}
         </button>
       </form>
     </main>

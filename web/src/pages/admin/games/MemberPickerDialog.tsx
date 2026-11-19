@@ -2,6 +2,7 @@ import type { GameDto, GameResponse, UserDto } from "@partally/shared";
 import { useMemo, useState } from "react";
 import { ApiError, api, errorMessage } from "../../../api";
 import { Modal } from "../../../components/Modal";
+import { people, pts, useT } from "../../../i18n";
 
 /** 人を選ぶ画面に出す参加者（QR の通し番号つき） */
 export interface Member {
@@ -39,6 +40,7 @@ export function MemberPickerDialog(props: {
   /** ほかで直されていて保存できなかったとき（一覧を読み直す） */
   onConflict: () => void;
 }) {
+  const t = useT();
   const { slotId } = props;
   // 開いたときのゲームで選び、その版（updatedAt）で保存する。開いている間に一覧が読み直されても、
   // 選び始めた後のほかの変更を、版の確かめをすり抜けて上書きしないように
@@ -99,7 +101,7 @@ export function MemberPickerDialog(props: {
     }
   }
 
-  const label = `${game.name}・${slot.name}の人を選ぶ`;
+  const label = t(`${game.name}・${slot.name}の人を選ぶ`, `Choose people for ${game.name} · ${slot.name}`);
 
   return (
     <Modal className="dialog game-dialog" label={label} onClose={props.onClose} closable={!saving}>
@@ -108,28 +110,30 @@ export function MemberPickerDialog(props: {
           {slot.name}
           <span className="muted small">
             {" "}
-            {game.name}・{slot.points} 点
+            {t(`${game.name}・${slot.points} 点`, `${game.name} · ${pts(slot.points)}`)}
           </span>
         </h2>
         <input
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="名前・二つ名・通し番号で絞り込み"
-          aria-label="絞り込み"
+          placeholder={t("名前・二つ名・通し番号で絞り込み", "Filter by name, title or number")}
+          aria-label={t("絞り込み", "Filter")}
           data-autofocus
         />
         <div className="member-picker-bar">
-          <span className="small member-picker-count">{selected.size} 人を選択中</span>
+          <span className="small member-picker-count">
+            {t(`${selected.size} 人を選択中`, `${selected.size} selected`)}
+          </span>
           <button
             type="button"
             onClick={() => setSelected((prev) => new Set([...prev, ...shown.map((m) => m.user.userId)]))}
             disabled={shown.length === 0}
           >
-            {q ? "表示中の人を全員選ぶ" : "全員を選ぶ"}
+            {q ? t("表示中の人を全員選ぶ", "Select everyone shown") : t("全員を選ぶ", "Select everyone")}
           </button>
           <button type="button" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>
-            選択を外す
+            {t("選択を外す", "Clear selection")}
           </button>
         </div>
         <ul className="member-list">
@@ -146,23 +150,37 @@ export function MemberPickerDialog(props: {
                 {otherSlot.has(user.userId) && (
                   <span className="member-other muted small">{otherSlot.get(user.userId)}</span>
                 )}
-                {user.status === "unbound" && <span className="member-other muted small">解除済み</span>}
+                {user.status === "unbound" && (
+                  <span className="member-other muted small">{t("解除済み", "Unlinked")}</span>
+                )}
               </label>
             </li>
           ))}
-          {shown.length === 0 && <li className="muted small">該当する人がいません。</li>}
+          {shown.length === 0 && <li className="muted small">{t("該当する人がいません。", "No one matches.")}</li>}
         </ul>
-        {moving > 0 && <p className="muted small">ほかの枠に入っている {moving} 人は、この枠に移ります。</p>}
+        {moving > 0 && (
+          <p className="muted small">
+            {t(
+              `ほかの枠に入っている ${moving} 人は、この枠に移ります。`,
+              `${people(moving)} in other slots will move to this slot.`,
+            )}
+          </p>
+        )}
         {game.status === "confirmed" && (
-          <p className="muted small">確定済みなので、保存するとすぐにポイントが変わります。</p>
+          <p className="muted small">
+            {t(
+              "終了済みなので、保存するとすぐにポイントが変わります。",
+              "It’s ended, so points change as soon as you save.",
+            )}
+          </p>
         )}
         {error && <p className="error">{error}</p>}
         <div className="buttons">
           <button type="button" onClick={props.onClose} disabled={saving}>
-            キャンセル
+            {t("キャンセル", "Cancel")}
           </button>
           <button type="button" className="primary" onClick={save} disabled={saving}>
-            {saving ? "保存中…" : "保存"}
+            {saving ? t("保存中…", "Saving…") : t("保存", "Save")}
           </button>
         </div>
       </div>

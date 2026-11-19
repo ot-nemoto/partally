@@ -25,6 +25,8 @@ export interface UserDto {
    * ポイントを伏せている間、参加者向けの応答には無い
    */
   points?: number;
+  /** 暗証番号の状態。管理画面だけに返す */
+  pin?: PinStatus;
   createdAt: string;
 }
 
@@ -38,7 +40,17 @@ export interface TokenDto {
   boundAt?: string;
 }
 
-export type QrLoginResponse = { status: "bound"; user: UserDto } | { status: "unbound" };
+/**
+ * bound: ログインした / unbound: まだ登録していない QR コード /
+ * pin_required: 暗証番号が要る（setup が true なら、まだ暗証番号が無いので決めてもらう）
+ */
+export type QrLoginResponse =
+  | { status: "bound"; user: UserDto }
+  | { status: "unbound" }
+  | { status: "pin_required"; setup: boolean };
+
+/** 暗証番号の状態（管理画面だけに返す）。none: 決めていない / set: 決めてある / locked: 間違えすぎてロック中 */
+export type PinStatus = "none" | "set" | "locked";
 
 export interface RegisterResponse {
   user: UserDto;
@@ -68,11 +80,16 @@ export type ApiErrorCode =
   | "unauthorized"
   | "invalid_token"
   | "token_already_bound"
+  /** 暗証番号が違う */
+  | "pin_invalid"
+  /** 暗証番号を間違えすぎてロック中 */
+  | "pin_locked"
   | "epithet_taken"
   | "invalid_state"
   | "favorites_disabled"
   | "favorite_limit"
   | "game_closed"
+  | "already_answered"
   | "not_found"
   | "internal_error";
 
@@ -162,6 +179,8 @@ export interface Settings {
   tieBreakOrder: TieBreakKey[];
   /** 参加者にスケジュールを見せるか */
   scheduleVisible: boolean;
+  /** 参加者に終了したゲームの結果（誰に何点入ったか）を見せるか */
+  gameResultsVisible: boolean;
   /** イベントの日付（YYYY-MM-DD）。空なら日付を決めない（参加者の「いま」「つぎ」は毎日の時刻で判定する） */
   scheduleDate: string;
 }
@@ -173,7 +192,16 @@ export type TieBreakKey = (typeof TIE_BREAK_KEYS)[number];
 export type PointKey = (typeof POINT_KEYS)[number];
 
 /** 参加者に見せるポイントのルール（設定のうち公開してよい部分） */
-export type Rules = Omit<Settings, "moderation">;
+export type Rules = Omit<Settings, "moderation"> & {
+  /** イベントを終了した時刻。これより後の出来事はポイントに数えない（受付は続く） */
+  eventEndedAt?: string;
+};
+
+/** イベントの終了の状態（管理画面） */
+export interface EventStateResponse {
+  /** 終了した時刻。終了していなければ無い */
+  endedAt?: string;
+}
 
 export interface FavoriteResponse {
   photo: PhotoDto;
@@ -315,6 +343,8 @@ export interface GameRankDto {
 /** 管理画面に返すゲーム */
 export interface GameDto {
   gameId: string;
+  /** 入っているラウンド。無ければ 1 問だけで開始・終了する */
+  roundId?: string;
   format: GameFormat;
   name: string;
   /** 説明（ルールなど。クイズなら問題文。改行可、空でもよい） */
@@ -391,11 +421,39 @@ export interface GameCandidatesResponse {
 }
 
 export interface CurrentGameResponse {
+  /** 開催中のゲーム（ラウンドなら 1 問目）。無ければ null */
   game: CurrentGameDto | null;
+  /** 開催中のゲームすべて（ラウンドなら出す順。1 問だけのときは 1 つ） */
+  games: CurrentGameDto[];
+  /** 開催中のラウンド（1 問だけを開始しているときは無い） */
+  round?: { roundId: string; name: string };
+}
+
+/** ラウンド（複数のゲームをまとめて開始・終了する単位） */
+export interface RoundDto {
+  roundId: string;
+  name: string;
+  /** 入っているゲーム（参加者に出す順） */
+  gameIds: string[];
+  status: GameStatus;
+  openedAt?: string;
+  confirmedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoundsResponse {
+  rounds: RoundDto[];
+}
+
+export interface RoundResponse {
+  round: RoundDto;
 }
 
 /** 答えたときの応答。合言葉では、送った言葉が正解だったかも返す */
-export interface GameAnswerResponse extends CurrentGameResponse {
+export interface GameAnswerResponse {
+  /** 答えたゲーム（自分の答えを入れたもの） */
+  game: CurrentGameDto;
   correct?: boolean;
 }
 
@@ -431,6 +489,32 @@ export interface GameAnswersResponse {
 }
 
 /** 参加者に見せる、自分に点数が入ったゲーム（結果入力なら入った枠、クイズなら選んだ答え） */
+/** 参加者に見せる、終了したゲームの結果（点数は見せない） */
+export interface GameResultDto {
+  gameId: string;
+  name: string;
+  format: GameFormat;
+  confirmedAt: string;
+  /** イベントを終了した後に終了したゲーム（ポイントには数えていない） */
+  uncounted?: boolean;
+  /** 正解（クイズは点数がいちばん高い選択肢、数値予想は正解の数、合言葉は合言葉）。正解の無い形式には無い */
+  correct?: string;
+  /** 自分が答えた（抽選は参加した、合言葉は正解した）か */
+  answered: boolean;
+  /** 自分の答え（クイズは選んだ選択肢、数値予想は答えた数、投票は投票した人、合言葉は正解した言葉） */
+  myAnswer?: string;
+  /** クイズで、自分の答えが正解だったか */
+  myCorrect?: boolean;
+  /** 自分の結果（例: 3 位（予想 42）、2 番目に正解、1 等に当選、優勝）。入らなかったときは無い */
+  myResult?: string;
+  /** 結果（入った人。結果入力は枠ごと、数値予想・投票・合言葉・抽選は点数が入った順位ごと。クイズは無い） */
+  winners: { label: string; names: string[] }[];
+}
+
+export interface GameResultsResponse {
+  games: GameResultDto[];
+}
+
 export interface GameAwardDto {
   gameName: string;
   /** 結果入力なら枠の名前、クイズなら選んだ選択肢、数値予想なら順位と答えた数（例: 3 位（予想 42））、投票なら順位と票数（例: 1 位（5 票））か「投票」、合言葉なら正解した順（例: 3 番目に正解）、抽選なら当たった範囲（例: 2〜5 等に当選） */

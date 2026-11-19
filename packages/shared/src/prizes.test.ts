@@ -25,6 +25,12 @@ describe("parsePositions", () => {
     expect(parsePositions("5-3")).toHaveProperty("error");
     expect(parsePositions("1-1001")).toHaveProperty("error");
   });
+
+  it("英語の画面では英語の誤りの文", () => {
+    expect(parsePositions("1, a", "en")).toEqual({ error: "“a” isn’t a rank" });
+    expect(parsePositions("5-3", "en")).toEqual({ error: "“5-3” isn’t a valid rank range" });
+    expect(parsePositions("1-1001", "en")).toEqual({ error: "Ranks go up to 1000" });
+  });
 });
 
 describe("formatPositions", () => {
@@ -57,6 +63,11 @@ describe("formatPositionLabel", () => {
     expect(formatPositionLabel([5, 1, 2, 3])).toBe("1〜3 位・5 位");
     expect(formatPositionLabel([4])).toBe("4 位");
     expect(formatPositionLabel([])).toBe("");
+  });
+
+  it("英語では「1st–3rd, 5th」のように書く（11〜13 は th）", () => {
+    expect(formatPositionLabel([5, 1, 2, 3], "en")).toBe("1st–3rd, 5th");
+    expect(formatPositionLabel([11, 12, 13, 21, 22, 23, 101], "en")).toBe("11th–13th, 21st–23rd, 101st");
   });
 });
 

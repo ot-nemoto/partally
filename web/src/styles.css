@@ -434,14 +434,25 @@ input {
   display: none;
 }
 
+.admin-lang-row {
+  display: none;
+}
+
 /*
   スマホ幅では、ADMIN と更新・ログアウトを 1 段目（固定）、メニューを 2 段目（一緒にスクロール）にする。
   固定する部分で画面が狭くならないよう、メニューはヘッダーの外に出す。
-  更新のあるページで 1 段に収まらなくなる幅（約 870px）より少し広めに切り替える
+  更新・言語の切り替えのあるページで 1 段に収まらなくなる幅（約 1010px）より少し広めに切り替える
 */
-@media (max-width: 920px) {
-  .admin-nav-inline {
+@media (max-width: 1060px) {
+  .admin-nav-inline,
+  .admin-header .admin-lang-inline {
     display: none;
+  }
+
+  .admin-lang-row {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0.5rem 1rem 0;
   }
 
   .admin-nav-below {
@@ -1103,6 +1114,12 @@ button.more {
   margin: 0.25rem 0 0;
 }
 
+/* ユーザ管理の暗証番号のロック中 */
+.pin-locked {
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .admin-photo .actions {
   justify-content: flex-start;
   margin-top: 0.5rem;
@@ -1580,6 +1597,16 @@ textarea {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
+}
+
+/* ゲームの進行のボタン（開始・終了）は、カードの右上に置く */
+.quiz-card-header .game-start {
+  margin-left: auto;
+}
+
+/* 削除（開催中は中断）は左端に置き、ほかのボタン（右寄せ）から離す */
+.game-actions .game-actions-left {
+  margin-right: auto;
 }
 
 .status {
@@ -2711,4 +2738,274 @@ table.import-table td.nowrap {
   gap: 0.25rem;
   margin: 0.25rem 0 0.5rem 1.75rem;
   font-size: 0.9rem;
+}
+
+/* ---- 言語の切り替え（日本語 / English） ---- */
+.lang-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.75rem;
+}
+
+.lang-switch {
+  display: inline-flex;
+  flex: none;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.lang-switch button {
+  min-height: 2rem;
+  padding: 0 0.8rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.lang-switch button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 700;
+}
+
+/* 管理画面のヘッダーの切り替えは小さめにする（.lang-switch button より後に置く） */
+.admin-lang button {
+  min-height: 1.8rem;
+  padding: 0 0.6rem;
+  font-size: 0.8rem;
+}
+
+/* ゲームの「決定」（選んだ答えを送る） */
+.game-decide {
+  display: block;
+  width: 100%;
+  min-height: 3rem;
+  margin-top: 0.75rem;
+  font-size: 1.1rem;
+}
+
+/* 投票の一覧が長くても「決定」を押せるよう、画面の下に留める */
+.game-decide-bar {
+  position: sticky;
+  /* 下のタブに隠れないよう、タブの上に留める */
+  bottom: calc(3.25rem + env(safe-area-inset-bottom));
+  padding: 0.5rem 0;
+  background: var(--surface);
+}
+
+.game-decide-bar .game-decide {
+  margin-top: 0;
+}
+
+.game-vote-picked {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* 答えた印。ゴム印のように太い二重の枠・斜め・かすれた赤で、押したときにポンと押される */
+.game-done-stamp {
+  --stamp: #d7192d;
+  position: relative;
+  width: fit-content;
+  margin: 1.75rem auto 0.75rem;
+  padding: 0.3em 0.75em;
+  border: 0.18em solid var(--stamp);
+  border-radius: 0.18em;
+  outline: 0.08em solid var(--stamp);
+  outline-offset: -0.34em;
+  color: var(--stamp);
+  font-family: "Arial Black", "Hiragino Sans", "Yu Gothic", sans-serif;
+  font-size: 2.4rem;
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* 文字を太く見せる（太字の無い書体でもインクが乗ったように） */
+  -webkit-text-stroke: 0.035em var(--stamp);
+  transform: rotate(-12deg);
+  /* かすれ（インクの乗っていないところを細かく抜く） */
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='2' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -6 4.1'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mask-size: 160px 160px;
+  animation: stamp-press 0.35s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+
+@keyframes stamp-press {
+  from {
+    opacity: 0;
+    transform: rotate(-12deg) scale(2.4);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(-12deg) scale(1);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .game-done-stamp {
+    --stamp: #ff4d5e;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-done-stamp {
+    animation: none;
+  }
+}
+
+/* 答えた後も、選んだ選択肢ははっきり見せる（ほかの選択肢は薄くする） */
+.quiz-choice.selected:disabled {
+  opacity: 1;
+}
+
+/* イベントを終了した後のお知らせ（参加者の画面の上） */
+.event-ended {
+  margin: 0 0 1rem;
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  font-weight: 600;
+  text-align: center;
+}
+
+.settings.event-end {
+  margin-top: 1rem;
+}
+
+/* 参加者のゲームの結果（イベント情報） */
+.game-results {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.game-result h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+}
+
+.game-result-awards {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.game-result-awards li {
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.game-result-awards p {
+  margin: 0.25rem 0 0;
+}
+
+.game-result-rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0 0 0.5rem;
+}
+
+.game-result-rows dt {
+  color: var(--muted);
+}
+
+.game-result-rows dd {
+  margin: 0;
+}
+
+/* ラウンドの問題（参加者の画面。順に並べる） */
+.round-games {
+  display: grid;
+  gap: 2.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.round-game-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.3rem;
+}
+
+.round-game-number {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  min-width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 0.95rem;
+}
+
+/* ラウンド（管理画面のゲームの上） */
+.rounds {
+  margin-bottom: 2rem;
+}
+
+.rounds-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.rounds-head h2 {
+  margin: 0;
+}
+
+.round-card {
+  border-left: 4px solid var(--accent);
+}
+
+.round-card-games {
+  margin: 0 0 0.75rem;
+  padding-left: 1.5rem;
+}
+
+.round-card-games li {
+  padding: 0.15rem 0;
+}
+
+.game-round-chip {
+  padding: 0 0.5rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.25rem;
+  color: var(--accent);
+}
+
+.round-dialog-list {
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.round-dialog-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.round-dialog-buttons {
+  display: flex;
+  flex: none;
+  gap: 0.25rem;
 }

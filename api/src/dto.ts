@@ -3,7 +3,9 @@ import {
   type CurrentGameDto,
   formatDisplayName,
   type GameDto,
+  isPinLocked,
   type PhotoStatus,
+  type RoundDto,
   type Rules,
   type ScheduleItemDto,
   type Settings,
@@ -11,14 +13,16 @@ import {
   type UserDto,
 } from "@partally/shared";
 import type {
+  EventEndRecord,
   GameAnswerRecord,
   GameRecord,
   PhotoRecord,
+  RoundRecord,
   ScheduleItemRecord,
   TokenRecord,
   UserRecord,
 } from "./repository.js";
-import { calculatePoints, countedAnswers, type GameStats, isKeywordCorrect } from "./scoring.js";
+import { calculatePoints, countedAnswers, countsAtEnd, type GameStats, isKeywordCorrect } from "./scoring.js";
 
 /** 参加者・管理画面に出す写真（削除済みの記録は出さない） */
 export type VisiblePhoto = PhotoRecord & { status: PhotoStatus };
@@ -27,7 +31,9 @@ export function isVisible(photo: PhotoRecord): photo is VisiblePhoto {
   return photo.status !== "deleted";
 }
 
-export function toUserDto(user: UserRecord, settings: Settings, game: GameStats): UserDto {
+/** end があれば、写真・お気に入りの数とポイントは終了した時点のもの */
+export function toUserDto(user: UserRecord, settings: Settings, game: GameStats, end?: EventEndRecord): UserDto {
+  const counted = countsAtEnd(user, end);
   return {
     userId: user.userId,
     name: user.name,
@@ -35,11 +41,12 @@ export function toUserDto(user: UserRecord, settings: Settings, game: GameStats)
     displayName: formatDisplayName(user.epithet, user.name),
     status: user.status,
     uploadCount: user.uploadCount,
-    approvedCount: user.approvedCount,
-    favoritesGiven: user.favoritesGiven,
-    favoritesReceived: user.favoritesReceived,
+    approvedCount: counted.approvedCount,
+    favoritesGiven: counted.favoritesGiven,
+    favoritesReceived: counted.favoritesReceived,
     gamePoints: game.points,
-    points: calculatePoints(user, settings, game),
+    points: calculatePoints(counted, settings, game),
+    pin: !user.pinHash ? "none" : isPinLocked(user.pinFailures) ? "locked" : "set",
     createdAt: user.createdAt,
   };
 }
@@ -48,8 +55,14 @@ export function toUserDto(user: UserRecord, settings: Settings, game: GameStats)
  * 参加者本人に返すユーザ情報。ポイントを伏せている間は、ポイントとその元になる選ばれた数を含めない。
  * ゲームの点数を伏せている間は、ゲームの点数と点数が入ったものを含めない
  */
-export function toParticipantUserDto(user: UserRecord, settings: Settings, game: GameStats): UserDto {
-  const { points, favoritesReceived, gamePoints, ...rest } = toUserDto(user, settings, game);
+export function toParticipantUserDto(
+  user: UserRecord,
+  settings: Settings,
+  game: GameStats,
+  end?: EventEndRecord,
+): UserDto {
+  // 暗証番号の状態は管理画面だけに返す
+  const { points, favoritesReceived, gamePoints, pin: _pin, ...rest } = toUserDto(user, settings, game, end);
   return {
     ...rest,
     ...(settings.showPoints ? { points, favoritesReceived } : {}),
@@ -79,12 +92,18 @@ export function sortSchedule(items: ScheduleItemRecord[]): ScheduleItemDto[] {
 
 type ImageUrlOf = (imageId: string | undefined) => string | undefined;
 
-export function toGameDto(game: GameRecord, allAnswers: GameAnswerRecord[], imageUrlOf: ImageUrlOf): GameDto {
+export function toGameDto(
+  game: GameRecord,
+  allAnswers: GameAnswerRecord[],
+  imageUrlOf: ImageUrlOf,
+  roundId?: string,
+): GameDto {
   const answers = countedAnswers(game, allAnswers);
   const counts = new Map<string, number>();
   for (const a of answers) if (a.choiceId) counts.set(a.choiceId, (counts.get(a.choiceId) ?? 0) + 1);
   return {
     gameId: game.gameId,
+    ...(roundId ? { roundId } : {}),
     format: game.format,
     name: game.name,
     description: game.description,
@@ -133,9 +152,22 @@ export function toCurrentGameDto(
   };
 }
 
-export function toRules(settings: Settings): Rules {
+export function toRules(settings: Settings, end?: EventEndRecord): Rules {
   const { moderation: _moderation, ...rules } = settings;
-  return rules;
+  return { ...rules, ...(end ? { eventEndedAt: end.endedAt } : {}) };
+}
+
+export function toRoundDto(round: RoundRecord): RoundDto {
+  return {
+    roundId: round.roundId,
+    name: round.name,
+    gameIds: round.gameIds,
+    status: round.status,
+    openedAt: round.openedAt,
+    confirmedAt: round.confirmedAt,
+    createdAt: round.createdAt,
+    updatedAt: round.updatedAt,
+  };
 }
 
 export function toTokenDto(token: TokenRecord, user?: UserRecord): TokenDto {

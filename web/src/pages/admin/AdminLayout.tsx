@@ -6,10 +6,12 @@ import "@fontsource/righteous/latin-400.css";
 import { api } from "../../api";
 import { useHeightVar } from "../../hooks/useHeightVar";
 import { ReloadProvider } from "../../hooks/useReload";
+import { LanguageSwitch, useT } from "../../i18n";
 
 /** 管理画面の共通レイアウト。未ログインならログイン画面へ送る */
 export function AdminLayout() {
   const navigate = useNavigate();
+  const t = useT();
   const [ready, setReady] = useState(false);
   // 自動では取り直さない。「更新」で表示中の画面の一覧を取り直す（設定画面は入力中の値を残すため対象外）
   const [reloadCount, setReloadCount] = useState(0);
@@ -30,7 +32,7 @@ export function AdminLayout() {
   const headerRef = useRef<HTMLElement>(null);
   useHeightVar(headerRef, "--admin-header-height", ready);
 
-  if (!ready) return <main className="page muted">読み込み中…</main>;
+  if (!ready) return <main className="page muted">{t("読み込み中…", "Loading…")}</main>;
 
   return (
     <div className="admin">
@@ -43,16 +45,21 @@ export function AdminLayout() {
           ADMIN
         </strong>
         <AdminNav className="admin-nav-inline" />
+        <LanguageSwitch className="admin-lang admin-lang-inline" />
         {!onSettings && (
           <button type="button" className="link" onClick={() => setReloadCount((n) => n + 1)}>
-            ↻ 更新
+            {t("↻ 更新", "↻ Refresh")}
           </button>
         )}
         <button type="button" className="link" onClick={logout}>
-          ログアウト
+          {t("ログアウト", "Log out")}
         </button>
       </header>
       <AdminNav className="admin-nav-below" />
+      {/* スマホ幅では、言語の切り替えをメニューの下に置く（ヘッダーの 1 段目に収まらないため） */}
+      <div className="admin-lang-row">
+        <LanguageSwitch className="admin-lang" />
+      </div>
       <main className="admin-main">
         <ReloadProvider value={reloadCount}>
           <Outlet />

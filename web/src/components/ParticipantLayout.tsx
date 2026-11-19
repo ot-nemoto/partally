@@ -6,6 +6,7 @@ import {
   gameBannerText,
   type MeResponse,
   type Rules,
+  roundBannerText,
   type UserDto,
 } from "@partally/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -13,6 +14,7 @@ import { Link, NavLink, Outlet, useLocation, useOutletContext } from "react-rout
 import { ApiError, api, errorMessage } from "../api";
 import { useAutoRefresh } from "../hooks/useAutoRefresh";
 import { ReloadProvider } from "../hooks/useReload";
+import { LanguageSwitch, useLang, useT } from "../i18n";
 
 /** 開催・確定にすぐ気づけるよう、表示中はこの間隔で開催中のゲームを確認する（文字だけの小さな通信） */
 const GAME_REFRESH_MS = 5_000;
@@ -25,10 +27,16 @@ export interface ParticipantContext {
   reloadUser: () => void;
   /** API の応答で受け取った最新のユーザ情報に差し替える */
   setUser: (user: UserDto) => void;
-  /** 開催中のゲーム（無ければ null、確認前は undefined） */
-  game: CurrentGameDto | null | undefined;
-  /** 答えの応答で受け取った最新の状態に差し替える */
-  setGame: (game: CurrentGameDto | null) => void;
+  /** 開催中のゲーム（ラウンドなら出す順の全問。無ければ空、確認前は undefined） */
+  games: CurrentGameDto[] | undefined;
+  /** 開催中のラウンド（1 問だけのときは無い） */
+  round?: { roundId: string; name: string };
+  /** 答えの応答で受け取った最新のゲームに差し替える */
+  setGame: (game: CurrentGameDto) => void;
+  /** 終わったことが分かったとき、開催中のゲームを無くす */
+  closeGames: () => void;
+  /** 開催中のゲームを読み直す */
+  refreshGames: () => Promise<void>;
 }
 
 export function useParticipant() {
@@ -74,22 +82,29 @@ export function ParticipantLayout() {
     [],
   );
 
-  const [game, setGameState] = useState<CurrentGameDto | null>();
+  const [current, setCurrent] = useState<Pick<CurrentGameResponse, "games" | "round">>();
   const loggedIn = useRef(false);
   loggedIn.current = state.kind === "user";
   // 答えと確認のたびに増やす。確認の途中で答えたり、後から送った確認が先に返ったりしたら、
   // 古い応答で上書きしない（遅い通信で確定前の応答が後から届き、お知らせが戻るのを防ぐ）
   const gameVersion = useRef(0);
-  const setGame = useCallback((next: CurrentGameDto | null) => {
+  const setGame = useCallback((next: CurrentGameDto) => {
     gameVersion.current++;
-    setGameState(next);
+    setCurrent((prev) => prev && { ...prev, games: prev.games.map((g) => (g.gameId === next.gameId ? next : g)) });
+  }, []);
+  const closeGames = useCallback(() => {
+    gameVersion.current++;
+    setCurrent({ games: [] });
   }, []);
   const refreshGame = useCallback(async () => {
     if (!loggedIn.current) return;
     const version = ++gameVersion.current;
     await api<CurrentGameResponse>("GET", "/game/current")
       .then((res) => {
-        if (gameVersion.current === version) setGameState(res.game);
+        // 前の版の API（games が無い）でも 1 問として読む
+        if (gameVersion.current === version) {
+          setCurrent({ games: res.games ?? (res.game ? [res.game] : []), round: res.round });
+        }
       })
       .catch((e) => {
         // ログインが切れたら案内の画面にする（確認も止まる）。通信エラーは次の確認に任せる
@@ -111,8 +126,10 @@ export function ParticipantLayout() {
     setReloading(false);
   }, [refreshQuietly, refreshGame]);
   const location = useLocation();
+  const t = useT();
+  const lang = useLang();
 
-  if (state.kind === "loading") return <main className="page muted">読み込み中…</main>;
+  if (state.kind === "loading") return <main className="page muted">{t("読み込み中…", "Loading…")}</main>;
   if (state.kind === "error") {
     return (
       <main className="page">
@@ -123,21 +140,44 @@ export function ParticipantLayout() {
   if (state.kind === "guest") {
     return (
       <main className="page">
+        <div className="lang-row">
+          <LanguageSwitch />
+        </div>
         <section className="card guest-card">
           <h1 className="guest-title gradient-title" lang="en">
             partally
           </h1>
-          <p>配布された QR コードをスマホのカメラで読み込んでください。</p>
+          <p>
+            {t(
+              "配布された QR コードをスマホのカメラで読み込んでください。",
+              "Scan the QR code you were given with your phone’s camera.",
+            )}
+          </p>
         </section>
       </main>
     );
   }
 
-  const banner = game && location.pathname !== "/game" ? gameBannerText(game) : undefined;
+  const games = current?.games ?? [];
+  const banner =
+    games.length === 0 || location.pathname === "/game"
+      ? undefined
+      : current?.round
+        ? roundBannerText(current.round, games, lang)
+        : gameBannerText(games[0]!, lang);
 
   return (
     <div className="participant">
       <main className="page">
+        {/* イベントを終了した後は、ポイントの集計が止まったことを知らせる（受付は続く） */}
+        {state.rules.eventEndedAt && (
+          <p className="event-ended" role="status">
+            {t(
+              "イベントは終了しました。ポイントの集計は終わりました。",
+              "The event has ended. Points are no longer counted.",
+            )}
+          </p>
+        )}
         {banner && (
           <Link to="/game" className="quiz-banner">
             <strong>{banner.title}</strong>
@@ -147,24 +187,35 @@ export function ParticipantLayout() {
         <ReloadProvider value={reloadCount}>
           <Outlet
             context={
-              { user: state.user, rules: state.rules, reloadUser, setUser, game, setGame } satisfies ParticipantContext
+              {
+                user: state.user,
+                rules: state.rules,
+                reloadUser,
+                setUser,
+                games: current?.games,
+                round: current?.round,
+                setGame,
+                closeGames,
+                refreshGames: refreshGame,
+              } satisfies ParticipantContext
             }
           />
         </ReloadProvider>
       </main>
       <nav className="tabbar">
         <NavLink to="/" end>
-          ホーム
+          {t("ホーム", "Home")}
         </NavLink>
-        <NavLink to="/gallery">みんなの写真</NavLink>
-        <NavLink to="/mine">自分の写真</NavLink>
+        <NavLink to="/gallery">{t("みんなの写真", "Everyone")}</NavLink>
+        <NavLink to="/mine">{t("自分の写真", "My photos")}</NavLink>
         {/* ランキング・推移は管理画面で見せる設定にしたときだけ出す */}
         {(state.rules.rankingVisible ||
           state.rules.trendVisible ||
           state.rules.prizesVisible ||
-          state.rules.scheduleVisible) && <NavLink to="/standings">イベント情報</NavLink>}
+          state.rules.scheduleVisible ||
+          state.rules.gameResultsVisible) && <NavLink to="/standings">{t("イベント情報", "Event info")}</NavLink>}
         <button type="button" className="tabbar-reload" onClick={reload} disabled={reloading}>
-          {reloading ? "更新中…" : "↻ 更新"}
+          {reloading ? t("更新中…", "Refreshing…") : t("↻ 更新", "↻ Refresh")}
         </button>
       </nav>
     </div>

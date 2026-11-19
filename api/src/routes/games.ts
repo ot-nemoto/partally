@@ -1,15 +1,22 @@
 import {
+  type CurrentGameResponse,
   formatDisplayName,
   GAME_FORMAT_RULES,
   type GameRequest,
+  type GameResultDto,
+  type GameResultsResponse,
   gameAnswerRequestSchema,
   gameConfirmProblem,
   gameRequestSchema,
   hasGameAnswers,
+  type RoundResponse,
+  type RoundsResponse,
+  roundOrderRequestSchema,
+  roundRequestSchema,
   shuffle,
 } from "@partally/shared";
 import type { Context, Hono } from "hono";
-import { toCurrentGameDto, toGameDto } from "../dto.js";
+import { toCurrentGameDto, toGameDto, toRoundDto } from "../dto.js";
 import { type Env, fail, parseBody } from "../http.js";
 import {
   GameAlreadyOpenError,
@@ -19,8 +26,9 @@ import {
   type GameSlot,
   InvalidStateError,
   NotFoundError,
+  type RoundRecord,
 } from "../repository.js";
-import { isKeywordCorrect } from "../scoring.js";
+import { gameResults, isKeywordCorrect } from "../scoring.js";
 import type { AppContext } from "./context.js";
 
 const GAME_CONFLICT_MESSAGE = "ほかの画面でこのゲームが変更されました。開き直してから直してください";
@@ -45,13 +53,30 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
     attachImages,
   } = ctx;
 
-  // 参加者の画面が数秒ごとに呼ぶので、読み込みは最小限にする
+  // 参加者の画面が数秒ごとに呼ぶので、読み込みは最小限にする（開催中の印・ゲーム・自分の答えだけ）
   app.get("/game/current", requireUser, async (c) => {
-    const gameId = await repo.getOpenGameId();
-    const game = gameId ? await repo.getGame(gameId) : undefined;
-    if (game?.status !== "open") return c.json({ game: null });
-    const answer = hasGameAnswers(game) ? await repo.getGameAnswer(c.get("user").userId, game.gameId) : undefined;
-    return c.json({ game: toCurrentGameDto(game, answer, imageUrlOf) });
+    const state = await repo.getOpenState();
+    const userId = c.get("user").userId;
+    const [round, games] = await Promise.all([
+      state?.roundId ? repo.getRound(state.roundId) : undefined,
+      Promise.all((state?.gameIds ?? []).map((id) => repo.getGame(id))),
+    ]);
+    const open = games.filter((g): g is GameRecord => g?.status === "open");
+    // 1 問なら自分の答えを 1 件だけ読み、ラウンドなら自分の答えをまとめて 1 回で読む（数秒ごとに呼ばれるため）
+    const answers =
+      open.length > 1 ? new Map((await repo.listGameAnswersByUser(userId)).map((a) => [a.gameId, a])) : undefined;
+    const dtos = await Promise.all(
+      open.map(async (game) => {
+        if (!hasGameAnswers(game)) return toCurrentGameDto(game, undefined, imageUrlOf);
+        const answer = answers ? answers.get(game.gameId) : await repo.getGameAnswer(userId, game.gameId);
+        return toCurrentGameDto(game, answer, imageUrlOf);
+      }),
+    );
+    return c.json({
+      game: dtos[0] ?? null,
+      games: dtos,
+      ...(round && dtos.length > 0 ? { round: { roundId: round.roundId, name: round.name } } : {}),
+    } satisfies CurrentGameResponse);
   });
 
   app.put("/game/:gameId/answer", requireUser, async (c) => {
@@ -93,7 +118,8 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
       }
       return c.json({ game: toCurrentGameDto(game, answer, imageUrlOf), correct: true });
     }
-    // 時刻は開催中を確かめた後に付ける。この後に確定されて保存が遅れた答えは、点数の計算で除かれる
+    // 答えは「決定」で 1 回だけ（答え直せない）。既に答えていれば 409 にし、先の答えのまま
+    // 時刻は開催中を確かめた後に付ける。この後に終了されて保存が遅れた答えは、点数の計算で除かれる
     const answer = {
       gameId: game.gameId,
       userId,
@@ -104,11 +130,83 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
       entry,
       answeredAt: now().toISOString(),
     };
-    await repo.putGameAnswer(answer);
+    try {
+      await repo.putGameAnswer(answer, { answeredAt: undefined });
+    } catch (e) {
+      if (!(e instanceof InvalidStateError)) throw e;
+      return fail(c, 409, "already_answered");
+    }
     return c.json({
       game: toCurrentGameDto(game, answer, imageUrlOf),
       ...(text !== undefined ? { correct: true } : {}),
     });
+  });
+
+  // 終了したゲームの結果（設定で見せるときだけ。見せないときは空にする）
+  app.get("/game-results", requireUser, async (c) => {
+    const settings = await repo.getSettings();
+    if (!settings.gameResultsVisible) return c.json({ games: [] } satisfies GameResultsResponse);
+    const me = c.get("user").userId;
+    const [entries, end, users] = await Promise.all([gamesWithAnswers(), repo.getEventEnd(), repo.listUsers()]);
+    const names = new Map(users.map((u) => [u.userId, formatDisplayName(u.epithet, u.name)]));
+    const nameOf = (userId: string) => names.get(userId) ?? "?";
+    const games: GameResultDto[] = gameResults(entries, end?.endedAt).map(({ game, uncounted, answers, awards }) => {
+      const mine = answers.find((a) => a.userId === me);
+      const myAward = awards.find((a) => a.userId === me && a.slotName !== "投票");
+      // 結果: 結果入力は枠ごと（枠の順）、ほかは点数が入った順位ごと（点数の高い順）。投票した人の点数は除く
+      const groups = new Map<string, { label: string; names: string[]; points: number }>();
+      const shown =
+        game.format === "result"
+          ? awards
+          : game.format === "quiz"
+            ? []
+            : awards.filter((a) => a.points > 0 && a.slotName !== "投票");
+      for (const a of shown) {
+        const group = groups.get(a.slotName) ?? { label: a.slotName, names: [], points: a.points };
+        group.names.push(nameOf(a.userId));
+        groups.set(a.slotName, group);
+      }
+      const winners = [...groups.values()];
+      if (game.format !== "result") winners.sort((a, b) => b.points - a.points);
+      const top = Math.max(0, ...game.choices.map((ch) => ch.points));
+      const correctChoices = top > 0 ? game.choices.filter((ch) => ch.points === top) : [];
+      const correct =
+        game.format === "quiz"
+          ? correctChoices.map((ch) => ch.text).join("・") || undefined
+          : game.format === "number"
+            ? game.correctNumber?.toString()
+            : game.format === "keyword"
+              ? game.keyword
+              : undefined;
+      const myAnswer =
+        mine === undefined
+          ? undefined
+          : game.format === "quiz"
+            ? game.choices.find((ch) => ch.choiceId === mine.choiceId)?.text
+            : game.format === "number"
+              ? mine.value?.toString()
+              : game.format === "vote"
+                ? mine.targetUserId && nameOf(mine.targetUserId)
+                : game.format === "keyword"
+                  ? mine.text
+                  : undefined;
+      return {
+        gameId: game.gameId,
+        name: game.name,
+        format: game.format,
+        confirmedAt: game.confirmedAt,
+        ...(uncounted ? { uncounted } : {}),
+        answered: mine !== undefined,
+        ...(correct !== undefined ? { correct } : {}),
+        ...(myAnswer !== undefined ? { myAnswer } : {}),
+        ...(game.format === "quiz" && mine && correctChoices.length > 0
+          ? { myCorrect: correctChoices.some((ch) => ch.choiceId === mine.choiceId) }
+          : {}),
+        ...(myAward && game.format !== "quiz" ? { myResult: myAward.slotName } : {}),
+        winners: winners.map(({ label, names }) => ({ label, names })),
+      };
+    });
+    return c.json({ games } satisfies GameResultsResponse);
   });
 
   // 投票で選べる人（自分と、紐づけを解除した人を除く）。ゲームの画面を開いたときに 1 回だけ読む
@@ -133,7 +231,10 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
 
   app.get("/admin/games", async (c) => {
     const entries = await gamesWithAnswers();
-    return c.json({ games: entries.map(({ game, answers }) => toGameDto(game, answers, imageUrlOf)) });
+    const roundOf = roundIdsByGame(await repo.listRounds());
+    return c.json({
+      games: entries.map(({ game, answers }) => toGameDto(game, answers, imageUrlOf, roundOf.get(game.gameId))),
+    });
   });
 
   /** クイズ形式の答えた人の一覧 */
@@ -148,7 +249,7 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
       return user ? formatDisplayName(user.epithet, user.name) : undefined;
     };
     return c.json({
-      game: toGameDto(game, answers, imageUrlOf),
+      game: toGameDto(game, answers, imageUrlOf, await roundIdOf(game.gameId)),
       answers: answers
         .sort((a, b) => a.answeredAt.localeCompare(b.answeredAt))
         .map((a) => {
@@ -282,7 +383,7 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
         c,
         409,
         "invalid_state",
-        "確定したゲームの枠・正解の数・点数の範囲は、全部は外せません。先に確定を取り消してください",
+        "終了したゲームの枠・正解の数・点数の範囲は、全部は外せません。先に終了を取り消してください",
       );
     }
     const changes = {
@@ -304,7 +405,7 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
       const updated = await repo.updateGame(game.gameId, changes, now().toISOString(), body.data.baseUpdatedAt);
       // 差し替えた・外した画像は、保存できてから消す
       await removeImages(before.filter((id) => !after.includes(id)));
-      return c.json({ game: toGameDto(updated, answers, imageUrlOf) });
+      return c.json({ game: toGameDto(updated, answers, imageUrlOf, await roundIdOf(updated.gameId)) });
     } catch (e) {
       // 保存できなかったら、新しく移した画像を消す
       await removeImages(images.attached);
@@ -315,15 +416,14 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
   });
 
   /**
-   * 参加者の一覧（GSI）は結果整合なので、確定の直前の参加がまだ出ていないことがある。開催中の抽選を確定するときは、
+   * 参加者の一覧（GSI）は結果整合なので、締め切りの直前の参加がまだ出ていないことがある。抽選を締め切るとき（開催中だけ）は、
    * 一度読んでから少し待ってもう一度読み、どちらかに出た人を合わせる（抽選は確定のときの順番を保存し、後から直らないため）。
    * 確定の時刻は 2 回目の読み取りの直前に決めるので、待っている間の参加も数える
    */
   const readLotteryEntrants = async (game: GameRecord) => {
     const read = async () => (await repo.listGameAnswersByGame(game.gameId)).filter((a) => a.entry);
-    // 下書きからの確定は、新しい参加が無い（開催中しか参加できない）ので待たない
-    const first = game.status === "open" ? await read() : [];
-    if (game.status === "open") await settle();
+    const first = await read();
+    await settle();
     const at = now().toISOString();
     const entrants = [...first, ...(await read())].filter((a) => a.answeredAt <= at).map((a) => a.userId);
     return { at, entrants: [...new Set(entrants)] };
@@ -344,16 +444,19 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
       const drawOrder = lottery ? await drawLottery(lottery.entrants) : undefined;
       const updated = await repo.changeGameStatus(game.gameId, game.status, to, at, drawOrder);
       const answers = hasGameAnswers(updated) ? await repo.listGameAnswersByGame(updated.gameId) : [];
-      return c.json({ game: toGameDto(updated, answers, imageUrlOf) });
+      return c.json({ game: toGameDto(updated, answers, imageUrlOf, await roundIdOf(updated.gameId)) });
     } catch (e) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
       if (e instanceof GameAlreadyOpenError) {
-        return fail(c, 409, "invalid_state", "別のゲームが開催中です。確定するか、開催をやめてから開催してください");
+        return fail(c, 409, "invalid_state", "別のゲームが開催中です。終了するか中断してから開始してください");
       }
       if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state", message);
       throw e;
     }
   };
+
+  /** ゲームが入っているラウンド */
+  const roundIdOf = async (gameId: string) => roundIdsByGame(await repo.listRounds()).get(gameId);
 
   /** 状態の操作。allowed は操作できる今の状態 */
   const gameAction =
@@ -366,6 +469,10 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
     async (c: Context) => {
       const game = await repo.getGame(c.req.param("gameId") ?? "");
       if (!game) return fail(c, 404, "not_found");
+      // ラウンドに入っているゲームは、ラウンドでまとめて開始・終了する
+      if (await roundIdOf(game.gameId)) {
+        return fail(c, 409, "invalid_state", "ラウンドに入っているゲームは、ラウンドで開始・終了してください");
+      }
       if (!allowed.includes(game.status)) return fail(c, 409, "invalid_state", message);
       const problem = check?.(game);
       if (problem) return fail(c, 409, "invalid_state", problem);
@@ -377,9 +484,9 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
   // 入るポイントが決まらないゲーム（枠の無い結果入力、正解の数か点数の範囲が無い数値予想）は確定させない
   app.post(
     "/admin/games/:gameId/confirm",
-    gameAction("confirmed", ["draft", "open"], "既に確定しています", gameConfirmProblem),
+    gameAction("confirmed", ["open"], "開催中のゲームだけ終了できます", gameConfirmProblem),
   );
-  app.post("/admin/games/:gameId/unconfirm", gameAction("draft", ["confirmed"], "確定していません"));
+  app.post("/admin/games/:gameId/unconfirm", gameAction("draft", ["confirmed"], "終了していません"));
 
   app.delete("/admin/games/:gameId", async (c) => {
     const game = await repo.getGame(c.req.param("gameId"));
@@ -387,6 +494,9 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
     try {
       await repo.deleteGame(game.gameId);
       await removeImages(gameImageIds(game));
+      // 入っていたラウンドからも外す（下書きでないラウンドは出し入れできないので、直接書き換える）
+      const round = (await repo.listRounds()).find((r) => r.gameIds.includes(game.gameId));
+      if (round) await removeFromRound(round, game.gameId);
       return c.json({});
     } catch (e) {
       if (e instanceof NotFoundError) return fail(c, 404, "not_found");
@@ -396,4 +506,182 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
       throw e;
     }
   });
+
+  // ---- ラウンド（複数のゲームをまとめて開始・終了する） ----
+
+  /** 入っていたラウンドからゲームを外す */
+  const removeFromRound = (round: RoundRecord, gameId: string) =>
+    repo.updateRound(round.roundId, { gameIds: round.gameIds.filter((id) => id !== gameId) }, now().toISOString(), {
+      anyStatus: true,
+    });
+
+  /**
+   * ラウンドに入れるゲームを確かめる（あるか・下書きか・ほかのラウンドに入っていないか）。問題があれば 400/409 のレスポンス
+   */
+  const checkRoundGames = async (c: Context, gameIds: string[], roundId?: string) => {
+    const [games, rounds] = await Promise.all([repo.listGames(), repo.listRounds()]);
+    const byId = new Map(games.map((g) => [g.gameId, g]));
+    const current = rounds.find((r) => r.roundId === roundId);
+    for (const id of gameIds) {
+      const game = byId.get(id);
+      if (!game) return fail(c, 400, "bad_request", "ゲームがありません");
+      const other = rounds.find((r) => r.roundId !== roundId && r.gameIds.includes(id));
+      if (other)
+        return fail(c, 409, "invalid_state", `「${game.name}」は、ほかのラウンド（${other.name}）に入っています`);
+      // 新しく入れるゲームは下書きだけ（開催中・終了済みの 1 問を入れると、ラウンドの状態と合わなくなる）
+      if (!current?.gameIds.includes(id) && game.status !== "draft") {
+        return fail(c, 409, "invalid_state", `「${game.name}」は下書きでないので、ラウンドに入れられません`);
+      }
+    }
+    return undefined;
+  };
+
+  app.get("/admin/rounds", async (c) => {
+    const rounds = await repo.listRounds();
+    return c.json({ rounds: rounds.map(toRoundDto) } satisfies RoundsResponse);
+  });
+
+  app.post("/admin/rounds", async (c) => {
+    const body = await parseBody(c, roundRequestSchema);
+    if (!body.ok) return body.response;
+    const problem = await checkRoundGames(c, body.data.gameIds);
+    if (problem) return problem;
+    const rounds = await repo.listRounds();
+    const at = now().toISOString();
+    const round: RoundRecord = {
+      roundId: newId(),
+      name: body.data.name,
+      gameIds: body.data.gameIds,
+      status: "draft",
+      // 後ろに足す
+      position: Math.max(0, ...rounds.map((r) => r.position + 1)),
+      createdAt: at,
+      updatedAt: at,
+    };
+    await repo.createRound(round);
+    return c.json({ round: toRoundDto(round) } satisfies RoundResponse, 201);
+  });
+
+  app.put("/admin/rounds/order", async (c) => {
+    const body = await parseBody(c, roundOrderRequestSchema);
+    if (!body.ok) return body.response;
+    const rounds = await repo.listRounds();
+    const ids = body.data.roundIds;
+    if (
+      ids.length !== rounds.length ||
+      new Set(ids).size !== ids.length ||
+      !rounds.every((r) => ids.includes(r.roundId))
+    ) {
+      return fail(c, 400, "bad_request", "すべてのラウンドを 1 回ずつ並べてください");
+    }
+    const at = now().toISOString();
+    for (const [position, roundId] of ids.entries()) {
+      const round = rounds.find((r) => r.roundId === roundId)!;
+      if (round.position !== position) await repo.updateRound(roundId, { position }, at);
+    }
+    return c.json({ rounds: (await repo.listRounds()).map(toRoundDto) } satisfies RoundsResponse);
+  });
+
+  app.put("/admin/rounds/:roundId", async (c) => {
+    const body = await parseBody(c, roundRequestSchema);
+    if (!body.ok) return body.response;
+    const round = await repo.getRound(c.req.param("roundId"));
+    if (!round) return fail(c, 404, "not_found");
+    const sameGames = JSON.stringify(round.gameIds) === JSON.stringify(body.data.gameIds);
+    if (!sameGames) {
+      if (round.status !== "draft") {
+        return fail(
+          c,
+          409,
+          "invalid_state",
+          "開始中・終了済みのラウンドは、ゲームを出し入れできません（名前は直せます）",
+        );
+      }
+      const problem = await checkRoundGames(c, body.data.gameIds, round.roundId);
+      if (problem) return problem;
+    }
+    try {
+      const updated = await repo.updateRound(
+        round.roundId,
+        { name: body.data.name, ...(sameGames ? {} : { gameIds: body.data.gameIds }) },
+        now().toISOString(),
+      );
+      return c.json({ round: toRoundDto(updated) } satisfies RoundResponse);
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state", "ラウンドの状態が変わりました");
+      throw e;
+    }
+  });
+
+  app.delete("/admin/rounds/:roundId", async (c) => {
+    try {
+      // ラウンドだけを消す（中のゲームは残り、1 問ずつ開始・終了できるようになる）
+      await repo.deleteRound(c.req.param("roundId"));
+      return c.json({});
+    } catch (e) {
+      if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+      if (e instanceof InvalidStateError)
+        return fail(c, 409, "invalid_state", "開始中のラウンドは、中断してから削除してください");
+      throw e;
+    }
+  });
+
+  /** ラウンドと中のゲームの状態をまとめて変える */
+  const roundAction =
+    (to: GameRecord["status"], allowed: GameRecord["status"][], message: string) => async (c: Context) => {
+      const round = await repo.getRound(c.req.param("roundId") ?? "");
+      if (!round) return fail(c, 404, "not_found");
+      if (!allowed.includes(round.status)) return fail(c, 409, "invalid_state", message);
+      if (round.gameIds.length === 0) return fail(c, 409, "invalid_state", "ラウンドにゲームが入っていません");
+      const games = (await Promise.all(round.gameIds.map((id) => repo.getGame(id)))).filter(
+        (g): g is GameRecord => g !== undefined,
+      );
+      if (to === "confirmed") {
+        // 終了できない問題があれば、まとめて知らせる
+        const problems = games.flatMap((g) => {
+          const problem = gameConfirmProblem(g);
+          return problem ? [`「${g.name}」: ${problem}`] : [];
+        });
+        if (problems.length > 0) return fail(c, 409, "invalid_state", problems.join("\n"));
+      }
+      try {
+        // 抽選は、終了までに参加した人を少し待って 2 回読み（1 回だけ待つ）、順番を決める
+        const lotteries = to === "confirmed" ? games.filter((g) => g.format === "lottery") : [];
+        const entryOf = async (g: GameRecord) => (await repo.listGameAnswersByGame(g.gameId)).filter((a) => a.entry);
+        const first = await Promise.all(lotteries.map(entryOf));
+        if (lotteries.length > 0) await settle();
+        const at = now().toISOString();
+        const second = await Promise.all(lotteries.map(entryOf));
+        const drawOrders: Record<string, string[]> = {};
+        for (const [i, game] of lotteries.entries()) {
+          const entrants = [...first[i]!, ...second[i]!].filter((a) => a.answeredAt <= at).map((a) => a.userId);
+          drawOrders[game.gameId] = await drawLottery([...new Set(entrants)]);
+        }
+        const updated = await repo.changeRoundStatus(round, round.status, to, at, drawOrders);
+        return c.json({ round: toRoundDto(updated) } satisfies RoundResponse);
+      } catch (e) {
+        if (e instanceof NotFoundError) return fail(c, 404, "not_found");
+        if (e instanceof GameAlreadyOpenError) {
+          return fail(
+            c,
+            409,
+            "invalid_state",
+            "ほかのゲームかラウンドが開催中です。終了するか中断してから開始してください",
+          );
+        }
+        if (e instanceof InvalidStateError) return fail(c, 409, "invalid_state", message);
+        throw e;
+      }
+    };
+
+  app.post("/admin/rounds/:roundId/open", roundAction("open", ["draft"], "開始できるのは下書きのラウンドだけです"));
+  app.post("/admin/rounds/:roundId/stop", roundAction("draft", ["open"], "開始中のラウンドではありません"));
+  app.post("/admin/rounds/:roundId/confirm", roundAction("confirmed", ["open"], "開始中のラウンドだけ終了できます"));
+  app.post("/admin/rounds/:roundId/unconfirm", roundAction("draft", ["confirmed"], "終了していません"));
+}
+
+/** ゲームごとの、入っているラウンド */
+function roundIdsByGame(rounds: RoundRecord[]): Map<string, string> {
+  return new Map(rounds.flatMap((r) => r.gameIds.map((id) => [id, r.roundId] as const)));
 }

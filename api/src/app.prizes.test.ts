@@ -10,7 +10,7 @@ describe("API", () => {
     async function participant() {
       const token = await t.issueToken();
       const request = createClient(t.app);
-      await request("POST", "/api/auth/register", { token, name: "参加者" });
+      await request("POST", "/api/auth/register", { token, name: "参加者", pin: "1234" });
       return request;
     }
 

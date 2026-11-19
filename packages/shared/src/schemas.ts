@@ -19,11 +19,32 @@ export const epithetSchema = normalized(EPITHET_MAX_LENGTH);
 /** 128bit 乱数の base64url 表現（22 文字） */
 export const tokenSchema = z.string().regex(/^[A-Za-z0-9_-]{22}$/);
 
-export const qrLoginRequestSchema = z.object({ token: tokenSchema });
+/** 暗証番号の桁数（数字だけ） */
+export const PIN_LENGTH = 4;
+/** 暗証番号を続けて間違えられる回数。これだけ間違えるとロックし、幹事が解除するまでほかの端末でログインできない */
+export const PIN_MAX_FAILURES = 5;
+
+/** 暗証番号を間違えすぎてロック中か（間違えた回数から） */
+export function isPinLocked(failures: number | undefined): boolean {
+  return (failures ?? 0) >= PIN_MAX_FAILURES;
+}
+
+/** 暗証番号。全角の数字は半角にそろえる */
+export const pinSchema = z
+  .string()
+  .transform((s) => s.normalize("NFKC").trim())
+  .pipe(z.string().regex(new RegExp(`^\\d{${PIN_LENGTH}}$`), `暗証番号は ${PIN_LENGTH} 桁の数字にしてください`));
+
+/**
+ * QR コードでのログイン。その人としてログインしたままの端末でなければ、暗証番号（pin）を求める。
+ * 暗証番号の無い人は、送った pin を暗証番号として決める
+ */
+export const qrLoginRequestSchema = z.object({ token: tokenSchema, pin: pinSchema.optional() });
 
 export const registerRequestSchema = z.object({
   token: tokenSchema,
   name: nameSchema,
+  pin: pinSchema,
 });
 
 export const adminLoginRequestSchema = z.object({
@@ -75,6 +96,14 @@ export const TIE_BREAK_LABEL: Record<TieBreakKey, string> = {
   game: "ゲーム",
   registered: "登録順",
 };
+/** TIE_BREAK_LABEL の英語（参加者の画面を英語にしたとき） */
+export const TIE_BREAK_LABEL_EN: Record<TieBreakKey, string> = {
+  upload: "photo uploads",
+  favoriteGiven: "favorites given",
+  favoriteReceived: "favorites received",
+  game: "games",
+  registered: "registration order",
+};
 export const FAVORITE_LIMIT_MAX = 100;
 
 const points = z.number().int().min(0).max(POINTS_MAX);
@@ -103,6 +132,7 @@ export const updateSettingsRequestSchema = z.object({
     })
     .optional(),
   scheduleVisible: z.boolean().optional(),
+  gameResultsVisible: z.boolean().optional(),
   /** イベントの日付（YYYY-MM-DD）。空なら日付を決めない */
   scheduleDate: z
     .union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日付は YYYY-MM-DD で入れてください")])
@@ -233,6 +263,20 @@ export const GAME_FORMAT_LABEL: Record<(typeof GAME_FORMATS)[number], string> = 
   vote: "投票",
   keyword: "合言葉",
   lottery: "抽選",
+};
+/** 形式の名前を言語に合わせて選ぶ */
+export function gameFormatLabel(format: (typeof GAME_FORMATS)[number], lang: "ja" | "en"): string {
+  return (lang === "en" ? GAME_FORMAT_LABEL_EN : GAME_FORMAT_LABEL)[format];
+}
+
+/** GAME_FORMAT_LABEL の英語（管理画面を英語にしたとき） */
+export const GAME_FORMAT_LABEL_EN: Record<(typeof GAME_FORMATS)[number], string> = {
+  quiz: "Quiz",
+  result: "Result entry",
+  number: "Number guess",
+  vote: "Vote",
+  keyword: "Keyword",
+  lottery: "Lottery",
 };
 
 /** 合言葉の長さの上限 */
@@ -402,3 +446,23 @@ export const gameAnswerRequestSchema = z
     message: "選択肢・数・選んだ人・言葉・参加のどれか 1 つを送ってください",
   });
 export type GameAnswerRequest = z.infer<typeof gameAnswerRequestSchema>;
+
+export const ROUND_NAME_MAX_LENGTH = 50;
+/** 1 ラウンドに入れられるゲームの数 */
+export const ROUND_GAMES_MAX = 20;
+
+/**
+ * ラウンドの作成・更新。gameIds は参加者に出す順。1 つのゲームが入れるラウンドは 1 つまで。
+ * 開始中・終了済みのラウンドのゲームは出し入れできない（名前は直せる）
+ */
+export const roundRequestSchema = z.object({
+  name: normalized(ROUND_NAME_MAX_LENGTH),
+  gameIds: z
+    .array(idSchema)
+    .max(ROUND_GAMES_MAX, `1 つのラウンドに入れられるゲームは ${ROUND_GAMES_MAX} 個までです`)
+    .refine((ids) => new Set(ids).size === ids.length, { message: "同じゲームが 2 回入っています" }),
+});
+export type RoundRequest = z.infer<typeof roundRequestSchema>;
+
+/** ラウンドの並び順（全ラウンドの ID を、並べたい順に 1 回ずつ） */
+export const roundOrderRequestSchema = z.object({ roundIds: z.array(idSchema) });

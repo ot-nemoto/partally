@@ -26,6 +26,7 @@ import {
 import {
   DEFAULT_SETTINGS,
   EpithetTakenError,
+  type EventEndRecord,
   FavoriteLimitError,
   formatLabel,
   GameAlreadyOpenError,
@@ -35,11 +36,13 @@ import {
   InvalidCursorError,
   InvalidStateError,
   NotFoundError,
+  type OpenState,
   type Page,
   type PhotoRecord,
   type PhotoRecordStatus,
   type PrizeRecord,
   type Repository,
+  type RoundRecord,
   type ScheduleItemRecord,
   type ScheduleLayoutChange,
   TokenNotAvailableError,
@@ -61,7 +64,9 @@ export const keys = {
   prize: (prizeId: string) => ({ PK: `PRIZE#${prizeId}`, SK: "META" }),
   scheduleItem: (itemId: string) => ({ PK: `SCHEDULE#${itemId}`, SK: "META" }),
   game: (gameId: string) => ({ PK: `GAME#${gameId}`, SK: "META" }),
+  round: (roundId: string) => ({ PK: `ROUND#${roundId}`, SK: "META" }),
   settings: { PK: "SETTINGS", SK: "GLOBAL" },
+  eventEnd: { PK: "EVENT", SK: "END" },
   tokenLabelCounter: { PK: "COUNTER", SK: "TOKEN_LABEL" },
 };
 
@@ -246,6 +251,73 @@ export class DynamoRepository implements Repository {
       throw e;
     }
     return { ...current, ...definedOnly(changes), updatedAt };
+  }
+
+  async setUserPin(userId: string, pinHash: string, onlyIfUnset: boolean) {
+    try {
+      await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: keys.user(userId),
+          UpdateExpression: "SET pinHash = :hash, pinFailures = :zero",
+          ConditionExpression: onlyIfUnset
+            ? "attribute_exists(PK) AND #status = :active AND attribute_not_exists(pinHash)"
+            : "attribute_exists(PK)",
+          ...(onlyIfUnset ? { ExpressionAttributeNames: { "#status": "status" } } : {}),
+          ExpressionAttributeValues: { ":hash": pinHash, ":zero": 0, ...(onlyIfUnset ? { ":active": "active" } : {}) },
+        }),
+      );
+      return true;
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) return false;
+      throw e;
+    }
+  }
+
+  async reservePinAttempt(userId: string, max: number) {
+    try {
+      await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: keys.user(userId),
+          UpdateExpression: "ADD pinFailures :one",
+          ConditionExpression: "attribute_exists(PK) AND (attribute_not_exists(pinFailures) OR pinFailures < :max)",
+          ExpressionAttributeValues: { ":one": 1, ":max": max },
+        }),
+      );
+      return true;
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) return false;
+      throw e;
+    }
+  }
+
+  async resetPinFailures(userId: string) {
+    return this.updateUserAttributes(userId, "SET pinFailures = :zero", { ":zero": 0 });
+  }
+
+  async clearUserPin(userId: string) {
+    return this.updateUserAttributes(userId, "REMOVE pinHash, pinFailures");
+  }
+
+  /** ユーザの属性を変えて、変えた後のユーザを返す。@throws NotFoundError */
+  private async updateUserAttributes(userId: string, expression: string, values?: Record<string, unknown>) {
+    try {
+      const { Attributes } = await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: keys.user(userId),
+          UpdateExpression: expression,
+          ConditionExpression: "attribute_exists(PK)",
+          ...(values ? { ExpressionAttributeValues: values } : {}),
+          ReturnValues: "ALL_NEW",
+        }),
+      );
+      return toUserRecord(Attributes!);
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) throw new NotFoundError();
+      throw e;
+    }
   }
 
   async unbindUser(userId: string, updatedAt: string) {
@@ -805,16 +877,22 @@ export class DynamoRepository implements Repository {
     }
   }
 
-  async changeGameStatus(gameId: string, from: GameStatus, to: GameStatus, at: string, drawOrder?: string[]) {
-    if (from === to) throw new InvalidStateError();
+  /** ゲーム・ラウンドの状態を from → to に変える更新（今の状態が from のときだけ） */
+  private statusUpdate(
+    key: Record<string, string>,
+    from: GameStatus,
+    to: GameStatus,
+    at: string,
+    drawOrder?: string[],
+  ) {
     const set = ["#status = :to", "updatedAt = :at"];
     if (to === "open") set.push("openedAt = :at");
     if (to === "confirmed") set.push("confirmedAt = :at");
     const withDraw = to === "confirmed" && drawOrder !== undefined;
     if (withDraw) set.push("drawOrder = :drawOrder");
-    const update = {
+    return {
       TableName: this.tableName,
-      Key: keys.game(gameId),
+      Key: key,
       // 確定から戻すときは、確定した時刻と抽選の順番を消す
       UpdateExpression: `SET ${set.join(", ")}${from === "confirmed" ? " REMOVE confirmedAt, drawOrder" : ""}`,
       ConditionExpression: "#status = :from",
@@ -826,6 +904,11 @@ export class DynamoRepository implements Repository {
         ...(withDraw ? { ":drawOrder": drawOrder } : {}),
       },
     };
+  }
+
+  async changeGameStatus(gameId: string, from: GameStatus, to: GameStatus, at: string, drawOrder?: string[]) {
+    if (from === to) throw new InvalidStateError();
+    const update = this.statusUpdate(keys.game(gameId), from, to, at, drawOrder);
     try {
       if (to === "open") {
         // 開催中の印を「無いこと」を条件に作り、開催中を 1 つに限る（クイズの出題中と同じ）
@@ -835,7 +918,7 @@ export class DynamoRepository implements Repository {
               {
                 Put: {
                   TableName: this.tableName,
-                  Item: { ...keys.openGame, gameId },
+                  Item: { ...keys.openGame, gameId, gameIds: [gameId] },
                   ConditionExpression: "attribute_not_exists(PK)",
                 },
               },
@@ -877,11 +960,166 @@ export class DynamoRepository implements Repository {
     return (await this.getGame(gameId))!;
   }
 
-  async getOpenGameId() {
+  async getOpenState(): Promise<OpenState | undefined> {
     const { Item } = await this.client.send(
       new GetCommand({ TableName: this.tableName, Key: keys.openGame, ConsistentRead: true }),
     );
-    return Item?.gameId as string | undefined;
+    if (!Item) return undefined;
+    // 1 問だけの開催は gameId も持つ（ラウンドを足す前に作った印は gameId だけ）
+    const gameIds = (Item.gameIds as string[] | undefined) ?? (Item.gameId ? [Item.gameId as string] : []);
+    return { gameIds, ...(Item.roundId ? { roundId: Item.roundId as string } : {}) };
+  }
+
+  async createRound(round: RoundRecord) {
+    await this.client.send(
+      new PutCommand({
+        TableName: this.tableName,
+        Item: {
+          ...keys.round(round.roundId),
+          GSI1PK: "ROUNDS",
+          GSI1SK: `${round.createdAt}#${round.roundId}`,
+          ...round,
+        },
+        ConditionExpression: "attribute_not_exists(PK)",
+      }),
+    );
+  }
+
+  async getRound(roundId: string) {
+    const { Item } = await this.client.send(
+      new GetCommand({ TableName: this.tableName, Key: keys.round(roundId), ConsistentRead: true }),
+    );
+    return Item ? toRoundRecord(Item) : undefined;
+  }
+
+  async listRounds() {
+    return (await this.queryGsi1("ROUNDS"))
+      .map(toRoundRecord)
+      .sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async updateRound(
+    roundId: string,
+    changes: Partial<Pick<RoundRecord, "name" | "gameIds" | "position">>,
+    updatedAt: string,
+    options: { anyStatus?: boolean } = {},
+  ) {
+    const draftOnly = changes.gameIds !== undefined && !options.anyStatus;
+    const set = ["updatedAt = :at"];
+    const values: Record<string, unknown> = { ":at": updatedAt };
+    if (changes.name !== undefined) {
+      set.push("#name = :name");
+      values[":name"] = changes.name;
+    }
+    if (changes.gameIds !== undefined) {
+      set.push("gameIds = :gameIds");
+      values[":gameIds"] = changes.gameIds;
+      if (draftOnly) values[":draft"] = "draft";
+    }
+    if (changes.position !== undefined) {
+      set.push("#position = :position");
+      values[":position"] = changes.position;
+    }
+    try {
+      const { Attributes } = await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: keys.round(roundId),
+          UpdateExpression: `SET ${set.join(", ")}`,
+          // ゲームの出し入れは下書きのときだけ
+          ConditionExpression: draftOnly ? "attribute_exists(PK) AND #status = :draft" : "attribute_exists(PK)",
+          ExpressionAttributeNames: {
+            ...(changes.name !== undefined ? { "#name": "name" } : {}),
+            ...(changes.position !== undefined ? { "#position": "position" } : {}),
+            ...(draftOnly ? { "#status": "status" } : {}),
+          },
+          ExpressionAttributeValues: values,
+          ReturnValues: "ALL_NEW",
+        }),
+      );
+      return toRoundRecord(Attributes!);
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) {
+        throw (await this.getRound(roundId)) ? new InvalidStateError() : new NotFoundError();
+      }
+      throw e;
+    }
+  }
+
+  async deleteRound(roundId: string) {
+    try {
+      await this.client.send(
+        new DeleteCommand({
+          TableName: this.tableName,
+          Key: keys.round(roundId),
+          ConditionExpression: "attribute_exists(PK) AND #status <> :open",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: { ":open": "open" },
+        }),
+      );
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) {
+        throw (await this.getRound(roundId)) ? new InvalidStateError() : new NotFoundError();
+      }
+      throw e;
+    }
+  }
+
+  async changeRoundStatus(
+    round: RoundRecord,
+    from: GameStatus,
+    to: GameStatus,
+    at: string,
+    drawOrders: Record<string, string[]> = {},
+  ) {
+    if (from === to) throw new InvalidStateError();
+    // 開催中の印・ラウンド・中のゲームを 1 回でまとめて変える（ラウンドは 20 問までなので項目数の上限に収まる）
+    const marker =
+      to === "open"
+        ? {
+            Put: {
+              TableName: this.tableName,
+              Item: { ...keys.openGame, roundId: round.roundId, gameIds: round.gameIds },
+              ConditionExpression: "attribute_not_exists(PK)",
+            },
+          }
+        : from === "open"
+          ? {
+              Delete: {
+                TableName: this.tableName,
+                Key: keys.openGame,
+                ConditionExpression: "roundId = :roundId",
+                ExpressionAttributeValues: { ":roundId": round.roundId },
+              },
+            }
+          : undefined;
+    // ラウンドの中身が読んだときのままであることも条件にする（読んだ後にゲームを出し入れされていないこと）
+    const roundUpdate = this.statusUpdate(keys.round(round.roundId), from, to, at);
+    roundUpdate.ConditionExpression = "#status = :from AND gameIds = :gameIds";
+    (roundUpdate.ExpressionAttributeValues as Record<string, unknown>)[":gameIds"] = round.gameIds;
+    try {
+      await this.transactWithRetry(
+        new TransactWriteCommand({
+          TransactItems: [
+            ...(marker ? [marker] : []),
+            { Update: roundUpdate },
+            ...round.gameIds.map((gameId) => ({
+              Update: this.statusUpdate(keys.game(gameId), from, to, at, drawOrders[gameId]),
+            })),
+          ],
+        }),
+      );
+    } catch (e) {
+      const failed = conditionFailures(e);
+      if (failed || isConditionalCheckFailed(e)) {
+        const saved = await this.getRound(round.roundId);
+        if (!saved) throw new NotFoundError();
+        if (to === "open" && failed?.[0]) throw new GameAlreadyOpenError();
+        throw new InvalidStateError();
+      }
+      throw e;
+    }
+    return (await this.getRound(round.roundId))!;
   }
 
   async deleteGame(gameId: string) {
@@ -973,6 +1211,32 @@ export class DynamoRepository implements Repository {
 
   async putSettings(settings: Settings) {
     await this.client.send(new PutCommand({ TableName: this.tableName, Item: { ...keys.settings, ...settings } }));
+  }
+
+  async getEventEnd(): Promise<EventEndRecord | undefined> {
+    const { Item } = await this.client.send(
+      new GetCommand({ TableName: this.tableName, Key: keys.eventEnd, ConsistentRead: true }),
+    );
+    return Item ? { endedAt: Item.endedAt, counts: Item.counts ?? {} } : undefined;
+  }
+
+  async putEventEnd(record: EventEndRecord) {
+    try {
+      await this.client.send(
+        new PutCommand({
+          TableName: this.tableName,
+          Item: { ...keys.eventEnd, ...record },
+          ConditionExpression: "attribute_not_exists(PK)",
+        }),
+      );
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) throw new InvalidStateError();
+      throw e;
+    }
+  }
+
+  async deleteEventEnd() {
+    await this.client.send(new DeleteCommand({ TableName: this.tableName, Key: keys.eventEnd }));
   }
 
   /** 写真の状態を from → to に変え、同じトランザクションでアップロード者のカウンタを更新する */
@@ -1108,6 +1372,20 @@ function toPrizeRecord(item: Record<string, unknown>): PrizeRecord {
     imageId: item.imageId as string | undefined,
     createdAt: item.createdAt as string,
     updatedAt: item.updatedAt as string,
+  };
+}
+
+function toRoundRecord(item: Record<string, unknown>): RoundRecord {
+  return {
+    roundId: item.roundId as string,
+    name: item.name as string,
+    gameIds: (item.gameIds ?? []) as string[],
+    status: item.status as GameStatus,
+    position: Number(item.position ?? 0),
+    createdAt: item.createdAt as string,
+    updatedAt: item.updatedAt as string,
+    openedAt: item.openedAt as string | undefined,
+    confirmedAt: item.confirmedAt as string | undefined,
   };
 }
 
@@ -1248,6 +1526,8 @@ function toUserRecord(item: Record<string, unknown>): UserRecord {
     approvedCount: Number(item.approvedCount ?? 0),
     favoritesGiven: Number(item.favoritesGiven ?? 0),
     favoritesReceived: Number(item.favoritesReceived ?? 0),
+    ...(typeof item.pinHash === "string" ? { pinHash: item.pinHash } : {}),
+    ...(item.pinFailures === undefined || item.pinFailures === null ? {} : { pinFailures: Number(item.pinFailures) }),
     createdAt: item.createdAt as string,
     updatedAt: item.updatedAt as string,
   };

@@ -35,9 +35,9 @@ describe("API", () => {
       expect(lotteryCurrent).not.toHaveProperty("ranks");
       expect((await people[0]!.request("PUT", `/api/game/${game.gameId}/answer`, { entry: false })).status).toBe(400);
       expect((await people[0]!.request("PUT", `/api/game/${game.gameId}/answer`, { text: "x" })).status).toBe(400);
-      // A〜D と E が参加（A は 2 回押す）。E は確定の前に紐づけを解除される（抽選に含めない）
+      // A〜D と E が参加（A は 2 回押し、2 回目は 409 で 1 回だけ数える）。E は終了の前に紐づけを解除される（抽選に含めない）
       expect((await enter(people[0]!)).body.game.myEntry).toBe(true);
-      await enter(people[0]!);
+      expect((await enter(people[0]!)).body.error).toBe("already_answered");
       for (const p of people.slice(1)) await enter(p);
       expect((await people[0]!.request("GET", "/api/game/current")).body.game.myEntry).toBe(true);
       expect((await admin("GET", "/api/admin/games")).body.games[0].answerCount).toBe(5);
@@ -81,6 +81,7 @@ describe("API", () => {
       expect(undone.body.game.drawOrder).toBeUndefined();
       expect(await pts()).toEqual([0, 0, 0, 0, 0]);
       t.randomInts = [3, 2, 1];
+      await admin("POST", `/api/admin/games/${game.gameId}/open`);
       const again = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect(again.body.game.drawOrder).toEqual([a, b, c, d]);
       expect(await pts()).toEqual([0, 0, 0, 7, 0]);
@@ -129,9 +130,10 @@ describe("API", () => {
     it("入力の検証と、範囲が無いと確定できないこと", async () => {
       const admin = await t.adminClient();
       const game = (await admin("POST", "/api/admin/games", { format: "lottery", name: "抽選" })).body.game;
+      await admin("POST", `/api/admin/games/${game.gameId}/open`);
       const res = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect(res.status).toBe(409);
-      expect(res.body.message).toBe("点数の範囲を追加してから確定してください");
+      expect(res.body.message).toBe("点数の範囲を追加してから終了してください");
       expect(
         await admin("POST", "/api/admin/games", { format: "lottery", name: "x", keyword: "a" }).then((r) => r.status),
       ).toBe(400);

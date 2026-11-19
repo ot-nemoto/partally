@@ -27,6 +27,10 @@ export interface UserRecord {
   approvedCount: number;
   favoritesGiven: number;
   favoritesReceived: number;
+  /** 暗証番号のハッシュ（pin.ts）。決めていなければ無い */
+  pinHash?: string;
+  /** 暗証番号を続けて間違えた回数（試す前に数え、合えば 0 に戻す）。PIN_MAX_FAILURES 以上ならロック中 */
+  pinFailures?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -140,6 +144,27 @@ export interface GameRecord {
   confirmedAt?: string;
 }
 
+/** ラウンド（複数のゲームをまとめて開始・終了する単位） */
+export interface RoundRecord {
+  roundId: string;
+  name: string;
+  /** 入っているゲーム（参加者に出す順） */
+  gameIds: string[];
+  status: GameStatus;
+  /** ラウンドの並び（小さい順） */
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+  openedAt?: string;
+  confirmedAt?: string;
+}
+
+/** 開催中のもの（1 問だけか、1 ラウンド） */
+export interface OpenState {
+  gameIds: string[];
+  roundId?: string;
+}
+
 /** ゲームを直すときに変える項目（形式・状態・時刻は変えない） */
 export type GameChanges = Pick<
   GameRecord,
@@ -147,6 +172,22 @@ export type GameChanges = Pick<
 >;
 
 /** クイズ・数値予想・投票・合言葉のゲームへの答え。1 人 1 ゲームにつき 1 件で、答え直すと上書きする */
+/** 押した時点の、ユーザごとのポイントの元の数（公開した写真・選ばれた数・選んだ数） */
+export interface EventEndCounts {
+  approvedCount: number;
+  favoritesReceived: number;
+  favoritesGiven: number;
+}
+
+/**
+ * イベントの終了。endedAt より後の出来事はポイントに数えない。写真とお気に入りはユーザのカウンタで数えるので、
+ * 押した時点の全員のカウンタを counts に残し、終了した後はその数で計算する（後から登録した人は 0）
+ */
+export interface EventEndRecord {
+  endedAt: string;
+  counts: Record<string, EventEndCounts>;
+}
+
 export interface GameAnswerRecord {
   gameId: string;
   userId: string;
@@ -188,6 +229,7 @@ export const DEFAULT_SETTINGS: Settings = {
   prizesVisible: false,
   tieBreakOrder: [...TIE_BREAK_KEYS],
   scheduleVisible: false,
+  gameResultsVisible: false,
   scheduleDate: "",
 };
 
@@ -280,6 +322,24 @@ export interface Repository {
    * @throws NotFoundError ユーザが存在しないか、既に解除済み
    */
   unbindUser(userId: string, updatedAt: string): Promise<UserRecord>;
+
+  /**
+   * 暗証番号を決める（間違えた回数も 0 に戻す）。onlyIfUnset なら、まだ決めていない参加中の人のときだけ決める
+   * （同じ人を 2 つの端末で同時に決めたとき、後の方は決めない）。決めたら true
+   */
+  setUserPin(userId: string, pinHash: string, onlyIfUnset: boolean): Promise<boolean>;
+
+  /**
+   * 暗証番号を 1 回試す分を数える（間違えた回数を 1 つ増やす）。既に max 回に達していれば（ロック中）数えずに false。
+   * 試す前に数えるので、同時に何回送っても max 回までしか試せない
+   */
+  reservePinAttempt(userId: string, max: number): Promise<boolean>;
+
+  /** 暗証番号を間違えた回数を 0 に戻す（合ったとき・幹事がロックを解除したとき）。@throws NotFoundError */
+  resetPinFailures(userId: string): Promise<UserRecord>;
+
+  /** 暗証番号を消す（幹事。次にほかの端末で読み込んだときに決め直す）。@throws NotFoundError */
+  clearUserPin(userId: string): Promise<UserRecord>;
 
   // ---- 写真 ----
 
@@ -406,7 +466,40 @@ export interface Repository {
     drawOrder?: string[],
   ): Promise<GameRecord>;
   /** 開催中のゲームの ID */
-  getOpenGameId(): Promise<string | undefined>;
+  /** 開催中のもの。無ければ undefined */
+  getOpenState(): Promise<OpenState | undefined>;
+
+  // ---- ラウンド ----
+
+  createRound(round: RoundRecord): Promise<void>;
+  getRound(roundId: string): Promise<RoundRecord | undefined>;
+  /** 並び（position）の順 */
+  listRounds(): Promise<RoundRecord[]>;
+  /**
+   * 名前・ゲーム・並びを変える。gameIds を変えるときは下書きのラウンドだけ（違えば InvalidStateError）。
+   * anyStatus を付けると状態によらず変える（ゲームを削除したときに、入っていたラウンドから外す）
+   * @throws NotFoundError / InvalidStateError
+   */
+  updateRound(
+    roundId: string,
+    changes: Partial<Pick<RoundRecord, "name" | "gameIds" | "position">>,
+    updatedAt: string,
+    options?: { anyStatus?: boolean },
+  ): Promise<RoundRecord>;
+  /** 開催中でなければ消す。@throws NotFoundError / InvalidStateError 開催中 */
+  deleteRound(roundId: string): Promise<void>;
+  /**
+   * ラウンドと中のゲームすべての状態を from → to にまとめて変える（同じ時刻）。開始では開催中の印を作り、
+   * 開催中から変えるときは消す。drawOrders は終了する抽選のゲームごとの順番
+   * @throws NotFoundError / InvalidStateError 今の状態が from でない / GameAlreadyOpenError ほかが開催中
+   */
+  changeRoundStatus(
+    round: RoundRecord,
+    from: GameStatus,
+    to: GameStatus,
+    at: string,
+    drawOrders?: Record<string, string[]>,
+  ): Promise<RoundRecord>;
   /** ゲームと、その答えを削除する。@throws NotFoundError / InvalidStateError 開催中 */
   deleteGame(gameId: string): Promise<void>;
 
@@ -433,4 +526,11 @@ export interface Repository {
 
   getSettings(): Promise<Settings>;
   putSettings(settings: Settings): Promise<void>;
+
+  // ---- イベントの終了 ----
+
+  getEventEnd(): Promise<EventEndRecord | undefined>;
+  /** 終了を記録する。既に終了していれば InvalidStateError */
+  putEventEnd(record: EventEndRecord): Promise<void>;
+  deleteEventEnd(): Promise<void>;
 }

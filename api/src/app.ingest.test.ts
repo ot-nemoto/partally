@@ -9,7 +9,7 @@ describe("API", () => {
   describe("取り込み（ingestUpload）", () => {
     async function activeUser() {
       const token = await t.issueToken();
-      const reg = await createClient(t.app)("POST", "/api/auth/register", { token, name: "田中" });
+      const reg = await createClient(t.app)("POST", "/api/auth/register", { token, name: "田中", pin: "1234" });
       return reg.body.user.userId as string;
     }
 
