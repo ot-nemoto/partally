@@ -128,8 +128,8 @@ export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
   app.get("/me", requireUser, async (c) => {
     // 写真用の署名付き Cookie は有効期間が短いので、アプリを開くたびに更新する
     setPhotoCookies(c);
-    const settings = await repo.getSettings();
-    return c.json({ user: await participantUser(c.get("user"), settings), rules: toRules(settings) });
+    const [settings, end] = await Promise.all([repo.getSettings(), repo.getEventEnd()]);
+    return c.json({ user: await participantUser(c.get("user"), settings), rules: toRules(settings, end) });
   });
 
   app.post("/admin/login", async (c) => {

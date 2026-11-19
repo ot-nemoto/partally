@@ -1,4 +1,5 @@
 import {
+  type EventStateResponse,
   FAVORITE_LIMIT_MAX,
   type ModerationMode,
   POINTS_MAX,
@@ -13,7 +14,8 @@ import { NumberField } from "../../components/NumberField";
 import { PageTitle } from "../../components/PageTitle";
 import { SortableList } from "../../components/SortableList";
 import { SwitchField } from "../../components/SwitchField";
-import { useLang, useT } from "../../i18n";
+import { formatRecentTime } from "../../format";
+import { tr, useLang, useT } from "../../i18n";
 
 type Text = [ja: string, en: string];
 
@@ -298,7 +300,86 @@ export function AdminSettings() {
           </div>
         </form>
       )}
+      <EventEndCard />
     </section>
+  );
+}
+
+/**
+ * イベントの終了。押した時刻より後の写真・お気に入り・ゲームはポイントに数えない（受付は続ける）。
+ * 設定の保存とは別に、押したときにすぐ反映する
+ */
+function EventEndCard() {
+  const t = useT();
+  const [endedAt, setEndedAt] = useState<string | null>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    api<EventStateResponse>("GET", "/admin/event")
+      .then((res) => setEndedAt(res.endedAt ?? null))
+      .catch((e) => setError(errorMessage(e)));
+  }, []);
+
+  async function change(action: "end" | "reopen") {
+    const question =
+      action === "end"
+        ? tr(
+            "イベントを終了します。今より後の写真・お気に入り・ゲームはポイントに数えません（受付は続きます）。ポイントに入れたいゲームは先に終了し、確認待ちの写真は先に承認してください。よろしいですか？",
+            "End the event? Photos, favorites and games after now won’t count toward points (they’re still accepted). End any games and approve any pending photos you want counted first.",
+          )
+        : tr(
+            "イベントの終了を取り消します。終了した後の写真・お気に入り・ゲームもポイントに数えます。よろしいですか？",
+            "Undo ending the event? Photos, favorites and games after it ended will count toward points again.",
+          );
+    if (!confirm(question)) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const res = await api<EventStateResponse>("POST", `/admin/event/${action}`);
+      setEndedAt(res.endedAt ?? null);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card settings event-end">
+      <h2>{t("イベントの終了", "End of event")}</h2>
+      {endedAt === undefined && !error && <p className="muted">{t("読み込み中…", "Loading…")}</p>}
+      {endedAt === null && (
+        <>
+          <p className="muted small">
+            {t(
+              "押した時刻より後の写真の公開・お気に入り・ゲームの終了は、ポイントに数えません（ランキング・推移・景品の順位も止まります）。写真のアップロードやお気に入り、ゲームの回答の受付は続きます。参加者の画面には「イベントは終了しました」と出ます。",
+              "Photos published, favorites chosen and games ended after you press this don’t count toward points (the ranking, trend and prize positions stop too). Uploads, favorites and game answers are still accepted. Participants see “The event has ended”.",
+            )}
+          </p>
+          <button type="button" className="danger" onClick={() => change("end")} disabled={busy}>
+            {t("イベントを終了する", "End the event")}
+          </button>
+        </>
+      )}
+      {endedAt && (
+        <>
+          <p>
+            <strong>{t(`${formatRecentTime(endedAt)} に終了しました`, `Ended at ${formatRecentTime(endedAt)}`)}</strong>
+          </p>
+          <p className="muted small">
+            {t(
+              "この時刻より後の出来事はポイントに数えていません。取り消すと、終了した後の分も数えます。",
+              "Anything after this time isn’t counted. Undoing counts it again.",
+            )}
+          </p>
+          <button type="button" onClick={() => change("reopen")} disabled={busy}>
+            {t("終了を取り消す", "Undo end")}
+          </button>
+        </>
+      )}
+      {error && <p className="error">{error}</p>}
+    </div>
   );
 }
 

@@ -14,7 +14,14 @@ import {
   type Settings,
   tallyVotes,
 } from "@partally/shared";
-import type { FavoriteRecord, GameAnswerRecord, GameRecord, PhotoRecord, UserRecord } from "./repository.js";
+import type {
+  EventEndRecord,
+  FavoriteRecord,
+  GameAnswerRecord,
+  GameRecord,
+  PhotoRecord,
+  UserRecord,
+} from "./repository.js";
 
 /** ゲームと、クイズ形式の答え（結果入力形式では空） */
 export interface GameWithAnswers {
@@ -151,12 +158,15 @@ export const GAME_SCORING: Record<GameFormat, GameScoring> = {
  * （クイズを選び直して、点数の変化から正解が分からないように）。形式ごとの点数の付け方は GAME_SCORING。
  * 確定の直前に受け付けて確定の後に保存された答え（answeredAt > confirmedAt）は数えない
  */
-export function gameAwards(entries: GameWithAnswers[]): GameAward[] {
+export function gameAwards(entries: GameWithAnswers[], endedAt?: string): GameAward[] {
   const awards: GameAward[] = [];
   const confirmed = entries
     .filter(
       (e): e is GameWithAnswers & { game: { confirmedAt: string } } =>
-        e.game.status === "confirmed" && !!e.game.confirmedAt,
+        e.game.status === "confirmed" &&
+        !!e.game.confirmedAt &&
+        // イベントを終了した後に終了したゲームは数えない
+        (endedAt === undefined || e.game.confirmedAt <= endedAt),
     )
     .sort((a, b) => a.game.confirmedAt.localeCompare(b.game.confirmedAt));
   for (const { game, answers: all } of confirmed) {
@@ -170,9 +180,9 @@ export function gameAwards(entries: GameWithAnswers[]): GameAward[] {
 }
 
 /** 全員分のゲームの点数と、点数が入ったもの */
-export function gameStatsByUser(entries: GameWithAnswers[]): Map<string, GameStats> {
+export function gameStatsByUser(entries: GameWithAnswers[], endedAt?: string): Map<string, GameStats> {
   const byUser = new Map<string, GameStats>();
-  for (const { userId, at: _at, ...award } of gameAwards(entries)) {
+  for (const { userId, at: _at, ...award } of gameAwards(entries, endedAt)) {
     const stats = byUser.get(userId) ?? { points: 0, awards: [] };
     stats.points += award.points;
     stats.awards.push(award);
@@ -185,6 +195,31 @@ function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
   const list = map.get(key);
   if (list) list.push(value);
   else map.set(key, [value]);
+}
+
+/**
+ * イベントを終了した後は、写真・お気に入りの数を押した時点の数にする（終了した後の出来事を数えない）。
+ * 押した後に登録した人は 0
+ */
+export function countsAtEnd(user: UserRecord, end: EventEndRecord | undefined): UserRecord {
+  if (!end) return user;
+  const counts = end.counts[user.userId];
+  return {
+    ...user,
+    approvedCount: counts?.approvedCount ?? 0,
+    favoritesReceived: counts?.favoritesReceived ?? 0,
+    favoritesGiven: counts?.favoritesGiven ?? 0,
+  };
+}
+
+/** 押した時点の全員の数（イベントの終了に残す） */
+export function snapshotCounts(users: UserRecord[]): EventEndRecord["counts"] {
+  return Object.fromEntries(
+    users.map((u) => [
+      u.userId,
+      { approvedCount: u.approvedCount, favoritesReceived: u.favoritesReceived, favoritesGiven: u.favoritesGiven },
+    ]),
+  );
 }
 
 /** 項目ごとのポイント。同じポイントのときの順位の決め方（tieBreakOrder）でも使う */
@@ -215,6 +250,8 @@ export interface RankingSource {
   favorites: FavoriteRecord[];
   /** ゲームとクイズ形式の答え（確定したものだけを数える） */
   games?: GameWithAnswers[];
+  /** イベントの終了。終了した後の出来事は数えない */
+  eventEnd?: EventEndRecord;
   now: string;
 }
 
@@ -225,10 +262,14 @@ export interface RankingSource {
  * （GSI の反映待ちでずれることがあるため、最後の点は calculatePoints の値にそろえる）
  */
 export function buildRanking(source: RankingSource): RankingResponse {
-  const { users, settings, photos, favorites, games = [], now } = source;
+  const { settings, photos, favorites, games = [], eventEnd, now } = source;
+  const endedAt = eventEnd?.endedAt;
+  // 終了した後は、押した時点の数で数える
+  const users = source.users.map((u) => countsAtEnd(u, eventEnd));
   const events = new Map<string, { at: string; points: number }[]>();
   const add = (userId: string, at: string, points: number | undefined) => {
-    if (points) appendTo(events, userId, { at, points });
+    // 終了した後の出来事は推移にも入れない
+    if (points && (endedAt === undefined || at <= endedAt)) appendTo(events, userId, { at, points });
   };
 
   const photosById = new Map(photos.map((p) => [p.photoId, p]));
@@ -243,9 +284,9 @@ export function buildRanking(source: RankingSource): RankingResponse {
     }
   }
   // ゲームの点数は確定した時刻に入る（gameStatsByUser と同じ gameAwards で数える）
-  for (const award of gameAwards(games)) add(award.userId, award.at, award.points);
+  for (const award of gameAwards(games, endedAt)) add(award.userId, award.at, award.points);
 
-  const gameStats = gameStatsByUser(games);
+  const gameStats = gameStatsByUser(games, endedAt);
 
   const entries = users.map((user) => {
     const byKey = pointsByKey(user, settings, gameStats.get(user.userId) ?? NO_GAME_STATS);

@@ -190,7 +190,16 @@ export type TieBreakKey = (typeof TIE_BREAK_KEYS)[number];
 export type PointKey = (typeof POINT_KEYS)[number];
 
 /** 参加者に見せるポイントのルール（設定のうち公開してよい部分） */
-export type Rules = Omit<Settings, "moderation">;
+export type Rules = Omit<Settings, "moderation"> & {
+  /** イベントを終了した時刻。これより後の出来事はポイントに数えない（受付は続く） */
+  eventEndedAt?: string;
+};
+
+/** イベントの終了の状態（管理画面） */
+export interface EventStateResponse {
+  /** 終了した時刻。終了していなければ無い */
+  endedAt?: string;
+}
 
 export interface FavoriteResponse {
   photo: PhotoDto;

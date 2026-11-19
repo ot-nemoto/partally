@@ -89,6 +89,37 @@ describe("DynamoRepository", () => {
     });
   });
 
+  describe("イベントの終了", () => {
+    const record = {
+      endedAt: "2026-01-01T21:00:00.000Z",
+      counts: { u1: { approvedCount: 2, favoritesReceived: 1, favoritesGiven: 3 } },
+    };
+
+    it("無いときだけ作る（既に終了していれば InvalidStateError）。読むと時刻と数が入る", async () => {
+      ddb.on(PutCommand).resolves({});
+      await repo.putEventEnd(record);
+      const put = ddb.commandCalls(PutCommand)[0]!.args[0].input;
+      expect(put).toMatchObject({
+        Item: { PK: "EVENT", SK: "END", ...record },
+        ConditionExpression: "attribute_not_exists(PK)",
+      });
+
+      ddb.on(PutCommand).rejects(new ConditionalCheckFailedException({ message: "x", $metadata: {} }));
+      await expect(repo.putEventEnd(record)).rejects.toBeInstanceOf(InvalidStateError);
+
+      ddb.on(GetCommand).resolves({ Item: { PK: "EVENT", SK: "END", ...record } });
+      expect(await repo.getEventEnd()).toEqual(record);
+      ddb.on(GetCommand).resolves({});
+      expect(await repo.getEventEnd()).toBeUndefined();
+    });
+
+    it("取り消すと消す", async () => {
+      ddb.on(DeleteCommand).resolves({});
+      await repo.deleteEventEnd();
+      expect(ddb.commandCalls(DeleteCommand)[0]!.args[0].input.Key).toEqual({ PK: "EVENT", SK: "END" });
+    });
+  });
+
   describe("registerUser", () => {
     it("トークン紐づけ・ユーザ作成・二つ名ロックを 1 トランザクションで書く", async () => {
       ddb.on(TransactWriteCommand).resolves({});

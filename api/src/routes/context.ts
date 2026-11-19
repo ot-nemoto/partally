@@ -13,7 +13,15 @@ import { ulid } from "ulid";
 import { toParticipantUserDto, toUserDto, type VisiblePhoto } from "../dto.js";
 import { type Env, fail } from "../http.js";
 import { type PhotoStorage, photoPath, prizeImagePath } from "../photo-storage.js";
-import type { FavoriteRecord, GameRecord, PhotoRecord, PrizeRecord, Repository, UserRecord } from "../repository.js";
+import type {
+  EventEndRecord,
+  FavoriteRecord,
+  GameRecord,
+  PhotoRecord,
+  PrizeRecord,
+  Repository,
+  UserRecord,
+} from "../repository.js";
 import {
   buildRanking,
   GAME_SCORING,
@@ -176,7 +184,7 @@ export function createContext(deps: AppDeps) {
    * 1 人分のゲームの点数。ふだんは自分の答えだけを読み、順位が他の人の答えで決まる形式（GAME_SCORING の
    * readsAllAnswers）の確定済みのものだけ全員の答えを読む
    */
-  const scoresOf = async (userId: string): Promise<GameStats> => {
+  const scoresOf = async (userId: string, end?: EventEndRecord): Promise<GameStats> => {
     const [games, mine] = await Promise.all([repo.listGames(), repo.listGameAnswersByUser(userId)]);
     const answered = new Set(mine.map((a) => a.gameId));
     const needsAll = (game: GameRecord) => {
@@ -190,7 +198,7 @@ export function createContext(deps: AppDeps) {
           : entry,
       ),
     );
-    return gameStatsByUser(entries).get(userId) ?? NO_GAME_STATS;
+    return gameStatsByUser(entries, end?.endedAt).get(userId) ?? NO_GAME_STATS;
   };
 
   /** 全ゲームと、クイズ・数値予想・投票の答え（ゲームは数十程度の想定なので、ゲームごとに並行して読む） */
@@ -214,20 +222,22 @@ export function createContext(deps: AppDeps) {
   };
 
   /** 全員分のゲームの点数（管理画面のユーザ一覧用） */
-  const scoresOfAll = async () => {
-    const stats = gameStatsByUser(await gamesWithAnswers());
+  const scoresOfAll = async (end?: EventEndRecord) => {
+    const stats = gameStatsByUser(await gamesWithAnswers(), end?.endedAt);
     return (userId: string) => stats.get(userId) ?? NO_GAME_STATS;
   };
 
-  /** ユーザ情報を、設定とゲームの成績を添えて参加者向けに返す */
+  /** ユーザ情報を、設定とゲームの成績を添えて参加者向けに返す（イベントを終了した後は、終了した時点のポイント） */
   const participantUser = async (user: UserRecord, settings?: Settings) => {
-    const [resolved, scores] = await Promise.all([settings ?? repo.getSettings(), scoresOf(user.userId)]);
-    return toParticipantUserDto(user, resolved, scores);
+    const end = await repo.getEventEnd();
+    const [resolved, scores] = await Promise.all([settings ?? repo.getSettings(), scoresOf(user.userId, end)]);
+    return toParticipantUserDto(user, resolved, scores, end);
   };
 
   const adminUser = async (user: UserRecord) => {
-    const [settings, scores] = await Promise.all([repo.getSettings(), scoresOf(user.userId)]);
-    return toUserDto(user, settings, scores);
+    const end = await repo.getEventEnd();
+    const [settings, scores] = await Promise.all([repo.getSettings(), scoresOf(user.userId, end)]);
+    return toUserDto(user, settings, scores, end);
   };
 
   /** 管理者の API（/admin/*）の認証。ログイン・ログアウトだけは通す */
@@ -262,7 +272,12 @@ export function createContext(deps: AppDeps) {
 
   /** ランキングと推移を今のデータから組み立てる（管理画面と参加者の画面で共通） */
   async function loadRanking(settings: Settings) {
-    const [users, photos, games] = await Promise.all([repo.listUsers(), listAllApprovedPhotos(), gamesWithAnswers()]);
+    const [users, photos, games, eventEnd] = await Promise.all([
+      repo.listUsers(),
+      listAllApprovedPhotos(),
+      gamesWithAnswers(),
+      repo.getEventEnd(),
+    ]);
     // 選ばれていない写真は読まない
     const chosen = photos.filter((p) => p.favoriteCount > 0);
     const favorites: FavoriteRecord[] = [];
@@ -272,7 +287,7 @@ export function createContext(deps: AppDeps) {
         favorites.push(...list);
       }
     }
-    return buildRanking({ users, settings, photos, favorites, games, now: now().toISOString() });
+    return buildRanking({ users, settings, photos, favorites, games, eventEnd, now: now().toISOString() });
   }
 
   /** 景品・ゲームの画像の受け口（署名付き POST）を作る */

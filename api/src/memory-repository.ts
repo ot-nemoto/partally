@@ -2,6 +2,7 @@ import type { GameStatus, PhotoStatus, Settings } from "@partally/shared";
 import {
   DEFAULT_SETTINGS,
   EpithetTakenError,
+  type EventEndRecord,
   FavoriteLimitError,
   formatLabel,
   GameAlreadyOpenError,
@@ -398,6 +399,21 @@ export class MemoryRepository implements Repository {
 
   async putSettings(settings: Settings) {
     this.settings = { ...settings };
+  }
+
+  private eventEnd: EventEndRecord | undefined;
+
+  async getEventEnd() {
+    return clone(this.eventEnd);
+  }
+
+  async putEventEnd(record: EventEndRecord) {
+    if (this.eventEnd) throw new InvalidStateError();
+    this.eventEnd = clone(record);
+  }
+
+  async deleteEventEnd() {
+    this.eventEnd = undefined;
   }
 
   private sortedPhotos() {
