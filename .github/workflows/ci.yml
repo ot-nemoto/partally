@@ -135,16 +135,47 @@ jobs:
         if: steps.latest.outputs.deploy == 'true'
         run: npm run build
 
-      # 公開リポジトリの Actions ログにアカウント ID を出さない。
+      # 公開リポジトリの Actions ログに、アカウント ID や本番の URL・リソース名を出さない。
       # ロール ARN は Secret から読んで伏せ（変数だとステップの見出しにそのまま出る）、
-      # 認証後はアカウント ID 自体を伏せる（アセット名やスタック ARN に含まれる）
-      - uses: aws-actions/configure-aws-credentials@v6
+      # 認証は自前の action で行う（configure-aws-credentials はアカウント ID を割り出せるロールの ID を出すため）
+      - uses: ./.github/actions/aws-oidc
         if: steps.latest.outputs.deploy == 'true'
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          mask-aws-account-id: true
+          role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          region: ${{ env.AWS_REGION }}
 
+      # 今のスタックの Outputs（URL・バケット名・テーブル名）とスタック ID を伏せる。
+      # デプロイのエラーのメッセージに出たときのため。URL はドメインごと伏せる（/admin 付きも伏せる）。
+      # 初回はスタックが無いので何もしない
+      - name: Mask stack outputs
+        if: steps.latest.outputs.deploy == 'true'
+        run: |
+          STACK=$(aws cloudformation describe-stacks --stack-name Partally --output json 2>/dev/null || true)
+          [ -n "$STACK" ] || exit 0
+          jq -r '.Stacks[0].StackId, (.Stacks[0].Outputs // [] | .[].OutputValue)' <<<"$STACK" | while IFS= read -r v; do
+            [ -n "$v" ] || continue
+            echo "::add-mask::$v"
+            case "$v" in https://*) host=${v#https://}; echo "::add-mask::${host%%/*}" ;; esac
+          done
+
+      # CDK が最後に出す Outputs と Stack ARN は表示しない（初回など、まだ伏せていない値があるときのため）。
+      # URL は、ジョブのまとめのリンクから CloudFormation の Outputs で確かめる
       - name: Deploy
         if: steps.latest.outputs.deploy == 'true'
-        run: npm run cdk -w infra -- deploy --require-approval never
+        run: |
+          set -o pipefail
+          npm run cdk -w infra -- deploy --require-approval never 2>&1 \
+            | awk '/^Outputs:/ { skip = 1 } /Total time/ { skip = 0 } !skip { print; fflush() }'
+
+      - name: Link to stack outputs
+        if: steps.latest.outputs.deploy == 'true'
+        run: |
+          CONSOLE="https://${AWS_REGION}.console.aws.amazon.com/cloudformation/home?region=${AWS_REGION}"
+          {
+            echo "### デプロイ先"
+            echo
+            echo "URL は公開のログに出していません。AWS にログインして、CloudFormation のスタック Partally の Outputs で確かめてください。"
+            echo
+            echo "- [Partally の Outputs](${CONSOLE}#/stacks/outputs?stackId=Partally)"
+            echo "- [スタックの一覧（Partally で絞り込み）](${CONSOLE}#/stacks?filteringText=Partally)"
+          } >> "$GITHUB_STEP_SUMMARY"
