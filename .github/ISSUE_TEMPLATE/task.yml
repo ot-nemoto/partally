@@ -1,4 +1,4 @@
-name: 作業
+name: 作業依頼
 description: 機能追加・修正などの作業。概要・作業内容・確認内容を必ず書く
 body:
   - type: textarea
