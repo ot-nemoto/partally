@@ -19,6 +19,7 @@ import { api, errorMessage } from "../../api";
 import { Modal } from "../../components/Modal";
 import { PageTitle } from "../../components/PageTitle";
 import { ScheduleBlockDetail } from "../../components/ScheduleTimeline";
+import { useFreshList } from "../../hooks/useFreshList";
 import { useOnReload } from "../../hooks/useReload";
 import { tr, useT } from "../../i18n";
 import { SchedulePreviewDialog } from "./schedule/SchedulePreviewDialog";
@@ -88,16 +89,19 @@ export function AdminSchedule() {
   /** 時間帯を手で広げた分（分） */
   const [extra, setExtra] = useState({ before: 0, after: 0 });
 
+  // 保存・削除の直後に取り直した一覧が古くても、保存したものを出し、削除したものを出さない
+  const { saved, removed, merge, apply } = useFreshList(itemIdOf);
+
   const load = useCallback(async () => {
     try {
       const res = await api<ScheduleResponse>("GET", "/admin/schedule");
-      setItems(res.items);
+      setItems(merge(res.items));
       setDate(res.date);
       setError(undefined);
     } catch (e) {
       setError(errorMessage(e));
     }
-  }, []);
+  }, [merge]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -129,7 +133,9 @@ export function AdminSchedule() {
     );
     try {
       const { itemId, ...body } = updated;
-      await api<ScheduleItemResponse>("PUT", `/admin/schedule/${itemId}`, body satisfies ScheduleItemRequest);
+      saved(
+        (await api<ScheduleItemResponse>("PUT", `/admin/schedule/${itemId}`, body satisfies ScheduleItemRequest)).item,
+      );
     } catch (e) {
       alert(errorMessage(e));
     }
@@ -143,7 +149,7 @@ export function AdminSchedule() {
       const res = await api<ScheduleResponse>("PUT", `/admin/schedule/columns/${column}`, {
         hidden,
       } satisfies ScheduleColumnRequest);
-      setItems(res.items);
+      setItems(merge(res.items));
     } catch (e) {
       alert(errorMessage(e));
       await load();
@@ -432,8 +438,11 @@ export function AdminSchedule() {
         <ScheduleItemDialog
           editing={editing}
           onClose={() => setEditing(undefined)}
-          onSaved={() => {
+          onSaved={(change) => {
             setEditing(undefined);
+            if ("deleted" in change) removed(change.deleted);
+            else saved(change.item);
+            setItems(apply);
             void load();
           }}
         />
@@ -442,7 +451,14 @@ export function AdminSchedule() {
   );
 }
 
-function ScheduleItemDialog(props: { editing: Editing; onClose: () => void; onSaved: () => void }) {
+const itemIdOf = (item: ScheduleItemDto) => item.itemId;
+
+function ScheduleItemDialog(props: {
+  editing: Editing;
+  onClose: () => void;
+  /** 保存した項目か、削除した項目の ID */
+  onSaved: (change: { item: ScheduleItemDto } | { deleted: string }) => void;
+}) {
   const t = useT();
   const { item } = props.editing;
   const [title, setTitle] = useState(item?.title ?? "");
@@ -471,9 +487,10 @@ function ScheduleItemDialog(props: { editing: Editing; onClose: () => void; onSa
     // 新しく作るときは押した所の列に置く。直すときは列を送らない（今の列のまま）
     const body: ScheduleItemRequest = { title, detail, startMinute, durationMinutes, column: props.editing.column };
     try {
-      if (item) await api<ScheduleItemResponse>("PUT", `/admin/schedule/${item.itemId}`, body);
-      else await api<ScheduleItemResponse>("POST", "/admin/schedule", body);
-      props.onSaved();
+      const res = item
+        ? await api<ScheduleItemResponse>("PUT", `/admin/schedule/${item.itemId}`, body)
+        : await api<ScheduleItemResponse>("POST", "/admin/schedule", body);
+      props.onSaved({ item: res.item });
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -486,7 +503,7 @@ function ScheduleItemDialog(props: { editing: Editing; onClose: () => void; onSa
     setSaving(true);
     try {
       await api("DELETE", `/admin/schedule/${item.itemId}`);
-      props.onSaved();
+      props.onSaved({ deleted: item.itemId });
     } catch (err) {
       setError(errorMessage(err));
       setSaving(false);
