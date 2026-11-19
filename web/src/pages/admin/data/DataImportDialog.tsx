@@ -4,7 +4,7 @@ import { type ReactNode, useState } from "react";
 import { ApiError, api, errorMessage } from "../../../api";
 import { Modal } from "../../../components/Modal";
 import { useT } from "../../../i18n";
-import { GamePreview, importGame } from "./games";
+import { GamePreview, importGame, importRounds } from "./games";
 import { importPrize, PrizePreview } from "./prizes";
 import { importScheduleItem, SchedulePreview } from "./schedule";
 import { SettingsPreview, saveSettings } from "./settings";
@@ -125,7 +125,22 @@ export function DataImportDialog(props: {
     }
     try {
       if (include.games && data.games) {
-        await step(["ゲーム", "Games", "Game"], data.games, (g) => g.name, importGame);
+        // 作ったゲームの ID を覚え、ファイルのラウンドを作り直す
+        const ids: string[] = [];
+        await step(
+          ["ゲーム", "Games", "Game"],
+          data.games,
+          (g) => g.name,
+          async (g) => {
+            ids.push(await importGame(g));
+          },
+        );
+        if (data.games.some((g) => g.round)) {
+          doing = t("ラウンドの作成", "creating rounds");
+          setProgress(t("ラウンドを作成中…", "Creating rounds…"));
+          const created = await importRounds(data.games, ids);
+          done.push(t(`ラウンド ${created} 件`, `${created} ${created === 1 ? "round" : "rounds"}`));
+        }
       }
       if (include.prizes && data.prizes) {
         const removers =

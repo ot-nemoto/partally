@@ -5,6 +5,9 @@ import {
   type GamesResponse,
   gameFormatLabel,
   PRIZE_IMAGE_MAX_EDGE,
+  ROUND_GAMES_MAX,
+  type RoundResponse,
+  type RoundsResponse,
 } from "@partally/shared";
 import type { GameArchiveItem } from "@partally/shared/game-archive";
 import { api } from "../../../api";
@@ -19,7 +22,14 @@ import { fetchImage, imageFile } from "./files";
  * 結果入力の枠に選んだ人（参加者はイベントごとに違う）は入れない。画像の取得はゲームごとに順に行う
  */
 export async function exportGames(): Promise<GameArchiveItem[]> {
-  const { games } = await api<GamesResponse>("GET", "/admin/games");
+  const [{ games }, { rounds }] = await Promise.all([
+    api<GamesResponse>("GET", "/admin/games"),
+    api<RoundsResponse>("GET", "/admin/rounds"),
+  ]);
+  // 入っているラウンド（名前・ラウンドの並び・中の順）も書き出す
+  const roundOf = new Map(
+    rounds.flatMap((r, position) => r.gameIds.map((id, index) => [id, { name: r.name, position, index }] as const)),
+  );
   const image = (url: string | undefined, name: string) => (url ? fetchImage(url, name) : undefined);
   const items: GameArchiveItem[] = [];
   for (const g of games) {
@@ -40,6 +50,7 @@ export async function exportGames(): Promise<GameArchiveItem[]> {
       correctNumber: g.correctNumber,
       voterPoints: g.voterPoints,
       keyword: g.keyword,
+      round: roundOf.get(g.gameId),
     });
   }
   return items;
@@ -49,8 +60,8 @@ export async function exportGames(): Promise<GameArchiveItem[]> {
 const upload = async (bytes: Uint8Array | undefined, maxEdge: number) =>
   bytes ? uploadGameImage(await processImage(imageFile(bytes), maxEdge)) : undefined;
 
-/** ゲームを 1 件、下書きとして作る */
-export async function importGame(item: GameArchiveItem): Promise<void> {
+/** ゲームを 1 件、下書きとして作る。作ったゲームの ID を返す */
+export async function importGame(item: GameArchiveItem): Promise<string> {
   const body: GameRequest = {
     format: item.format,
     name: item.name,
@@ -69,7 +80,31 @@ export async function importGame(item: GameArchiveItem): Promise<void> {
     voterPoints: item.format === "vote" ? item.voterPoints : undefined,
     keyword: item.keyword,
   };
-  await api<GameResponse>("POST", "/admin/games", body);
+  return (await api<GameResponse>("POST", "/admin/games", body)).game.gameId;
+}
+
+/**
+ * 取り込んだゲームのラウンドを作り直す（ファイルのラウンドの並び・中の順のまま、今のラウンドの後ろに足す）。
+ * ids は items と同じ順の、作ったゲームの ID
+ */
+export async function importRounds(items: GameArchiveItem[], ids: string[]): Promise<number> {
+  const rounds = new Map<string, { name: string; position: number; games: { index: number; id: string }[] }>();
+  items.forEach((item, i) => {
+    if (!item.round || !ids[i]) return;
+    const key = `${item.round.position}\u0000${item.round.name}`;
+    const round = rounds.get(key) ?? { name: item.round.name, position: item.round.position, games: [] };
+    round.games.push({ index: item.round.index, id: ids[i] });
+    rounds.set(key, round);
+  });
+  const ordered = [...rounds.values()].sort((a, b) => a.position - b.position);
+  for (const r of ordered) {
+    const gameIds = r.games
+      .sort((a, b) => a.index - b.index)
+      .map((g) => g.id)
+      .slice(0, ROUND_GAMES_MAX);
+    await api<RoundResponse>("POST", "/admin/rounds", { name: r.name, gameIds });
+  }
+  return ordered.length;
 }
 
 /** 取り込むゲームの一覧（形式・名前・中身・画像の数） */
@@ -94,7 +129,14 @@ export function GamePreview(props: { items: GameArchiveItem[] }) {
               <span aria-hidden="true">{FORMAT_ICON[g.format]} </span>
               {gameFormatLabel(g.format, lang)}
             </td>
-            <td>{g.name}</td>
+            <td>
+              {g.name}
+              {g.round && (
+                <span className="muted small">
+                  {t(`（ラウンド「${g.round.name}」）`, ` (round “${g.round.name}”)`)}
+                </span>
+              )}
+            </td>
             <td>{contentsOf(g)}</td>
             <td className="num">{(g.image ? 1 : 0) + g.choices.filter((ch) => ch.image).length}</td>
           </tr>
