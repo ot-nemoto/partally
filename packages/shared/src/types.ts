@@ -343,6 +343,8 @@ export interface GameRankDto {
 /** 管理画面に返すゲーム */
 export interface GameDto {
   gameId: string;
+  /** 入っているラウンド。無ければ 1 問だけで開始・終了する */
+  roundId?: string;
   format: GameFormat;
   name: string;
   /** 説明（ルールなど。クイズなら問題文。改行可、空でもよい） */
@@ -419,11 +421,39 @@ export interface GameCandidatesResponse {
 }
 
 export interface CurrentGameResponse {
+  /** 開催中のゲーム（ラウンドなら 1 問目）。無ければ null */
   game: CurrentGameDto | null;
+  /** 開催中のゲームすべて（ラウンドなら出す順。1 問だけのときは 1 つ） */
+  games: CurrentGameDto[];
+  /** 開催中のラウンド（1 問だけを開始しているときは無い） */
+  round?: { roundId: string; name: string };
+}
+
+/** ラウンド（複数のゲームをまとめて開始・終了する単位） */
+export interface RoundDto {
+  roundId: string;
+  name: string;
+  /** 入っているゲーム（参加者に出す順） */
+  gameIds: string[];
+  status: GameStatus;
+  openedAt?: string;
+  confirmedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoundsResponse {
+  rounds: RoundDto[];
+}
+
+export interface RoundResponse {
+  round: RoundDto;
 }
 
 /** 答えたときの応答。合言葉では、送った言葉が正解だったかも返す */
-export interface GameAnswerResponse extends CurrentGameResponse {
+export interface GameAnswerResponse {
+  /** 答えたゲーム（自分の答えを入れたもの） */
+  game: CurrentGameDto;
   correct?: boolean;
 }
 

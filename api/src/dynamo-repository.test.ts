@@ -748,6 +748,69 @@ describe("DynamoRepository", () => {
       });
     });
 
+    it("開催中の印は、ラウンドならラウンドと全問、1 問なら gameId だけ（前の版の印）でも読める", async () => {
+      ddb
+        .on(GetCommand)
+        .resolvesOnce({ Item: { roundId: "R1", gameIds: ["G2", "G1"] } })
+        .resolvesOnce({
+          Item: { gameId: "G1" },
+        });
+      expect(await repo.getOpenState()).toEqual({ roundId: "R1", gameIds: ["G2", "G1"] });
+      expect(await repo.getOpenState()).toEqual({ gameIds: ["G1"] });
+    });
+
+    it("ラウンドの開始は、印・ラウンド・全問を 1 トランザクションで変え、ほかが開催中なら断る", async () => {
+      const round = {
+        roundId: "R1",
+        name: "第 1 部",
+        gameIds: ["G2", "G1"],
+        status: "draft" as const,
+        position: 0,
+        createdAt: "t0",
+        updatedAt: "t0",
+      };
+      ddb
+        .on(TransactWriteCommand)
+        .resolvesOnce({})
+        .rejectsOnce(canceled(["ConditionalCheckFailed", "None", "None", "None"]));
+      ddb.on(GetCommand).resolves({ Item: { PK: "ROUND#R1", SK: "META", ...round, status: "open" } });
+      expect((await repo.changeRoundStatus(round, "draft", "open", "t1")).status).toBe("open");
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items).toHaveLength(4);
+      expect(items[0]!.Put).toMatchObject({
+        Item: { PK: "GAME_STATE", SK: "OPEN", roundId: "R1", gameIds: ["G2", "G1"] },
+        ConditionExpression: "attribute_not_exists(PK)",
+      });
+      expect(items[1]!.Update).toMatchObject({
+        Key: { PK: "ROUND#R1", SK: "META" },
+        ConditionExpression: "#status = :from AND gameIds = :gameIds",
+      });
+      expect(items.slice(2).map((i) => i.Update!.Key)).toEqual([
+        { PK: "GAME#G2", SK: "META" },
+        { PK: "GAME#G1", SK: "META" },
+      ]);
+      await expect(repo.changeRoundStatus(round, "draft", "open", "t2")).rejects.toBeInstanceOf(GameAlreadyOpenError);
+    });
+
+    it("ラウンドの終了は、印を消し、抽選のゲームには順番を付ける", async () => {
+      const round = {
+        roundId: "R1",
+        name: "R",
+        gameIds: ["G1", "G2"],
+        status: "open" as const,
+        position: 0,
+        createdAt: "t0",
+        updatedAt: "t0",
+      };
+      ddb.on(TransactWriteCommand).resolves({});
+      ddb.on(GetCommand).resolves({ Item: { PK: "ROUND#R1", SK: "META", ...round, status: "confirmed" } });
+      await repo.changeRoundStatus(round, "open", "confirmed", "t1", { G2: ["u1"] });
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items[0]!.Delete).toMatchObject({ ConditionExpression: "roundId = :roundId" });
+      expect(items[2]!.Update!.UpdateExpression).toBe("SET #status = :to, updatedAt = :at, confirmedAt = :at");
+      expect(items[3]!.Update!.ExpressionAttributeValues).toMatchObject({ ":drawOrder": ["u1"] });
+    });
+
     it("答えはユーザの下に保存する（ゲームを含むトランザクションにはしない）", async () => {
       ddb.on(PutCommand).resolves({});
       await repo.putGameAnswer({ gameId: "G1", userId: "u1", choiceId: "A", answeredAt: "2026-01-01T00:01:30.000Z" });

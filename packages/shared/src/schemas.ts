@@ -446,3 +446,23 @@ export const gameAnswerRequestSchema = z
     message: "選択肢・数・選んだ人・言葉・参加のどれか 1 つを送ってください",
   });
 export type GameAnswerRequest = z.infer<typeof gameAnswerRequestSchema>;
+
+export const ROUND_NAME_MAX_LENGTH = 50;
+/** 1 ラウンドに入れられるゲームの数 */
+export const ROUND_GAMES_MAX = 20;
+
+/**
+ * ラウンドの作成・更新。gameIds は参加者に出す順。1 つのゲームが入れるラウンドは 1 つまで。
+ * 開始中・終了済みのラウンドのゲームは出し入れできない（名前は直せる）
+ */
+export const roundRequestSchema = z.object({
+  name: normalized(ROUND_NAME_MAX_LENGTH),
+  gameIds: z
+    .array(idSchema)
+    .max(ROUND_GAMES_MAX, `1 つのラウンドに入れられるゲームは ${ROUND_GAMES_MAX} 個までです`)
+    .refine((ids) => new Set(ids).size === ids.length, { message: "同じゲームが 2 回入っています" }),
+});
+export type RoundRequest = z.infer<typeof roundRequestSchema>;
+
+/** ラウンドの並び順（全ラウンドの ID を、並べたい順に 1 回ずつ） */
+export const roundOrderRequestSchema = z.object({ roundIds: z.array(idSchema) });

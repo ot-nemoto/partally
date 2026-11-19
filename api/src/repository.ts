@@ -144,6 +144,27 @@ export interface GameRecord {
   confirmedAt?: string;
 }
 
+/** ラウンド（複数のゲームをまとめて開始・終了する単位） */
+export interface RoundRecord {
+  roundId: string;
+  name: string;
+  /** 入っているゲーム（参加者に出す順） */
+  gameIds: string[];
+  status: GameStatus;
+  /** ラウンドの並び（小さい順） */
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+  openedAt?: string;
+  confirmedAt?: string;
+}
+
+/** 開催中のもの（1 問だけか、1 ラウンド） */
+export interface OpenState {
+  gameIds: string[];
+  roundId?: string;
+}
+
 /** ゲームを直すときに変える項目（形式・状態・時刻は変えない） */
 export type GameChanges = Pick<
   GameRecord,
@@ -445,7 +466,40 @@ export interface Repository {
     drawOrder?: string[],
   ): Promise<GameRecord>;
   /** 開催中のゲームの ID */
-  getOpenGameId(): Promise<string | undefined>;
+  /** 開催中のもの。無ければ undefined */
+  getOpenState(): Promise<OpenState | undefined>;
+
+  // ---- ラウンド ----
+
+  createRound(round: RoundRecord): Promise<void>;
+  getRound(roundId: string): Promise<RoundRecord | undefined>;
+  /** 並び（position）の順 */
+  listRounds(): Promise<RoundRecord[]>;
+  /**
+   * 名前・ゲーム・並びを変える。gameIds を変えるときは下書きのラウンドだけ（違えば InvalidStateError）。
+   * anyStatus を付けると状態によらず変える（ゲームを削除したときに、入っていたラウンドから外す）
+   * @throws NotFoundError / InvalidStateError
+   */
+  updateRound(
+    roundId: string,
+    changes: Partial<Pick<RoundRecord, "name" | "gameIds" | "position">>,
+    updatedAt: string,
+    options?: { anyStatus?: boolean },
+  ): Promise<RoundRecord>;
+  /** 開催中でなければ消す。@throws NotFoundError / InvalidStateError 開催中 */
+  deleteRound(roundId: string): Promise<void>;
+  /**
+   * ラウンドと中のゲームすべての状態を from → to にまとめて変える（同じ時刻）。開始では開催中の印を作り、
+   * 開催中から変えるときは消す。drawOrders は終了する抽選のゲームごとの順番
+   * @throws NotFoundError / InvalidStateError 今の状態が from でない / GameAlreadyOpenError ほかが開催中
+   */
+  changeRoundStatus(
+    round: RoundRecord,
+    from: GameStatus,
+    to: GameStatus,
+    at: string,
+    drawOrders?: Record<string, string[]>,
+  ): Promise<RoundRecord>;
   /** ゲームと、その答えを削除する。@throws NotFoundError / InvalidStateError 開催中 */
   deleteGame(gameId: string): Promise<void>;
 
