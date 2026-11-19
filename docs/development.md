@@ -83,6 +83,7 @@ PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`
 - 設定（`Settings`）に項目を足すときは、`updateSettingsRequestSchema` で省略可にし、`DEFAULT_SETTINGS` に既定値を入れます。保存済みの設定に無い項目は既定値で補われます（古い画面から保存されても 400 にしないため）。
 - ゲームの形式ごとの決まりは表にまとめています。答えに使う項目と順位の単位は `packages/shared/src/game-rules.ts` の `GAME_FORMAT_RULES`、点数の数え方は `api/src/scoring.ts` の `GAME_SCORING` に書きます。形式を足すときは、`GAME_FORMATS` と、この 2 つの表と、形式ごとの名前・表示の表（`GAME_FORMAT_LABEL` と英語の `GAME_FORMAT_LABEL_EN`、お知らせの `game-banner.ts`（日本語と英語）、管理画面の `web/src/pages/admin/games/formats.ts` のアイコン・説明（`FORMAT_TEXT` と英語の `FORMAT_TEXT_EN`）・並び）と、画面（`GameView`・管理画面のゲーム）を直します。足し忘れた表は型チェックで分かります。
 - 管理画面の一覧（GSI で読むもの）は、保存・削除の直後に取り直すと古い内容が返ることがあります（反映が少し遅れるため）。保存・削除の後は、応答で受け取ったものを `web/src/hooks/useFreshList.ts` で一覧に重ね、取り直した一覧だけに頼らないでください。
+- 確認は `window.confirm()` ではなく、`web/src/components/ConfirmDialog.tsx` の `confirmDialog()`（画面内の確認ダイアログ）を使います（`if (!(await confirmDialog("…よろしいですか？"))) return;`）。ブラウザ標準のダイアログは、自動操作で承認できず、見た目もほかのモーダルと揃わないためです。
 - 個人や環境の情報（AWS アカウント ID、ロール ARN、メールアドレス、パスワード、実際のドメインなど）はリポジトリに書きません。
 
 ## ブランチ・PR・リリース

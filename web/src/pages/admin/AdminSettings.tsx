@@ -10,6 +10,7 @@ import {
 } from "@partally/shared";
 import { type FormEvent, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
+import { confirmDialog } from "../../components/ConfirmDialog";
 import { NumberField } from "../../components/NumberField";
 import { PageTitle } from "../../components/PageTitle";
 import { SortableList } from "../../components/SortableList";
@@ -343,7 +344,7 @@ function EventEndCard() {
             "イベントの終了を取り消します。終了した後の写真・お気に入り・ゲームもポイントに数えます。よろしいですか？",
             "Undo ending the event? Photos, favorites and games after it ended will count toward points again.",
           );
-    if (!confirm(question)) return;
+    if (!(await confirmDialog(question))) return;
     setBusy(true);
     setError(undefined);
     try {
