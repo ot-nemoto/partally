@@ -89,6 +89,7 @@ export type ApiErrorCode =
   | "favorites_disabled"
   | "favorite_limit"
   | "game_closed"
+  | "already_answered"
   | "not_found"
   | "internal_error";
 

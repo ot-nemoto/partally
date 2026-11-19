@@ -146,7 +146,7 @@ describe("API", () => {
       await admin("POST", `/api/admin/games/${game.gameId}/open`);
       const res = await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
       expect(res.status).toBe(409);
-      expect(res.body.message).toBe("点数の範囲を追加してから締め切ってください");
+      expect(res.body.message).toBe("点数の範囲を追加してから終了してください");
     });
   });
 });

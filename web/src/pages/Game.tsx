@@ -1,4 +1,4 @@
-import type { GameAnswerResponse, GameCandidatesResponse } from "@partally/shared";
+import type { CurrentGameResponse, GameAnswerResponse, GameCandidatesResponse } from "@partally/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../api";
@@ -44,7 +44,11 @@ export function Game() {
     } catch (e) {
       // 次の確認を待たずに「終わりました」に切り替える
       if (e instanceof ApiError && e.code === "game_closed") setGame(null);
-      else setError(errorMessage(e));
+      // 別の端末などで先に答えていた: 今の答えを読み直して見せる
+      else if (e instanceof ApiError && e.code === "already_answered") {
+        const current = await api<CurrentGameResponse>("GET", "/game/current").catch(() => undefined);
+        if (current) setGame(current.game);
+      } else setError(errorMessage(e));
     } finally {
       setSending(undefined);
     }

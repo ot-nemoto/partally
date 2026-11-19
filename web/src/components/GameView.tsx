@@ -21,8 +21,8 @@ export type GameAnswerBody =
 
 /**
  * 開催中のゲームの画面の中身（参加者の画面と、管理画面のプレビューで共通）。
- * クイズは選択肢から選び、数値予想は数を入れ、投票は参加者から 1 人を選び、合言葉は言葉を入れ、抽選は参加する
- * （どれも確定されるまで選び直せる・答え直せる）。結果入力は説明と、枠ごとの点数を見せる。
+ * クイズは選択肢から選び、数値予想は数を入れ、投票は参加者から 1 人を選んで「決定」で送る（送った後は答え直せない）。
+ * 合言葉は言葉を入れて送り（正解するまで送り直せる）、抽選は参加する。答えたら「対応済み」のスタンプを出す。結果入力は名前と説明だけ。
  * 答えは onAnswer に渡す（参加者の画面は API に送り、プレビューは送らない）
  */
 export function GameView(props: {
@@ -40,13 +40,15 @@ export function GameView(props: {
   const t = useT();
   /** 数値予想で入れている数（空欄は NaN） */
   const [value, setValue] = useState(Number.NaN);
+  /** クイズで選んでいる選択肢（「決定」を押すまで送らない） */
+  const [picked, setPicked] = useState<string>();
 
-  // 別のゲームに変わったら、入れている数をそのゲームの自分の答えにする
+  // 別のゲームに変わったら、入れている数と選んでいる選択肢を消す
   const gameId = game.gameId;
-  const myValue = game.myValue;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 答え直すたびには入れ直さない（入力中の数を消さないように）
+  // biome-ignore lint/correctness/useExhaustiveDependencies: gameId が変わったときだけ消す
   useEffect(() => {
-    setValue(myValue ?? Number.NaN);
+    setValue(Number.NaN);
+    setPicked(undefined);
   }, [gameId]);
 
   return (
@@ -62,15 +64,15 @@ export function GameView(props: {
         <>
           <div className={game.choices.some((ch) => ch.imageUrl) ? "quiz-choices with-images" : "quiz-choices"}>
             {game.choices.map((ch) => {
-              const selected = game.myChoiceId === ch.choiceId;
+              const selected = (game.myChoiceId ?? picked) === ch.choiceId;
               return (
                 <button
                   key={ch.choiceId}
                   type="button"
                   className={selected ? "quiz-choice selected" : "quiz-choice"}
                   aria-pressed={selected}
-                  disabled={sending !== undefined}
-                  onClick={() => onAnswer({ choiceId: ch.choiceId }, ch.choiceId)}
+                  disabled={sending !== undefined || game.myChoiceId !== undefined}
+                  onClick={() => setPicked(ch.choiceId)}
                 >
                   {ch.imageUrl && <img className="quiz-choice-image" src={ch.imageUrl} alt="" />}
                   <span className="quiz-choice-text">
@@ -84,11 +86,22 @@ export function GameView(props: {
             })}
           </div>
           {error && <p className="error">{error}</p>}
+          {game.myChoiceId !== undefined ? (
+            <DoneStamp />
+          ) : (
+            <DecideButton
+              disabled={sending !== undefined || picked === undefined}
+              onClick={() => picked && onAnswer({ choiceId: picked }, picked)}
+            />
+          )}
         </>
       ) : game.format === "lottery" ? (
         <section className="card game-lottery">
           {game.myEntry ? (
-            <p className="game-keyword-result correct">{t("参加しました", "You’re in")}</p>
+            <>
+              <p className="game-keyword-result correct">{t("参加しました", "You’re in")}</p>
+              <DoneStamp />
+            </>
           ) : (
             <button
               type="button"
@@ -117,6 +130,14 @@ export function GameView(props: {
           loadCandidates={props.loadCandidates}
           onClosed={props.onClosed}
         />
+      ) : game.format === "number" && game.myValue !== undefined ? (
+        <section className="card">
+          <p aria-live="polite">
+            {t("あなたの答え: ", "Your answer: ")}
+            <strong className="game-number-mine">{game.myValue}</strong>
+          </p>
+          <DoneStamp />
+        </section>
       ) : game.format === "number" ? (
         <form
           className="card game-number-form"
@@ -132,25 +153,33 @@ export function GameView(props: {
             max={GAME_NUMBER_MAX}
             onChange={setValue}
           />
-          <button
-            type="submit"
-            className="primary"
-            disabled={sending !== undefined || Number.isNaN(value) || value === game.myValue}
-          >
-            {game.myValue === undefined ? t("答える", "Answer") : t("答え直す", "Change answer")}
+          <button type="submit" className="primary game-decide" disabled={sending !== undefined || Number.isNaN(value)}>
+            {t("決定", "Submit")}
           </button>
           {error && <p className="error">{error}</p>}
-          <p className="small" aria-live="polite">
-            {game.myValue !== undefined && (
-              <>
-                {t("あなたの答え: ", "Your answer: ")}
-                <strong className="game-number-mine">{game.myValue}</strong>
-              </>
-            )}
-          </p>
         </form>
       ) : null}
     </>
+  );
+}
+
+/** 選んだ答えを送るボタン。送った後は答え直せない */
+function DecideButton(props: { disabled: boolean; onClick: () => void }) {
+  const t = useT();
+  return (
+    <button type="button" className="primary game-decide" disabled={props.disabled} onClick={props.onClick}>
+      {t("決定", "Submit")}
+    </button>
+  );
+}
+
+/** 答えた（参加した）印 */
+function DoneStamp() {
+  const t = useT();
+  return (
+    <p className="game-done-stamp" role="status">
+      {t("対応済み", "Done")}
+    </p>
   );
 }
 
@@ -160,7 +189,7 @@ const fold = (s: string) => s.normalize("NFKC").toLowerCase().replace(/\s+/g, ""
 /**
  * 投票。選べる人（自分と、紐づけを解除した人を除く全員）は、開いたときと、アプリに戻ったときに読む
  * （5 秒ごとの確認には含めない。途中で参加した人は、アプリに戻ったときに出る）。
- * 名前・二つ名で絞り込み、押すとその人に投票する（確定されるまで選び直せる）
+ * 名前・二つ名で絞り込み、押して選び、「決定」で投票する（投票した後は選び直せない）
  */
 function VoteSection(props: {
   game: CurrentGameDto;
@@ -177,6 +206,8 @@ function VoteSection(props: {
   const [query, setQuery] = useState("");
   const [loadCount, setLoadCount] = useState(0);
   const reload = useCallback(() => setLoadCount((n) => n + 1), []);
+  /** 選んでいる人（「決定」を押すまで送らない） */
+  const [picked, setPicked] = useState<string>();
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: loadCount は読み直しの合図
   useEffect(() => {
@@ -194,9 +225,12 @@ function VoteSection(props: {
     };
   }, [game.gameId, onClosed, loadCandidates, loadCount]);
 
-  // 別のゲームに変わったら、前のゲームの一覧は出さない
+  // 別のゲームに変わったら、前のゲームの一覧と選んでいる人は消す
   // biome-ignore lint/correctness/useExhaustiveDependencies: gameId が変わったときだけ消す
-  useEffect(() => setCandidates(undefined), [game.gameId]);
+  useEffect(() => {
+    setCandidates(undefined);
+    setPicked(undefined);
+  }, [game.gameId]);
 
   // 別のアプリから戻ったら読み直す（途中で参加した人を出す）
   useEffect(() => {
@@ -209,26 +243,31 @@ function VoteSection(props: {
   const q = fold(query);
   const shown = candidates?.filter((c) => fold(c.displayName).includes(q));
 
+  if (game.myTargetUserId) {
+    return (
+      <section className="card">
+        <p aria-live="polite">
+          {t("あなたの投票: ", "Your vote: ")}
+          <strong className="game-vote-mine">
+            {mine?.displayName ?? (candidates ? t("（今は選べない人）", "(someone you can’t choose now)") : "…")}
+          </strong>
+          {!mine && candidates && (
+            <span className="muted small">
+              {t(
+                "（投票した人が参加をやめました。票はそのまま数えます）",
+                " (this person has left. Your vote still counts)",
+              )}
+            </span>
+          )}
+        </p>
+        <DoneStamp />
+      </section>
+    );
+  }
+
+  const pickedName = candidates?.find((c) => c.userId === picked)?.displayName;
   return (
     <section className="card">
-      <p className="small" aria-live="polite">
-        {game.myTargetUserId ? (
-          <>
-            {t("あなたの投票: ", "Your vote: ")}
-            <strong className="game-vote-mine">
-              {mine?.displayName ?? (candidates ? t("（今は選べない人）", "(someone you can’t choose now)") : "…")}
-            </strong>
-            {!mine && candidates && (
-              <span className="muted">
-                {t(
-                  "（投票した人が参加をやめました。票はそのまま数えます。選び直すこともできます）",
-                  " (this person has left. Your vote still counts, and you can change it)",
-                )}
-              </span>
-            )}
-          </>
-        ) : null}
-      </p>
       <input
         type="search"
         className="game-vote-search"
@@ -237,13 +276,12 @@ function VoteSection(props: {
         placeholder={t("名前・二つ名で探す", "Search by name or title")}
         aria-label={t("名前・二つ名で探す", "Search by name or title")}
       />
-      {props.error && <p className="error">{props.error}</p>}
       {loadError && <p className="error">{loadError}</p>}
       {!candidates && !loadError && <p className="muted">{t("読み込み中…", "Loading…")}</p>}
       {shown && shown.length === 0 && <p className="muted small">{t("見つかりません。", "No one found.")}</p>}
       <div className="quiz-choices game-vote-list">
         {shown?.map((c) => {
-          const selected = game.myTargetUserId === c.userId;
+          const selected = picked === c.userId;
           return (
             <button
               key={c.userId}
@@ -251,7 +289,7 @@ function VoteSection(props: {
               className={selected ? "quiz-choice selected" : "quiz-choice"}
               aria-pressed={selected}
               disabled={props.sending !== undefined}
-              onClick={() => props.onVote(c.userId)}
+              onClick={() => setPicked(c.userId)}
             >
               <span className="quiz-choice-text">
                 <span className="quiz-check" aria-hidden="true">
@@ -262,6 +300,15 @@ function VoteSection(props: {
             </button>
           );
         })}
+      </div>
+      {/* 一覧が長くても押せるよう、決定は画面の下に留める */}
+      <div className="game-decide-bar">
+        {props.error && <p className="error">{props.error}</p>}
+        {pickedName && <p className="small game-vote-picked">{pickedName}</p>}
+        <DecideButton
+          disabled={props.sending !== undefined || pickedName === undefined}
+          onClick={() => picked && props.onVote(picked)}
+        />
       </div>
     </section>
   );
@@ -301,6 +348,7 @@ function KeywordSection(props: {
       {game.myKeywordCorrect ? (
         <section className="card game-keyword-done">
           <p className="game-keyword-result correct">{t("正解です！", "Correct!")}</p>
+          <DoneStamp />
         </section>
       ) : (
         <form className="card game-number-form" onSubmit={onSubmit}>

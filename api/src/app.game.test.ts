@@ -217,7 +217,7 @@ describe("API", () => {
         slots: [],
       });
       expect(emptied.status).toBe(409);
-      expect(emptied.body.message).toContain("先に締め切りを取り消してください");
+      expect(emptied.body.message).toContain("先に終了を取り消してください");
       expect(await pointsOf(admin)).toMatchObject({ 田中: [10, 10] });
       // 確定を取り消せば、枠を全部外せる
       expect((await admin("POST", `/api/admin/games/${game.gameId}/unconfirm`)).status).toBe(200);

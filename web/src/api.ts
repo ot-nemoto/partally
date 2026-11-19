@@ -74,6 +74,8 @@ export function errorMessage(e: unknown): string {
         return tr("お気に入りの受付は終了しました。", "Favorites are closed.");
       case "game_closed":
         return tr("このゲームの受付は終わりました。", "This game is closed.");
+      case "already_answered":
+        return tr("このゲームには、もう答えています。", "You’ve already answered this game.");
       case "unauthorized":
         return tr("ログインが必要です。", "Please log in.");
       case "image_not_uploaded":
