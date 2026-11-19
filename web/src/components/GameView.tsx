@@ -178,7 +178,7 @@ function DoneStamp() {
   const t = useT();
   return (
     <p className="game-done-stamp" role="status">
-      {t("対応済み", "Done")}
+      {t("対応済み", "Completed")}
     </p>
   );
 }

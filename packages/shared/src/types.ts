@@ -179,6 +179,8 @@ export interface Settings {
   tieBreakOrder: TieBreakKey[];
   /** 参加者にスケジュールを見せるか */
   scheduleVisible: boolean;
+  /** 参加者に終了したゲームの結果（誰に何点入ったか）を見せるか */
+  gameResultsVisible: boolean;
   /** イベントの日付（YYYY-MM-DD）。空なら日付を決めない（参加者の「いま」「つぎ」は毎日の時刻で判定する） */
   scheduleDate: string;
 }
@@ -457,6 +459,32 @@ export interface GameAnswersResponse {
 }
 
 /** 参加者に見せる、自分に点数が入ったゲーム（結果入力なら入った枠、クイズなら選んだ答え） */
+/** 参加者に見せる、終了したゲームの結果（点数は見せない） */
+export interface GameResultDto {
+  gameId: string;
+  name: string;
+  format: GameFormat;
+  confirmedAt: string;
+  /** イベントを終了した後に終了したゲーム（ポイントには数えていない） */
+  uncounted?: boolean;
+  /** 正解（クイズは点数がいちばん高い選択肢、数値予想は正解の数、合言葉は合言葉）。正解の無い形式には無い */
+  correct?: string;
+  /** 自分が答えた（抽選は参加した、合言葉は正解した）か */
+  answered: boolean;
+  /** 自分の答え（クイズは選んだ選択肢、数値予想は答えた数、投票は投票した人、合言葉は正解した言葉） */
+  myAnswer?: string;
+  /** クイズで、自分の答えが正解だったか */
+  myCorrect?: boolean;
+  /** 自分の結果（例: 3 位（予想 42）、2 番目に正解、1 等に当選、優勝）。入らなかったときは無い */
+  myResult?: string;
+  /** 結果（入った人。結果入力は枠ごと、数値予想・投票・合言葉・抽選は点数が入った順位ごと。クイズは無い） */
+  winners: { label: string; names: string[] }[];
+}
+
+export interface GameResultsResponse {
+  games: GameResultDto[];
+}
+
 export interface GameAwardDto {
   gameName: string;
   /** 結果入力なら枠の名前、クイズなら選んだ選択肢、数値予想なら順位と答えた数（例: 3 位（予想 42））、投票なら順位と票数（例: 1 位（5 票））か「投票」、合言葉なら正解した順（例: 3 番目に正解）、抽選なら当たった範囲（例: 2〜5 等に当選） */

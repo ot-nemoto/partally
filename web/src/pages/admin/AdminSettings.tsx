@@ -291,6 +291,17 @@ export function AdminSettings() {
                 onChange={(v) => update("scheduleVisible", v)}
               />
             </fieldset>
+            <fieldset className="publish-option">
+              <SwitchField
+                label={t("参加者にゲームの結果を見せる", "Show game results to participants")}
+                description={t(
+                  "終了したゲームごとに、正解と、自分の答えと結果、優勝などに入った人を見せます（点数は見せません）。イベントを終了した後の振り返りなどに使えます。",
+                  "For each ended game, shows the answer, each participant’s own answer and result, and who placed (no points). Useful for looking back after the event ends.",
+                )}
+                checked={settings.gameResultsVisible}
+                onChange={(v) => update("gameResultsVisible", v)}
+              />
+            </fieldset>
             <p className="muted small">
               {t(
                 "参加者の画面の「イベント情報」タブに出ます。合計と順位は、写真・お気に入り・クイズのすべてのポイントで計算します。ホーム画面でポイントを表示しない設定でも、ここで「ポイントを伏せる」にしない限り、ポイントは見えます。",

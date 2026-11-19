@@ -182,7 +182,8 @@ export function ParticipantLayout() {
         {(state.rules.rankingVisible ||
           state.rules.trendVisible ||
           state.rules.prizesVisible ||
-          state.rules.scheduleVisible) && <NavLink to="/standings">{t("イベント情報", "Event info")}</NavLink>}
+          state.rules.scheduleVisible ||
+          state.rules.gameResultsVisible) && <NavLink to="/standings">{t("イベント情報", "Event info")}</NavLink>}
         <button type="button" className="tabbar-reload" onClick={reload} disabled={reloading}>
           {reloading ? t("更新中…", "Refreshing…") : t("↻ 更新", "↻ Refresh")}
         </button>

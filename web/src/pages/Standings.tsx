@@ -1,5 +1,8 @@
 import {
   formatPositionLabel,
+  type GameResultDto,
+  type GameResultsResponse,
+  gameFormatLabel,
   type ParticipantRankingResponse,
   prizesForDisplay,
   TIE_BREAK_LABEL,
@@ -16,13 +19,14 @@ import { useOnReload } from "../hooks/useReload";
 import { useLang, useT } from "../i18n";
 import { ScheduleView } from "./ScheduleView";
 
-type View = "schedule" | "ranking" | "trend" | "prizes";
+type View = "schedule" | "ranking" | "trend" | "prizes" | "games";
 
 const VIEW_LABEL: Record<View, [ja: string, en: string]> = {
   schedule: ["スケジュール", "Schedule"],
   ranking: ["ランキング", "Ranking"],
   trend: ["ポイントの推移", "Trend"],
   prizes: ["景品", "Prizes"],
+  games: ["ゲームの結果", "Game results"],
 };
 
 /**
@@ -37,8 +41,9 @@ export function Standings() {
     ranking: rules.rankingVisible,
     trend: rules.trendVisible,
     prizes: rules.prizesVisible,
+    games: rules.gameResultsVisible,
   };
-  const views = (["schedule", "ranking", "trend", "prizes"] as const).filter((v) => visible[v]);
+  const views = (["schedule", "ranking", "trend", "prizes", "games"] as const).filter((v) => visible[v]);
   const [selected, setSelected] = useState<View>();
   const view = selected && views.includes(selected) ? selected : views[0];
 
@@ -65,12 +70,101 @@ export function Standings() {
         <ScheduleView />
       ) : view === "prizes" ? (
         <PrizesView />
+      ) : view === "games" ? (
+        <GameResultsView />
       ) : view ? (
         <StandingsView key={view} view={view} withPrizes={rules.prizesVisible} />
       ) : (
         <p className="muted">{t("今は公開されていません。", "Not available right now.")}</p>
       )}
     </section>
+  );
+}
+
+/** 終了したゲームごとに、正解・自分の答えと結果・入った人を見せる（終了した順。点数は見せない） */
+function GameResultsView() {
+  const t = useT();
+  const lang = useLang();
+  const [games, setGames] = useState<GameResultDto[]>();
+  const [error, setError] = useState<string>();
+  const load = useCallback(() => {
+    api<GameResultsResponse>("GET", "/game-results")
+      .then((res) => {
+        setGames(res.games);
+        setError(undefined);
+      })
+      .catch((e) => setError(errorMessage(e)));
+  }, []);
+  useEffect(load, [load]);
+  useOnReload(load);
+
+  /** 自分の答えと結果を 1 行にする（答えていなければ「答えていません」） */
+  const mineOf = (g: GameResultDto) => {
+    if (g.format === "result") return g.myResult;
+    if (!g.answered) {
+      return g.format === "keyword"
+        ? t("正解できませんでした", "Didn’t get it")
+        : g.format === "lottery"
+          ? t("参加していません", "Didn’t enter")
+          : t("答えていません", "Didn’t answer");
+    }
+    const parts = [
+      g.myAnswer,
+      g.myCorrect === undefined ? undefined : g.myCorrect ? t("◯ 正解", "◯ Correct") : t("× 不正解", "× Wrong"),
+      g.myResult ?? (g.format === "lottery" ? t("はずれ", "Not drawn") : undefined),
+    ].filter((x) => x !== undefined);
+    return parts.join(t("　", " · "));
+  };
+
+  if (error) return <p className="error">{error}</p>;
+  if (!games) return <p className="muted">{t("読み込み中…", "Loading…")}</p>;
+  if (games.length === 0)
+    return <p className="muted">{t("まだ終了したゲームはありません。", "No games have ended yet.")}</p>;
+  return (
+    <ol className="game-results">
+      {games.map((g) => (
+        <li key={g.gameId} className="card game-result">
+          <h3>
+            {g.name}
+            <span className="game-format small">{gameFormatLabel(g.format, lang)}</span>
+          </h3>
+          {g.uncounted && (
+            <p className="muted small">
+              {t(
+                "イベントの終了の後に終了したので、ポイントには数えていません。",
+                "Ended after the event ended, so it doesn’t count toward points.",
+              )}
+            </p>
+          )}
+          <dl className="game-result-rows">
+            {g.correct !== undefined && (
+              <>
+                <dt>{t("正解", "Answer")}</dt>
+                <dd>
+                  <strong>{g.correct}</strong>
+                </dd>
+              </>
+            )}
+            {mineOf(g) && (
+              <>
+                <dt>{t("あなた", "You")}</dt>
+                <dd>{mineOf(g)}</dd>
+              </>
+            )}
+          </dl>
+          {g.winners.length > 0 && (
+            <ul className="game-result-awards">
+              {g.winners.map((w) => (
+                <li key={w.label}>
+                  <strong>{w.label}</strong>
+                  <p className="small">{w.names.join(t("、", ", "))}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </li>
+      ))}
+    </ol>
   );
 }
 

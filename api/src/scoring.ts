@@ -179,6 +179,36 @@ export function gameAwards(entries: GameWithAnswers[], endedAt?: string): GameAw
   return awards;
 }
 
+/**
+ * 終了したゲームごとの結果（終了した順）。数える答えと、誰に何が入ったか（数え方は gameAwards と同じ）。
+ * endedAt より後に終了したゲームは uncounted を付ける
+ */
+export function gameResults(
+  entries: GameWithAnswers[],
+  endedAt?: string,
+): {
+  game: GameRecord & { confirmedAt: string };
+  uncounted: boolean;
+  answers: GameAnswerRecord[];
+  awards: { userId: string; slotName: string; points: number }[];
+}[] {
+  return entries
+    .filter(
+      (e): e is GameWithAnswers & { game: { confirmedAt: string } } =>
+        e.game.status === "confirmed" && !!e.game.confirmedAt,
+    )
+    .sort((a, b) => a.game.confirmedAt.localeCompare(b.game.confirmedAt))
+    .map(({ game, answers: all }) => {
+      const answers = countedAnswers(game, all);
+      return {
+        game,
+        uncounted: endedAt !== undefined && game.confirmedAt > endedAt,
+        answers,
+        awards: GAME_SCORING[game.format].awards(game, answers),
+      };
+    });
+}
+
 /** 全員分のゲームの点数と、点数が入ったもの */
 export function gameStatsByUser(entries: GameWithAnswers[], endedAt?: string): Map<string, GameStats> {
   const byUser = new Map<string, GameStats>();

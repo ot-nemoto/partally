@@ -132,6 +132,7 @@ export const updateSettingsRequestSchema = z.object({
     })
     .optional(),
   scheduleVisible: z.boolean().optional(),
+  gameResultsVisible: z.boolean().optional(),
   /** イベントの日付（YYYY-MM-DD）。空なら日付を決めない */
   scheduleDate: z
     .union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日付は YYYY-MM-DD で入れてください")])

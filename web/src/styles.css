@@ -2807,18 +2807,55 @@ table.import-table td.nowrap {
   text-align: center;
 }
 
-/* 答えた印（はんこのような丸い枠） */
+/* 答えた印。ゴム印のように太い二重の枠・斜め・かすれた赤で、押したときにポンと押される */
 .game-done-stamp {
+  --stamp: #d7192d;
+  position: relative;
   width: fit-content;
-  margin: 1rem auto 0.25rem;
-  padding: 0.35rem 1.1rem;
-  border: 3px double var(--accent);
-  border-radius: 0.5rem;
-  color: var(--accent);
-  font-size: 1.25rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  transform: rotate(-6deg);
+  margin: 1.75rem auto 0.75rem;
+  padding: 0.3em 0.75em;
+  border: 0.18em solid var(--stamp);
+  border-radius: 0.18em;
+  outline: 0.08em solid var(--stamp);
+  outline-offset: -0.34em;
+  color: var(--stamp);
+  font-family: "Arial Black", "Hiragino Sans", "Yu Gothic", sans-serif;
+  font-size: 2.4rem;
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* 文字を太く見せる（太字の無い書体でもインクが乗ったように） */
+  -webkit-text-stroke: 0.035em var(--stamp);
+  transform: rotate(-12deg);
+  /* かすれ（インクの乗っていないところを細かく抜く） */
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='2' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -6 4.1'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mask-size: 160px 160px;
+  animation: stamp-press 0.35s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+
+@keyframes stamp-press {
+  from {
+    opacity: 0;
+    transform: rotate(-12deg) scale(2.4);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(-12deg) scale(1);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .game-done-stamp {
+    --stamp: #ff4d5e;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-done-stamp {
+    animation: none;
+  }
 }
 
 /* 答えた後も、選んだ選択肢ははっきり見せる（ほかの選択肢は薄くする） */
@@ -2839,4 +2876,51 @@ table.import-table td.nowrap {
 
 .settings.event-end {
   margin-top: 1rem;
+}
+
+/* 参加者のゲームの結果（イベント情報） */
+.game-results {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.game-result h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+}
+
+.game-result-awards {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.game-result-awards li {
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.game-result-awards p {
+  margin: 0.25rem 0 0;
+}
+
+.game-result-rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0 0 0.5rem;
+}
+
+.game-result-rows dt {
+  color: var(--muted);
+}
+
+.game-result-rows dd {
+  margin: 0;
 }
