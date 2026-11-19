@@ -5,6 +5,7 @@ import {
   type GameDto,
   isPinLocked,
   type PhotoStatus,
+  type RoundDto,
   type Rules,
   type ScheduleItemDto,
   type Settings,
@@ -16,6 +17,7 @@ import type {
   GameAnswerRecord,
   GameRecord,
   PhotoRecord,
+  RoundRecord,
   ScheduleItemRecord,
   TokenRecord,
   UserRecord,
@@ -90,12 +92,18 @@ export function sortSchedule(items: ScheduleItemRecord[]): ScheduleItemDto[] {
 
 type ImageUrlOf = (imageId: string | undefined) => string | undefined;
 
-export function toGameDto(game: GameRecord, allAnswers: GameAnswerRecord[], imageUrlOf: ImageUrlOf): GameDto {
+export function toGameDto(
+  game: GameRecord,
+  allAnswers: GameAnswerRecord[],
+  imageUrlOf: ImageUrlOf,
+  roundId?: string,
+): GameDto {
   const answers = countedAnswers(game, allAnswers);
   const counts = new Map<string, number>();
   for (const a of answers) if (a.choiceId) counts.set(a.choiceId, (counts.get(a.choiceId) ?? 0) + 1);
   return {
     gameId: game.gameId,
+    ...(roundId ? { roundId } : {}),
     format: game.format,
     name: game.name,
     description: game.description,
@@ -147,6 +155,19 @@ export function toCurrentGameDto(
 export function toRules(settings: Settings, end?: EventEndRecord): Rules {
   const { moderation: _moderation, ...rules } = settings;
   return { ...rules, ...(end ? { eventEndedAt: end.endedAt } : {}) };
+}
+
+export function toRoundDto(round: RoundRecord): RoundDto {
+  return {
+    roundId: round.roundId,
+    name: round.name,
+    gameIds: round.gameIds,
+    status: round.status,
+    openedAt: round.openedAt,
+    confirmedAt: round.confirmedAt,
+    createdAt: round.createdAt,
+    updatedAt: round.updatedAt,
+  };
 }
 
 export function toTokenDto(token: TokenRecord, user?: UserRecord): TokenDto {

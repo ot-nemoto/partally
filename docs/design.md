@@ -116,6 +116,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | スケジュールの項目 | `SCHEDULE#<itemId>` | `META` | `SCHEDULE` | `<createdAt>#<itemId>` |
 | ゲーム | `GAME#<gameId>` | `META` | `GAMES` | `<createdAt>#<gameId>` |
 | ゲームの答え（結果入力以外） | `USER#<userId>` | `GANSWER#<gameId>` | `GANSWERS#<gameId>` | `<userId>` |
+| ラウンド | `ROUND#<roundId>` | `META` | `ROUNDS` | `<createdAt>#<roundId>` |
 | 開催中の印 | `GAME_STATE` | `OPEN` | – | – |
 | 設定 | `SETTINGS` | `GLOBAL` | – | – |
 | イベントの終了 | `EVENT` | `END` | – | – |
@@ -232,7 +233,9 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 
 **ゲームの答え（結果入力以外）**: 1 人 1 ゲームにつき 1 件。属性は `gameId`・`userId`・`answeredAt` と、クイズなら `choiceId`、数値予想なら `value`（0〜100 の整数）、投票なら `targetUserId`（選んだ人）、合言葉なら `text`（正解した言葉。正解したときだけ保存し、正解した後は上書きしない。自分の答えを強い整合性で読み、読んだときから変わっていないときだけ条件付きで保存するので、同時に送られても先の正解の時刻を守る）、抽選なら `entry: true`（参加した）。答え直すと上書きする。
 
-**開催中の印**: 属性は `gameId`。開催時に「存在しないこと」を条件にゲームの状態の変更と同じトランザクションで作り、開催中から変える（終了・やめる）ときに同じく消すことで、開催中を形式によらず 1 つに限る。
+**開催中の印**: 属性は `gameIds`（開催中のゲーム。ラウンドなら出す順）と、1 問なら `gameId`、ラウンドなら `roundId`（前の版の印は `gameId` だけで、1 問として読む）。開催時に「存在しないこと」を条件にゲーム（ラウンドなら中の全問とラウンド）の状態の変更と同じトランザクションで作り、開催中から変える（終了・中断）ときに同じく消すことで、開催中を「1 問」か「1 ラウンド」の 1 つに限る。
+
+**ラウンド**: 複数のゲームをまとめて開始・終了する単位。属性は `roundId`（ULID）・`name`（1〜50 文字）・`gameIds`（入っているゲーム。参加者に出す順。20 個まで）・`status`（ゲームと同じ `draft` / `open` / `confirmed`）・`position`（ラウンドの並び）・`openedAt`・`confirmedAt`・`createdAt`・`updatedAt`。1 つのゲームが入れるラウンドは 1 つまで（入れるときに確かめる）。開始・中断・終了・終了の取り消しは、ラウンド・中の全問・開催中の印を 1 トランザクションでまとめて変える（中の全問が同じ時刻になる）。ラウンドの条件には、読んだときの `gameIds` も含める。ゲームの出し入れは下書きのときだけ。ゲームを削除すると、入っていたラウンドから外す。
 
 **スケジュールの項目**
 
@@ -435,7 +438,7 @@ sequenceDiagram
 | POST | `/api/auth/register` | 未紐づけトークンに名前と暗証番号（数字 4 桁）を登録（二つ名自動付与） |
 | POST | `/api/auth/logout` | Cookie 削除 |
 | GET | `/api/me` | 自分の情報（表示名・アップロード数・ポイント・お気に入りの数・ゲームの点数と、点数が入ったもの `gameAwards`（ゲーム名・枠の名前かクイズで選んだ答えか数値予想の「N 位（予想 X）」か投票の「N 位（M 票）」「投票」か合言葉の「N 番目に正解」か抽選の「1 等に当選」・点数））とポイントのルール。CloudFront Cookie の再発行 |
-| GET | `/api/game/current` | 開催中のゲーム（形式・名前・説明・画像の署名付き URL と、クイズなら選択肢（画像の URL も）と自分の答え `myChoiceId`、数値予想なら自分の答え `myValue`、投票なら自分が選んだ人 `myTargetUserId`、合言葉なら自分が正解したか `myKeywordCorrect`、抽選なら自分が参加したか `myEntry`）。画像の URL は景品と同じく 1 時間ごとの区切りの期限で、同じ期限の URL はサーバの中で使い回す（5 秒ごとに呼ばれても署名を作り直さない）。無ければ `null`。何をしたら何点か（選択肢・枠・順位の範囲の点数、投票した人の点数）と、数値予想の正解の数・合言葉・誰がどの枠に入ったか・投票の票数は返さない。画面の表示中は 5 秒ごとと、別のアプリから戻ったときに呼ぶ（画面が見えていない間は呼ばない）。開催・終了が自動で反映される |
+| GET | `/api/game/current` | 開催中のゲーム。`games` は開催中の全問（ラウンドなら出す順）、`game` はその 1 問目（前の版の画面用）、`round` は開催中のラウンドの `{roundId, name}`。それぞれ（形式・名前・説明・画像の署名付き URL と、クイズなら選択肢（画像の URL も）と自分の答え `myChoiceId`、数値予想なら自分の答え `myValue`、投票なら自分が選んだ人 `myTargetUserId`、合言葉なら自分が正解したか `myKeywordCorrect`、抽選なら自分が参加したか `myEntry`）。画像の URL は景品と同じく 1 時間ごとの区切りの期限で、同じ期限の URL はサーバの中で使い回す（5 秒ごとに呼ばれても署名を作り直さない）。無ければ `null`。何をしたら何点か（選択肢・枠・順位の範囲の点数、投票した人の点数）と、数値予想の正解の数・合言葉・誰がどの枠に入ったか・投票の票数は返さない。画面の表示中は 5 秒ごとと、別のアプリから戻ったときに呼ぶ（画面が見えていない間は呼ばない）。開催・終了が自動で反映される |
 | GET | `/api/ranking` | ランキング（推移なし）。設定 `rankingVisible` がオフなら 404。紐づけを解除した人は除き、順位を付け直す。名前を伏せるときは全員の名前・称号・表示名を `???` にし、ユーザ ID を順番の番号（`r1`…）に置き換え、推移の始まり（登録した時刻）も全員そろえる。ポイントを伏せるときは、最大値を 100 とした割合（小数第 1 位まで）だけを返す。応答に `hideNames`・`hidePoints` を含む |
 | GET | `/api/trend` | ランキングと累計ポイントの推移。`trendVisible` がオフなら 404。伏せ方は `/api/ranking` と同じ（`trendHideNames`・`trendHidePoints` に従う） |
 | GET | `/api/prizes` | 景品の一覧（名前・数量・渡す順位・画像の署名付き URL）。`prizesVisible` がオフなら 404 |
@@ -472,11 +475,20 @@ sequenceDiagram
 | POST | `/api/admin/games/image-upload` | ゲームの画像（問題・選択肢）を 1 枚、受け口へアップロードする署名付き POST と `imageId` を発行（景品と同じ受け口・置き場） |
 | POST | `/api/admin/games` | ゲームを作る `{format, name, description?, imageId?, choices?: [{text, points, imageId?}], slots?: [{name, points, userIds}], ranks?: [{from, to, points}], correctNumber?, voterPoints?, keyword?}`（下書き）。`imageId` は受け口にアップロード済みであること（無い・ほかで使った画像は 400 `image_not_uploaded`、同じ画像を 2 か所は 400）。保存時に配信する領域へ移す。クイズは選択肢 2〜10 個で枠なし、結果入力は選択肢なし（枠は空でもよい）、数値予想・投票・合言葉は選択肢・枠なし（`ranks` は数値予想・投票・合言葉だけ、`correctNumber` は数値予想だけ、`voterPoints` は投票だけ、`keyword` は合言葉だけで必須。範囲の逆転・重なりは 400）。同じ人が 2 つの枠に入る・登録されていない人や紐づけを解除した人を新しく選ぶと 400 |
 | PUT | `/api/admin/games/{gameId}` | 名前・説明・選択肢・枠・選んだ人・順位の範囲・正解の数・投票した人の点数・合言葉を直す（作るときと同じ形。既存の選択肢・枠は `choiceId`・`slotId` を付けて送る）。開催中・終了済みでも直せる。差し替えた・外した画像は消す（保存できなかったときは、新しく移した画像を消す）。形式を変えると 400。クイズの選択肢の増減は、答えが無い下書きの間だけ（それ以外は 409）。終了した結果入力から枠を、終了した数値予想から正解の数か順位の範囲を、終了した投票・合言葉・抽選から順位の範囲を全部外すと 409。画面が持っている `updatedAt` を `baseUpdatedAt` で送ると、ほかで直されていたとき（保存済みと違うとき）は上書きせず 409 |
-| POST | `/api/admin/games/{gameId}/open` | 開催。下書きでない・別のゲームが開催中なら 409 |
+| POST | `/api/admin/games/{gameId}/open` | 開催。下書きでない・別のゲームかラウンドが開催中・ラウンドに入っているゲームなら 409（開始・中断・終了・取り消しのどれも、ラウンドに入っているゲームは 409） |
 | POST | `/api/admin/games/{gameId}/stop` | 中断して下書きに戻す（結果入力以外の答えは残る）。開催中でなければ 409 |
 | POST | `/api/admin/games/{gameId}/confirm` | 終了（その時刻でポイントが入る）。開催中からだけ。下書き・終了済み・結果入力で枠が 1 つも無い・数値予想で正解の数か順位の範囲が無い・投票・合言葉・抽選で順位の範囲が無いときは 409。抽選は、終了するときに参加した人の順番を決めて保存する |
 | POST | `/api/admin/games/{gameId}/unconfirm` | 終了を取り消して下書きに戻す（ポイントも消える）。終了していなければ 409 |
 | DELETE | `/api/admin/games/{gameId}` | 削除（答え・画像も消え、終了済みなら入ったポイントも消える）。開催中は 409 |
+| GET | `/api/admin/rounds` | ラウンドの一覧（並びの順） |
+| POST | `/api/admin/rounds` | ラウンドを作る `{name, gameIds}`（後ろに足す）。無いゲームは 400、ほかのラウンドに入っている・下書きでないゲームは 409 |
+| PUT | `/api/admin/rounds/{roundId}` | 名前とゲーム（出し入れ・並べ替え）を直す。ゲームを変えるのは下書きのときだけ（違えば 409。名前だけなら直せる） |
+| PUT | `/api/admin/rounds/order` | ラウンドの並び `{roundIds}`（全ラウンドを 1 回ずつ。違えば 400） |
+| DELETE | `/api/admin/rounds/{roundId}` | ラウンドを消す（中のゲームは残る）。開始中は 409 |
+| POST | `/api/admin/rounds/{roundId}/open` | 開始（中の全問を開催）。下書きでない・空・ほかが開催中なら 409 |
+| POST | `/api/admin/rounds/{roundId}/stop` | 中断（全問を下書きに戻す） |
+| POST | `/api/admin/rounds/{roundId}/confirm` | 終了（全問を同じ時刻に終了。抽選は順番を決める）。終了できない問題があれば、問題ごとの理由を添えて 409 |
+| POST | `/api/admin/rounds/{roundId}/unconfirm` | 終了の取り消し（全問を下書きに戻す） |
 | GET | `/api/admin/prizes` | 景品の一覧（作成順、画像の署名付き URL 付き） |
 | POST | `/api/admin/prizes/image-upload` | 景品の画像を 1 枚、受け口へアップロードする署名付き POST と `imageId` を発行 |
 | POST | `/api/admin/prizes` | 景品を登録する `{name, quantity, positions, imageId?}`。割り当てが数量を超える・順位が重複するときは 400。`imageId` は受け口にアップロード済みであること（無い・別の景品で使った画像は 400 `image_not_uploaded`。画面は、保存し直すときに前にアップロードした画像を使い回し、これが返ったときだけアップロードし直す）。保存時に配信する領域へ移す |
