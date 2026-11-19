@@ -151,6 +151,22 @@ export type GameChanges = Pick<
 >;
 
 /** クイズ・数値予想・投票・合言葉のゲームへの答え。1 人 1 ゲームにつき 1 件で、答え直すと上書きする */
+/** 押した時点の、ユーザごとのポイントの元の数（公開した写真・選ばれた数・選んだ数） */
+export interface EventEndCounts {
+  approvedCount: number;
+  favoritesReceived: number;
+  favoritesGiven: number;
+}
+
+/**
+ * イベントの終了。endedAt より後の出来事はポイントに数えない。写真とお気に入りはユーザのカウンタで数えるので、
+ * 押した時点の全員のカウンタを counts に残し、終了した後はその数で計算する（後から登録した人は 0）
+ */
+export interface EventEndRecord {
+  endedAt: string;
+  counts: Record<string, EventEndCounts>;
+}
+
 export interface GameAnswerRecord {
   gameId: string;
   userId: string;
@@ -455,4 +471,11 @@ export interface Repository {
 
   getSettings(): Promise<Settings>;
   putSettings(settings: Settings): Promise<void>;
+
+  // ---- イベントの終了 ----
+
+  getEventEnd(): Promise<EventEndRecord | undefined>;
+  /** 終了を記録する。既に終了していれば InvalidStateError */
+  putEventEnd(record: EventEndRecord): Promise<void>;
+  deleteEventEnd(): Promise<void>;
 }

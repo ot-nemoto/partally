@@ -12,6 +12,7 @@ import {
   type UserDto,
 } from "@partally/shared";
 import type {
+  EventEndRecord,
   GameAnswerRecord,
   GameRecord,
   PhotoRecord,
@@ -19,7 +20,7 @@ import type {
   TokenRecord,
   UserRecord,
 } from "./repository.js";
-import { calculatePoints, countedAnswers, type GameStats, isKeywordCorrect } from "./scoring.js";
+import { calculatePoints, countedAnswers, countsAtEnd, type GameStats, isKeywordCorrect } from "./scoring.js";
 
 /** 参加者・管理画面に出す写真（削除済みの記録は出さない） */
 export type VisiblePhoto = PhotoRecord & { status: PhotoStatus };
@@ -28,7 +29,9 @@ export function isVisible(photo: PhotoRecord): photo is VisiblePhoto {
   return photo.status !== "deleted";
 }
 
-export function toUserDto(user: UserRecord, settings: Settings, game: GameStats): UserDto {
+/** end があれば、写真・お気に入りの数とポイントは終了した時点のもの */
+export function toUserDto(user: UserRecord, settings: Settings, game: GameStats, end?: EventEndRecord): UserDto {
+  const counted = countsAtEnd(user, end);
   return {
     userId: user.userId,
     name: user.name,
@@ -36,11 +39,11 @@ export function toUserDto(user: UserRecord, settings: Settings, game: GameStats)
     displayName: formatDisplayName(user.epithet, user.name),
     status: user.status,
     uploadCount: user.uploadCount,
-    approvedCount: user.approvedCount,
-    favoritesGiven: user.favoritesGiven,
-    favoritesReceived: user.favoritesReceived,
+    approvedCount: counted.approvedCount,
+    favoritesGiven: counted.favoritesGiven,
+    favoritesReceived: counted.favoritesReceived,
     gamePoints: game.points,
-    points: calculatePoints(user, settings, game),
+    points: calculatePoints(counted, settings, game),
     pin: !user.pinHash ? "none" : isPinLocked(user.pinFailures) ? "locked" : "set",
     createdAt: user.createdAt,
   };
@@ -50,9 +53,14 @@ export function toUserDto(user: UserRecord, settings: Settings, game: GameStats)
  * 参加者本人に返すユーザ情報。ポイントを伏せている間は、ポイントとその元になる選ばれた数を含めない。
  * ゲームの点数を伏せている間は、ゲームの点数と点数が入ったものを含めない
  */
-export function toParticipantUserDto(user: UserRecord, settings: Settings, game: GameStats): UserDto {
+export function toParticipantUserDto(
+  user: UserRecord,
+  settings: Settings,
+  game: GameStats,
+  end?: EventEndRecord,
+): UserDto {
   // 暗証番号の状態は管理画面だけに返す
-  const { points, favoritesReceived, gamePoints, pin: _pin, ...rest } = toUserDto(user, settings, game);
+  const { points, favoritesReceived, gamePoints, pin: _pin, ...rest } = toUserDto(user, settings, game, end);
   return {
     ...rest,
     ...(settings.showPoints ? { points, favoritesReceived } : {}),
@@ -136,9 +144,9 @@ export function toCurrentGameDto(
   };
 }
 
-export function toRules(settings: Settings): Rules {
+export function toRules(settings: Settings, end?: EventEndRecord): Rules {
   const { moderation: _moderation, ...rules } = settings;
-  return rules;
+  return { ...rules, ...(end ? { eventEndedAt: end.endedAt } : {}) };
 }
 
 export function toTokenDto(token: TokenRecord, user?: UserRecord): TokenDto {

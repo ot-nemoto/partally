@@ -26,6 +26,7 @@ import {
 import {
   DEFAULT_SETTINGS,
   EpithetTakenError,
+  type EventEndRecord,
   FavoriteLimitError,
   formatLabel,
   GameAlreadyOpenError,
@@ -62,6 +63,7 @@ export const keys = {
   scheduleItem: (itemId: string) => ({ PK: `SCHEDULE#${itemId}`, SK: "META" }),
   game: (gameId: string) => ({ PK: `GAME#${gameId}`, SK: "META" }),
   settings: { PK: "SETTINGS", SK: "GLOBAL" },
+  eventEnd: { PK: "EVENT", SK: "END" },
   tokenLabelCounter: { PK: "COUNTER", SK: "TOKEN_LABEL" },
 };
 
@@ -1040,6 +1042,32 @@ export class DynamoRepository implements Repository {
 
   async putSettings(settings: Settings) {
     await this.client.send(new PutCommand({ TableName: this.tableName, Item: { ...keys.settings, ...settings } }));
+  }
+
+  async getEventEnd(): Promise<EventEndRecord | undefined> {
+    const { Item } = await this.client.send(
+      new GetCommand({ TableName: this.tableName, Key: keys.eventEnd, ConsistentRead: true }),
+    );
+    return Item ? { endedAt: Item.endedAt, counts: Item.counts ?? {} } : undefined;
+  }
+
+  async putEventEnd(record: EventEndRecord) {
+    try {
+      await this.client.send(
+        new PutCommand({
+          TableName: this.tableName,
+          Item: { ...keys.eventEnd, ...record },
+          ConditionExpression: "attribute_not_exists(PK)",
+        }),
+      );
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) throw new InvalidStateError();
+      throw e;
+    }
+  }
+
+  async deleteEventEnd() {
+    await this.client.send(new DeleteCommand({ TableName: this.tableName, Key: keys.eventEnd }));
   }
 
   /** 写真の状態を from → to に変え、同じトランザクションでアップロード者のカウンタを更新する */

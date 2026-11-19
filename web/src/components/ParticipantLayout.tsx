@@ -149,6 +149,15 @@ export function ParticipantLayout() {
   return (
     <div className="participant">
       <main className="page">
+        {/* イベントを終了した後は、ポイントの集計が止まったことを知らせる（受付は続く） */}
+        {state.rules.eventEndedAt && (
+          <p className="event-ended" role="status">
+            {t(
+              "イベントは終了しました。ポイントの集計は終わりました。",
+              "The event has ended. Points are no longer counted.",
+            )}
+          </p>
+        )}
         {banner && (
           <Link to="/game" className="quiz-banner">
             <strong>{banner.title}</strong>

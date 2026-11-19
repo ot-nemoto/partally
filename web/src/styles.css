@@ -2825,3 +2825,18 @@ table.import-table td.nowrap {
 .quiz-choice.selected:disabled {
   opacity: 1;
 }
+
+/* イベントを終了した後のお知らせ（参加者の画面の上） */
+.event-ended {
+  margin: 0 0 1rem;
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  font-weight: 600;
+  text-align: center;
+}
+
+.settings.event-end {
+  margin-top: 1rem;
+}
