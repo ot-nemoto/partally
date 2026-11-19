@@ -27,6 +27,8 @@ export type GameAnswerBody =
  */
 export function GameView(props: {
   game: CurrentGameDto;
+  /** ラウンドの中での番号（ラウンドなら名前を h2 にし、番号を添える） */
+  number?: number;
   /** 送っている答えの印（送っている間はボタンを押せない） */
   sending?: string;
   error?: string;
@@ -53,7 +55,14 @@ export function GameView(props: {
 
   return (
     <>
-      <h1>{game.name}</h1>
+      {props.number === undefined ? (
+        <h1>{game.name}</h1>
+      ) : (
+        <h2 className="round-game-title">
+          <span className="round-game-number">{props.number}</span>
+          {game.name}
+        </h2>
+      )}
       {(game.imageUrl || game.description) && (
         <section className="card">
           {game.imageUrl && <img className="game-image" src={game.imageUrl} alt={t("問題の画像", "Question image")} />}

@@ -6,6 +6,7 @@ import {
   gameBannerText,
   type MeResponse,
   type Rules,
+  roundBannerText,
   type UserDto,
 } from "@partally/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -26,10 +27,16 @@ export interface ParticipantContext {
   reloadUser: () => void;
   /** API の応答で受け取った最新のユーザ情報に差し替える */
   setUser: (user: UserDto) => void;
-  /** 開催中のゲーム（無ければ null、確認前は undefined） */
-  game: CurrentGameDto | null | undefined;
-  /** 答えの応答で受け取った最新の状態に差し替える */
-  setGame: (game: CurrentGameDto | null) => void;
+  /** 開催中のゲーム（ラウンドなら出す順の全問。無ければ空、確認前は undefined） */
+  games: CurrentGameDto[] | undefined;
+  /** 開催中のラウンド（1 問だけのときは無い） */
+  round?: { roundId: string; name: string };
+  /** 答えの応答で受け取った最新のゲームに差し替える */
+  setGame: (game: CurrentGameDto) => void;
+  /** 終わったことが分かったとき、開催中のゲームを無くす */
+  closeGames: () => void;
+  /** 開催中のゲームを読み直す */
+  refreshGames: () => Promise<void>;
 }
 
 export function useParticipant() {
@@ -75,22 +82,29 @@ export function ParticipantLayout() {
     [],
   );
 
-  const [game, setGameState] = useState<CurrentGameDto | null>();
+  const [current, setCurrent] = useState<Pick<CurrentGameResponse, "games" | "round">>();
   const loggedIn = useRef(false);
   loggedIn.current = state.kind === "user";
   // 答えと確認のたびに増やす。確認の途中で答えたり、後から送った確認が先に返ったりしたら、
   // 古い応答で上書きしない（遅い通信で確定前の応答が後から届き、お知らせが戻るのを防ぐ）
   const gameVersion = useRef(0);
-  const setGame = useCallback((next: CurrentGameDto | null) => {
+  const setGame = useCallback((next: CurrentGameDto) => {
     gameVersion.current++;
-    setGameState(next);
+    setCurrent((prev) => prev && { ...prev, games: prev.games.map((g) => (g.gameId === next.gameId ? next : g)) });
+  }, []);
+  const closeGames = useCallback(() => {
+    gameVersion.current++;
+    setCurrent({ games: [] });
   }, []);
   const refreshGame = useCallback(async () => {
     if (!loggedIn.current) return;
     const version = ++gameVersion.current;
     await api<CurrentGameResponse>("GET", "/game/current")
       .then((res) => {
-        if (gameVersion.current === version) setGameState(res.game);
+        // 前の版の API（games が無い）でも 1 問として読む
+        if (gameVersion.current === version) {
+          setCurrent({ games: res.games ?? (res.game ? [res.game] : []), round: res.round });
+        }
       })
       .catch((e) => {
         // ログインが切れたら案内の画面にする（確認も止まる）。通信エラーは次の確認に任せる
@@ -144,7 +158,13 @@ export function ParticipantLayout() {
     );
   }
 
-  const banner = game && location.pathname !== "/game" ? gameBannerText(game, lang) : undefined;
+  const games = current?.games ?? [];
+  const banner =
+    games.length === 0 || location.pathname === "/game"
+      ? undefined
+      : current?.round
+        ? roundBannerText(current.round, games, lang)
+        : gameBannerText(games[0]!, lang);
 
   return (
     <div className="participant">
@@ -167,7 +187,17 @@ export function ParticipantLayout() {
         <ReloadProvider value={reloadCount}>
           <Outlet
             context={
-              { user: state.user, rules: state.rules, reloadUser, setUser, game, setGame } satisfies ParticipantContext
+              {
+                user: state.user,
+                rules: state.rules,
+                reloadUser,
+                setUser,
+                games: current?.games,
+                round: current?.round,
+                setGame,
+                closeGames,
+                refreshGames: refreshGame,
+              } satisfies ParticipantContext
             }
           />
         </ReloadProvider>

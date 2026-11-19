@@ -61,3 +61,37 @@ function bannerNoteEn(game: CurrentGameDto): string {
       return "Tap to view";
   }
 }
+
+/** 答えた（参加した・合言葉に正解した）か。結果入力は答えるものが無いので undefined */
+export function isGameAnswered(game: CurrentGameDto): boolean | undefined {
+  switch (game.format) {
+    case "quiz":
+      return game.myChoiceId !== undefined;
+    case "number":
+      return game.myValue !== undefined;
+    case "vote":
+      return game.myTargetUserId !== undefined;
+    case "keyword":
+      return game.myKeywordCorrect === true;
+    case "lottery":
+      return game.myEntry === true;
+    default:
+      return undefined;
+  }
+}
+
+/** 開催中のラウンドのお知らせ（例: 第 1 部・3 問中 1 問回答済み） */
+export function roundBannerText(
+  round: { name: string },
+  games: CurrentGameDto[],
+  lang: "ja" | "en" = "ja",
+): { title: string; note: string } {
+  const answerable = games.map(isGameAnswered).filter((a) => a !== undefined);
+  const done = answerable.filter(Boolean).length;
+  if (lang === "en") {
+    const note = answerable.length === 0 ? "Tap to view" : `${done} of ${answerable.length} answered`;
+    return { title: "Questions are live", note: `${round.name} · ${note}` };
+  }
+  const note = answerable.length === 0 ? "タップして見る" : `${answerable.length} 問中 ${done} 問回答済み`;
+  return { title: "問題が出ています", note: `${round.name}・${note}` };
+}
