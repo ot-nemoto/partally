@@ -1604,8 +1604,8 @@ textarea {
   margin-left: auto;
 }
 
-/* 削除は左端に置き、ほかのボタン（右寄せ）から離す */
-.game-actions .game-delete {
+/* 削除（開催中は中断）は左端に置き、ほかのボタン（右寄せ）から離す */
+.game-actions .game-actions-left {
   margin-right: auto;
 }
 

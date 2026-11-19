@@ -358,14 +358,14 @@ export function AdminGames() {
             </ul>
           )}
           <div className="actions game-actions">
-            {/* 削除はほかのボタンから離して左端に置く（押し間違えないように） */}
+            {/* 削除（開催中は中断）はほかのボタンから離して左端に置く（押し間違えないように） */}
             {g.status !== "open" && (
-              <button type="button" className="danger game-delete" onClick={() => remove(g)} disabled={busy}>
+              <button type="button" className="danger game-actions-left" onClick={() => remove(g)} disabled={busy}>
                 {t("削除", "Delete")}
               </button>
             )}
             {g.status === "open" && (
-              <button type="button" onClick={() => stopGame(g)} disabled={busy}>
+              <button type="button" className="game-actions-left" onClick={() => stopGame(g)} disabled={busy}>
                 {t("中断", "Pause")}
               </button>
             )}
