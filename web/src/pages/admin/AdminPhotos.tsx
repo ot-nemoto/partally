@@ -2,6 +2,7 @@ import type { PhotoDto, PhotoResponse, PhotoStatus, PhotosResponse, SettingsResp
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../api";
+import { confirmDialog } from "../../components/ConfirmDialog";
 import { Lightbox } from "../../components/Lightbox";
 import { PageTitle } from "../../components/PageTitle";
 import { formatDateTime } from "../../format";
@@ -72,7 +73,9 @@ export function AdminPhotos() {
     if (actingRef.current.has(photo.photoId)) return;
     if (
       action === "delete" &&
-      !confirm(t("この写真を削除します。元に戻せません。よろしいですか？", "Delete this photo? This can’t be undone."))
+      !(await confirmDialog(
+        t("この写真を削除します。元に戻せません。よろしいですか？", "Delete this photo? This can’t be undone."),
+      ))
     )
       return;
     actingRef.current.add(photo.photoId);

@@ -2,6 +2,7 @@ import type { TokenDto, TokensResponse } from "@partally/shared";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../api";
+import { confirmDialog } from "../../components/ConfirmDialog";
 import { PageTitle } from "../../components/PageTitle";
 import { useOnReload } from "../../hooks/useReload";
 import { useLang, useT } from "../../i18n";
@@ -29,12 +30,12 @@ export function AdminTokens() {
   async function issue(e: FormEvent) {
     e.preventDefault();
     if (
-      !confirm(
+      !(await confirmDialog(
         t(
           `QR コードを ${count} 件発行します。よろしいですか？`,
           `Issue ${count} QR ${count === 1 ? "code" : "codes"}?`,
         ),
-      )
+      ))
     )
       return;
     setIssuing(true);

@@ -3031,3 +3031,13 @@ table.import-table td.nowrap {
   max-width: 60vw;
   font-size: 0.8rem;
 }
+
+/* 画面内の確認ダイアログ（改行は文のとおりに出す） */
+.confirm-dialog {
+  width: min(28rem, calc(100vw - 2rem));
+}
+
+.confirm-message {
+  margin: 0 0 1rem;
+  white-space: pre-line;
+}

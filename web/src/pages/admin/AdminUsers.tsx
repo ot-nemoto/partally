@@ -1,6 +1,7 @@
 import type { PinStatus, UserDto, UserResponse, UsersResponse } from "@partally/shared";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
+import { confirmDialog } from "../../components/ConfirmDialog";
 import { Modal } from "../../components/Modal";
 import { PageTitle } from "../../components/PageTitle";
 import { StatusFilter, useShownStatuses } from "../../components/StatusFilter";
@@ -66,12 +67,12 @@ export function AdminUsers() {
 
   async function unbind(user: UserDto) {
     if (
-      !confirm(
+      !(await confirmDialog(
         t(
           `${user.displayName} と QR コードの紐づけを解除します。\n本人は再ログインできなくなり、その QR は新規登録用に戻ります。よろしいですか？`,
           `Unlink ${user.displayName} from the QR code?\nThey won’t be able to log in again, and the QR code goes back to unused.`,
         ),
-      )
+      ))
     ) {
       return;
     }
@@ -86,12 +87,12 @@ export function AdminUsers() {
   /** 暗証番号のロックを解除する（間違えた回数を 0 に戻す） */
   async function unlockPin(user: UserDto) {
     if (
-      !confirm(
+      !(await confirmDialog(
         t(
           `${user.displayName} の暗証番号のロックを解除します。よろしいですか？`,
           `Unlock the PIN of ${user.displayName}?`,
         ),
-      )
+      ))
     )
       return;
     try {
@@ -104,12 +105,12 @@ export function AdminUsers() {
   /** 暗証番号を消す（忘れた人。次にほかの端末で QR コードを読み込んだときに決め直す） */
   async function clearPin(user: UserDto) {
     if (
-      !confirm(
+      !(await confirmDialog(
         t(
           `${user.displayName} の暗証番号を消します。\n次にログインしていない端末で QR コードを読み込んだ人が、新しい暗証番号を決められます。本人がその場で読み込むときに消してください。よろしいですか？`,
           `Clear the PIN of ${user.displayName}?\nThe next person to scan the QR code on a device that isn’t logged in can set a new PIN, so do this only while they scan it in front of you.`,
         ),
-      )
+      ))
     ) {
       return;
     }

@@ -11,6 +11,7 @@ import {
 } from "@partally/shared";
 import { type FormEvent, useState } from "react";
 import { api, errorMessage } from "../../../api";
+import { confirmDialog } from "../../../components/ConfirmDialog";
 import { Modal } from "../../../components/Modal";
 import { formatRecentTime } from "../../../format";
 import { tr, useLang, useT } from "../../../i18n";
@@ -59,19 +60,19 @@ export function RoundsSection(props: {
   const post = (r: RoundDto, action: string) =>
     run(async () => props.onSaved((await api<RoundResponse>("POST", `/admin/rounds/${r.roundId}/${action}`)).round));
 
-  const start = (r: RoundDto) => {
+  const start = async (r: RoundDto) => {
     if (
-      !confirm(
+      !(await confirmDialog(
         tr(
           `「${r.name}」を開始し、${r.gameIds.length} 問を参加者に出します。よろしいですか？`,
           `Start “${r.name}” and show ${r.gameIds.length} questions to participants?`,
         ),
-      )
+      ))
     )
       return;
     return post(r, "open");
   };
-  const end = (r: RoundDto) => {
+  const end = async (r: RoundDto) => {
     const problems = gamesOf(r).flatMap((g) => {
       const p = gameConfirmProblem(g, lang);
       return p ? [`「${g.name}」: ${p}`] : [];
@@ -86,48 +87,48 @@ export function RoundsSection(props: {
       return;
     }
     if (
-      !confirm(
+      !(await confirmDialog(
         tr(
           `「${r.name}」の ${r.gameIds.length} 問をまとめて終了し、ポイントを入れます。よろしいですか？`,
           `End all ${r.gameIds.length} questions in “${r.name}” and award points?`,
         ),
-      )
+      ))
     )
       return;
     return post(r, "confirm");
   };
-  const pause = (r: RoundDto) => {
+  const pause = async (r: RoundDto) => {
     if (
-      !confirm(
+      !(await confirmDialog(
         tr(
           `「${r.name}」を中断して、全問を下書きに戻します。答えは残ります。よろしいですか？`,
           `Pause “${r.name}” and return all questions to draft? Answers are kept.`,
         ),
-      )
+      ))
     )
       return;
     return post(r, "stop");
   };
-  const undo = (r: RoundDto) => {
+  const undo = async (r: RoundDto) => {
     if (
-      !confirm(
+      !(await confirmDialog(
         tr(
           `「${r.name}」の終了を取り消して、全問を下書きに戻します。入ったポイントも消えます。よろしいですか？`,
           `Undo ending “${r.name}” and return all questions to draft? The awarded points are removed.`,
         ),
-      )
+      ))
     )
       return;
     return post(r, "unconfirm");
   };
-  const remove = (r: RoundDto) => {
+  const remove = async (r: RoundDto) => {
     if (
-      !confirm(
+      !(await confirmDialog(
         tr(
           `ラウンド「${r.name}」を削除します（中のゲームは残ります）。よろしいですか？`,
           `Delete the round “${r.name}”? (Its games are kept.)`,
         ),
-      )
+      ))
     )
       return;
     return run(async () => {

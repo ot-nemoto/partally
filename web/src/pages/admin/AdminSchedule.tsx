@@ -16,6 +16,7 @@ import {
 } from "@partally/shared";
 import { type FormEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
+import { confirmDialog } from "../../components/ConfirmDialog";
 import { Modal } from "../../components/Modal";
 import { PageTitle } from "../../components/PageTitle";
 import { ScheduleBlockDetail } from "../../components/ScheduleTimeline";
@@ -499,7 +500,11 @@ function ScheduleItemDialog(props: {
   }
 
   async function remove() {
-    if (!item || !confirm(tr(`「${item.title}」を削除します。よろしいですか？`, `Delete “${item.title}”?`))) return;
+    if (
+      !item ||
+      !(await confirmDialog(tr(`「${item.title}」を削除します。よろしいですか？`, `Delete “${item.title}”?`)))
+    )
+      return;
     setSaving(true);
     try {
       await api("DELETE", `/admin/schedule/${item.itemId}`);

@@ -16,6 +16,7 @@ import {
 } from "@partally/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorMessage } from "../../api";
+import { confirmDialog } from "../../components/ConfirmDialog";
 import { PageTitle } from "../../components/PageTitle";
 import { StatusFilter, useShownStatuses } from "../../components/StatusFilter";
 import { formatRecentTime } from "../../format";
@@ -145,26 +146,28 @@ export function AdminGames() {
 
   const post = (g: GameDto, action: string) =>
     run(() => api<GameResponse>("POST", `/admin/games/${g.gameId}/${action}`));
-  const confirmGame = (g: GameDto) => {
+  const confirmGame = async (g: GameDto) => {
     if (
-      !confirm(tr(`「${g.name}」を終了します。${confirmNote(g)}よろしいですか？`, `End “${g.name}”? ${confirmNote(g)}`))
+      !(await confirmDialog(
+        tr(`「${g.name}」を終了します。${confirmNote(g)}よろしいですか？`, `End “${g.name}”? ${confirmNote(g)}`),
+      ))
     )
       return;
     return post(g, "confirm");
   };
-  const stopGame = (g: GameDto) => {
+  const stopGame = async (g: GameDto) => {
     if (
-      !confirm(
+      !(await confirmDialog(
         tr(
           `「${g.name}」を中断して下書きに戻します。${hasGameAnswers(g) ? "答えは残ります。" : ""}よろしいですか？`,
           `Pause “${g.name}” and return it to draft?${hasGameAnswers(g) ? " Answers are kept." : ""}`,
         ),
-      )
+      ))
     )
       return;
     return post(g, "stop");
   };
-  const unconfirmGame = (g: GameDto) => {
+  const unconfirmGame = async (g: GameDto) => {
     const redraw =
       g.format === "lottery"
         ? tr(
@@ -173,24 +176,27 @@ export function AdminGames() {
           )
         : "";
     if (
-      !confirm(
+      !(await confirmDialog(
         tr(
           `「${g.name}」の終了を取り消して下書きに戻します。入ったポイントも消えます。${redraw}\nよろしいですか？`,
           `Undo ending “${g.name}” and return it to draft? The awarded points are removed.${redraw}`,
         ),
-      )
+      ))
     )
       return;
     return post(g, "unconfirm");
   };
-  const remove = (g: GameDto) => {
+  const remove = async (g: GameDto) => {
     const note =
       g.status === "confirmed"
         ? tr("\n入ったポイントも消えます。", "\nThe awarded points are removed too.")
         : g.storedAnswerCount > 0
           ? tr("\n答えも消えます。", "\nThe answers are removed too.")
           : "";
-    if (!confirm(tr(`「${g.name}」を削除します。${note}\nよろしいですか？`, `Delete “${g.name}”?${note}`))) return;
+    if (
+      !(await confirmDialog(tr(`「${g.name}」を削除します。${note}\nよろしいですか？`, `Delete “${g.name}”?${note}`)))
+    )
+      return;
     return run(async () => {
       await api("DELETE", `/admin/games/${g.gameId}`);
       deleted.current.add(g.gameId);

@@ -10,6 +10,7 @@ import {
 } from "@partally/shared";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../../api";
+import { confirmDialog } from "../../components/ConfirmDialog";
 import { Modal } from "../../components/Modal";
 import { NumberField } from "../../components/NumberField";
 import { PageTitle } from "../../components/PageTitle";
@@ -48,7 +49,8 @@ export function AdminPrizes() {
   useOnReload(load);
 
   async function remove(prize: PrizeDto) {
-    if (!confirm(tr(`「${prize.name}」を削除します。よろしいですか？`, `Delete “${prize.name}”?`))) return;
+    if (!(await confirmDialog(tr(`「${prize.name}」を削除します。よろしいですか？`, `Delete “${prize.name}”?`))))
+      return;
     setBusy(true);
     try {
       await api("DELETE", `/admin/prizes/${prize.prizeId}`);
