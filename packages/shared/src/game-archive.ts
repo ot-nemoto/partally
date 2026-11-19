@@ -8,7 +8,7 @@ import {
   readArchive,
 } from "./archive.js";
 import type { RankRange } from "./game-rules.js";
-import { gameRequestSchema } from "./schemas.js";
+import { gameRequestSchema, roundRequestSchema } from "./schemas.js";
 import type { GameFormat } from "./types.js";
 
 /**
@@ -46,6 +46,16 @@ export interface GameArchiveItem {
   correctNumber?: number;
   voterPoints: number;
   keyword?: string;
+  /** 入っていたラウンド（名前・ラウンドの並び・ラウンドの中の順）。取り込むとき、同じ名前のラウンドを作り直す */
+  round?: GameArchiveRound;
+}
+
+export interface GameArchiveRound {
+  name: string;
+  /** ラウンドの並び（0 から） */
+  position: number;
+  /** ラウンドの中の順（0 から） */
+  index: number;
 }
 
 export interface ManifestGame extends Omit<GameArchiveItem, "image" | "choices"> {
@@ -156,7 +166,10 @@ export function parseGames(list: unknown[], file: (path: string) => Uint8Array |
       if (typeof choiceImage === "string") return fail(choiceImage);
       choices.push({ text: choice.text, points: choice.points, ...(choiceImage ? { image: choiceImage } : {}) });
     }
+    // ラウンドは任意（前の版のファイルには無い）。形が合わなければ、ラウンドを付けずに取り込む
+    const round = parseRound(raw.round);
     games.push({
+      ...(round ? { round } : {}),
       format: parsed.data.format,
       name: parsed.data.name,
       description: parsed.data.description ?? "",
@@ -170,6 +183,14 @@ export function parseGames(list: unknown[], file: (path: string) => Uint8Array |
     });
   }
   return { ok: true, games };
+}
+
+function parseRound(raw: unknown): GameArchiveRound | undefined {
+  if (!isRecord(raw)) return undefined;
+  const name = roundRequestSchema.shape.name.safeParse(raw.name);
+  const isIndex = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0;
+  if (!name.success || !isIndex(raw.position) || !isIndex(raw.index)) return undefined;
+  return { name: name.data, position: raw.position, index: raw.index };
 }
 
 function fail(error: string): GameArchiveResult {

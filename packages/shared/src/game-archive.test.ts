@@ -103,6 +103,29 @@ describe("ゲームの ZIP", () => {
     });
   });
 
+  it("入っていたラウンドも書き出して読む。形の合わないラウンドは付けずに読む", () => {
+    const withRound: GameArchiveItem[] = [
+      { ...games[0]!, round: { name: "第 1 部", position: 0, index: 1 } },
+      { ...games[1]!, round: { name: "第 1 部", position: 0, index: 0 } },
+      games[2]!,
+    ];
+    const read = readGameArchive(buildGameArchive(withRound, "2026-01-01T00:00:00.000Z"));
+    expect(read.ok && read.games.map((g) => g.round)).toEqual([
+      { name: "第 1 部", position: 0, index: 1 },
+      { name: "第 1 部", position: 0, index: 0 },
+      undefined,
+    ]);
+    const bad = readGameArchive(
+      zipSync({
+        "games.json": manifest([
+          { ...base, format: "result", name: "A", slots: [], round: { name: "", position: 0, index: 0 } },
+          { ...base, format: "result", name: "B", slots: [], round: { name: "R", position: -1, index: 0 } },
+        ]),
+      }),
+    );
+    expect(bad.ok && bad.games.map((g) => g.round)).toEqual([undefined, undefined]);
+  });
+
   it("形の違うファイルや、作成の決まりに合わないゲームは、理由を出して何も取り込まない", () => {
     expect(readGameArchive(strToU8("zip ではない"))).toMatchObject({ ok: false });
     expect(errorOf({ "a.txt": strToU8("x") })).toContain("games.json がありません");

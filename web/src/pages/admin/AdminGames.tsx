@@ -8,6 +8,8 @@ import {
   gameFormatLabel,
   hasGameAnswers,
   hasGameRanks,
+  type RoundDto,
+  type RoundsResponse,
   rankUnit,
   type TokensResponse,
   type UsersResponse,
@@ -24,6 +26,7 @@ import { GameAnswersDialog } from "./games/GameAnswersDialog";
 import { GameFormDialog } from "./games/GameFormDialog";
 import { GamePreviewDialog } from "./games/GamePreviewDialog";
 import { type Member, MemberPickerDialog } from "./games/MemberPickerDialog";
+import { RoundsSection } from "./games/Rounds";
 
 const STATUS_LABEL: Record<GameStatus, [ja: string, en: string]> = {
   draft: ["下書き", "Draft"],
@@ -50,6 +53,7 @@ export function AdminGames() {
     confirmed: t(...STATUS_LABEL.confirmed),
   };
   const [games, setGames] = useState<GameDto[]>();
+  const [rounds, setRounds] = useState<RoundDto[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState<GameDto | "new">();
@@ -66,11 +70,13 @@ export function AdminGames() {
 
   const load = useCallback(async () => {
     try {
-      const [g, u, t] = await Promise.all([
+      const [g, u, t, r] = await Promise.all([
         api<GamesResponse>("GET", "/admin/games"),
         api<UsersResponse>("GET", "/admin/users"),
         api<TokensResponse>("GET", "/admin/tokens"),
+        api<RoundsResponse>("GET", "/admin/rounds"),
       ]);
+      setRounds(r.rounds);
       const labels = new Map(t.tokens.flatMap((tok) => (tok.userId ? [[tok.userId, tok.label] as const] : [])));
       setGames((prev) => mergeGames(prev, g.games, deleted.current, fresh.current));
       setMembers(
@@ -176,6 +182,7 @@ export function AdminGames() {
   };
 
   const hasOpen = games?.some((g) => g.status === "open") ?? false;
+  const roundName = new Map(rounds.map((r) => [r.roundId, r.name]));
   // 「第 N ゲーム」は作成順の番号。新しいゲームを上にし、選んだ状態のゲームだけを出す
   const numbered = (games ?? []).map((game, i) => ({ game, number: i + 1 }));
   const sorted = numbered.filter(({ game }) => shown.has(game.status)).reverse();
@@ -197,11 +204,12 @@ export function AdminGames() {
       </PageTitle>
       <p className="muted small">
         {t(
-          "形式は「クイズ」「数値予想」「投票」「合言葉」「抽選」「結果入力」から選べます（それぞれの説明は「ゲームを作る」に出ます）。「開始」と参加者の画面にお知らせが出ます（開催中にできるのは 1 つだけ）。「終了」でポイントが入ります。",
-          "Choose a format: Quiz, Number guess, Vote, Keyword, Lottery or Result entry (each is explained in “New game”). “Start” shows a notice on participants’ screens (only one game can be live at a time). “End” awards the points.",
+          "形式は「クイズ」「数値予想」「投票」「合言葉」「抽選」「結果入力」から選べます（それぞれの説明は「ゲームを作る」に出ます）。「開始」と参加者の画面にお知らせが出ます（開催中にできるのは 1 問か 1 ラウンドのどちらか 1 つだけ）。「終了」でポイントが入ります。",
+          "Choose a format: Quiz, Number guess, Vote, Keyword, Lottery or Result entry (each is explained in “New game”). “Start” shows a notice on participants’ screens (only one game or one round can be live at a time). “End” awards the points.",
         )}
       </p>
       {error && <p className="error">{error}</p>}
+      {games && <RoundsSection rounds={rounds} games={games} hasOpen={hasOpen} onChanged={load} />}
       {games?.length === 0 && <p className="muted">{t("まだゲームがありません。", "No games yet.")}</p>}
       {hiddenCount > 0 && (
         <p className="muted small">{t(`${hiddenCount} 件を非表示にしています。`, `${hiddenCount} hidden.`)}</p>
@@ -236,8 +244,14 @@ export function AdminGames() {
                 {t(`${formatRecentTime(g.confirmedAt)} に終了`, `Ended at ${formatRecentTime(g.confirmedAt)}`)}
               </span>
             )}
+            {/* ラウンドに入っているゲームは、ラウンドで開始・終了する */}
+            {g.roundId && (
+              <span className="game-round-chip small">
+                {t(`ラウンド「${roundName.get(g.roundId) ?? ""}」`, `Round “${roundName.get(g.roundId) ?? ""}”`)}
+              </span>
+            )}
             {/* 進行のボタン（下書きは開始、開催中は同じ位置に終了）はカードの右上に置く */}
-            {g.status === "draft" && (
+            {!g.roundId && g.status === "draft" && (
               <button
                 type="button"
                 className="primary game-start"
@@ -247,7 +261,7 @@ export function AdminGames() {
                 {t("開始", "Start")}
               </button>
             )}
-            {g.status === "open" && (
+            {!g.roundId && g.status === "open" && (
               <button
                 type="button"
                 className="primary game-start"
@@ -364,12 +378,12 @@ export function AdminGames() {
                 {t("削除", "Delete")}
               </button>
             )}
-            {g.status === "open" && (
+            {!g.roundId && g.status === "open" && (
               <button type="button" className="game-actions-left" onClick={() => stopGame(g)} disabled={busy}>
                 {t("中断", "Pause")}
               </button>
             )}
-            {g.status === "confirmed" && (
+            {!g.roundId && g.status === "confirmed" && (
               <button type="button" onClick={() => unconfirmGame(g)} disabled={busy}>
                 {t("終了を取り消す", "Undo end")}
               </button>

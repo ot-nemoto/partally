@@ -2952,3 +2952,60 @@ table.import-table td.nowrap {
   color: var(--accent-text);
   font-size: 0.95rem;
 }
+
+/* ラウンド（管理画面のゲームの上） */
+.rounds {
+  margin-bottom: 2rem;
+}
+
+.rounds-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.rounds-head h2 {
+  margin: 0;
+}
+
+.round-card {
+  border-left: 4px solid var(--accent);
+}
+
+.round-card-games {
+  margin: 0 0 0.75rem;
+  padding-left: 1.5rem;
+}
+
+.round-card-games li {
+  padding: 0.15rem 0;
+}
+
+.game-round-chip {
+  padding: 0 0.5rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.25rem;
+  color: var(--accent);
+}
+
+.round-dialog-list {
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.round-dialog-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.round-dialog-buttons {
+  display: flex;
+  flex: none;
+  gap: 0.25rem;
+}
