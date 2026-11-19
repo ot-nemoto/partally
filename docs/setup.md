@@ -186,7 +186,10 @@ https://github.com/ot-nemoto/partally/settings/environments → **New environmen
 - Repository secrets（Settings → Secrets and variables → Actions）に登録しても動くが、Environment に登録すると **デプロイジョブ以外から参照できなくなる** ので、こちらを推奨する。
 - **Deployment branches and tags** を「Selected branches and tags」にして `develop` だけを許可する。develop 以外のブランチに置いたワークフローからは `production` に入れず、ロールも引き受けられなくなる（develop への反映には PR のマージが必要になる）。
 - 「Required reviewers」に自分を入れると、デプロイ前に承認が必要になる。
-- ログに出るアカウント ID は、ロール ARN を Secret にすることと、ワークフローの `mask-aws-account-id` で `***` に伏せる。S3 バケット名・DynamoDB テーブル名・CloudFront の URL はログに出るが、それだけではアクセスできない（バケットは非公開、テーブルは IAM の権限が必要）。
+- 公開リポジトリの Actions のログには、アカウント ID や本番の URL・リソース名を出さない。
+  - ロール ARN は Secret にする（Variables だとステップの見出しにそのまま出る）。
+  - AWS の認証は、自前の action（`.github/actions/aws-oidc`）で行う。`aws-actions/configure-aws-credentials` は使わない。このアクションは、アカウント ID を割り出せるロールの一意な ID（`AROA…`）をログに出すため。自前の action は、OIDC でロールを引き受けたあと、認証情報・ロールの ID・ARN・アカウント ID を `***` に伏せてから環境変数に入れる。
+  - deploy ジョブは、デプロイの前に今のスタックの Outputs（URL・バケット名・テーブル名）とスタック ID を伏せる。CDK が最後に出す Outputs と Stack ARN も表示しない。
 
 ### A-3. デプロイの実行
 
@@ -194,12 +197,17 @@ develop へ PR をマージする（develop へ push される）と、CI ワー
 
 初回や、コードを変えずにデプロイし直したいときは、https://github.com/ot-nemoto/partally/actions/workflows/ci.yml → **Run workflow**（ブランチは `develop`）で手動実行する。
 
-deploy ジョブは「インストール → 画面ビルド → CDK デプロイ」を行う。デプロイは 1 つずつ行い、続けて push されたときは最新のコミットだけをデプロイする（develop の先頭でなくなったコミットは省略する。新しいコミットが古い変更も含むため）。初回は CloudFront の作成があるため 10 分前後かかる。完了後、deploy ジョブの `Deploy` ステップのログ末尾に URL が出る。
+deploy ジョブは「インストール → 画面ビルド → CDK デプロイ」を行う。デプロイは 1 つずつ行い、続けて push されたときは最新のコミットだけをデプロイする（develop の先頭でなくなったコミットは省略する。新しいコミットが古い変更も含むため）。初回は CloudFront の作成があるため 10 分前後かかる。URL はログに出さない。確かめ方は次のどちらか。
 
+- CI の実行結果のページの「デプロイ先」（ジョブのまとめ）にあるリンクから、CloudFormation コンソールのスタック `Partally` の Outputs を開く。AWS にログインしている必要がある。リンクに入るのはリージョンとスタック名だけ。
+- 手元で、デプロイ先のアカウントの認証情報を使って次を実行する。
+
+```bash
+aws cloudformation describe-stacks --stack-name Partally --region ap-northeast-1 \
+  --query "Stacks[0].Outputs[].[OutputKey, OutputValue]" --output table
 ```
-Partally.Url = https://xxxxxxxx.cloudfront.net
-Partally.AdminUrl = https://xxxxxxxx.cloudfront.net/admin
-```
+
+Outputs のうち、`Url` が参加者の画面の URL、`AdminUrl` が管理画面の URL。
 
 ### A-4. リリース（develop → master）の設定
 
