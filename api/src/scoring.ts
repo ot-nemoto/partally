@@ -179,6 +179,40 @@ export function gameAwards(entries: GameWithAnswers[], endedAt?: string): GameAw
   return awards;
 }
 
+/**
+ * 終了したゲームごとの結果（終了した順）。点数が入った人を、同じ枠・答え・順位ごとにまとめる（点数の高い順）。
+ * 数え方は gameAwards と同じ。endedAt より後に終了したゲームは uncounted を付ける
+ */
+export function gameResults(
+  entries: GameWithAnswers[],
+  endedAt?: string,
+): {
+  game: GameRecord & { confirmedAt: string };
+  uncounted: boolean;
+  awards: { slotName: string; points: number; userIds: string[] }[];
+}[] {
+  return entries
+    .filter(
+      (e): e is GameWithAnswers & { game: { confirmedAt: string } } =>
+        e.game.status === "confirmed" && !!e.game.confirmedAt,
+    )
+    .sort((a, b) => a.game.confirmedAt.localeCompare(b.game.confirmedAt))
+    .map(({ game, answers }) => {
+      const groups = new Map<string, { slotName: string; points: number; userIds: string[] }>();
+      for (const award of GAME_SCORING[game.format].awards(game, countedAnswers(game, answers))) {
+        const key = `${award.slotName}\u0000${award.points}`;
+        const group = groups.get(key) ?? { slotName: award.slotName, points: award.points, userIds: [] };
+        group.userIds.push(award.userId);
+        groups.set(key, group);
+      }
+      return {
+        game,
+        uncounted: endedAt !== undefined && game.confirmedAt > endedAt,
+        awards: [...groups.values()].sort((a, b) => b.points - a.points),
+      };
+    });
+}
+
 /** 全員分のゲームの点数と、点数が入ったもの */
 export function gameStatsByUser(entries: GameWithAnswers[], endedAt?: string): Map<string, GameStats> {
   const byUser = new Map<string, GameStats>();

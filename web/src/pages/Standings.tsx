@@ -1,5 +1,8 @@
 import {
   formatPositionLabel,
+  type GameResultDto,
+  type GameResultsResponse,
+  gameFormatLabel,
   type ParticipantRankingResponse,
   prizesForDisplay,
   TIE_BREAK_LABEL,
@@ -16,13 +19,14 @@ import { useOnReload } from "../hooks/useReload";
 import { useLang, useT } from "../i18n";
 import { ScheduleView } from "./ScheduleView";
 
-type View = "schedule" | "ranking" | "trend" | "prizes";
+type View = "schedule" | "ranking" | "trend" | "prizes" | "games";
 
 const VIEW_LABEL: Record<View, [ja: string, en: string]> = {
   schedule: ["スケジュール", "Schedule"],
   ranking: ["ランキング", "Ranking"],
   trend: ["ポイントの推移", "Trend"],
   prizes: ["景品", "Prizes"],
+  games: ["ゲームの結果", "Game results"],
 };
 
 /**
@@ -37,8 +41,9 @@ export function Standings() {
     ranking: rules.rankingVisible,
     trend: rules.trendVisible,
     prizes: rules.prizesVisible,
+    games: rules.gameResultsVisible,
   };
-  const views = (["schedule", "ranking", "trend", "prizes"] as const).filter((v) => visible[v]);
+  const views = (["schedule", "ranking", "trend", "prizes", "games"] as const).filter((v) => visible[v]);
   const [selected, setSelected] = useState<View>();
   const view = selected && views.includes(selected) ? selected : views[0];
 
@@ -65,12 +70,72 @@ export function Standings() {
         <ScheduleView />
       ) : view === "prizes" ? (
         <PrizesView />
+      ) : view === "games" ? (
+        <GameResultsView />
       ) : view ? (
         <StandingsView key={view} view={view} withPrizes={rules.prizesVisible} />
       ) : (
         <p className="muted">{t("今は公開されていません。", "Not available right now.")}</p>
       )}
     </section>
+  );
+}
+
+/** 終了したゲームごとに、点数が入った人（枠・答え・順位ごと）を見せる（終了した順） */
+function GameResultsView() {
+  const t = useT();
+  const lang = useLang();
+  const [games, setGames] = useState<GameResultDto[]>();
+  const [error, setError] = useState<string>();
+  const load = useCallback(() => {
+    api<GameResultsResponse>("GET", "/game-results")
+      .then((res) => {
+        setGames(res.games);
+        setError(undefined);
+      })
+      .catch((e) => setError(errorMessage(e)));
+  }, []);
+  useEffect(load, [load]);
+  useOnReload(load);
+
+  if (error) return <p className="error">{error}</p>;
+  if (!games) return <p className="muted">{t("読み込み中…", "Loading…")}</p>;
+  if (games.length === 0)
+    return <p className="muted">{t("まだ終了したゲームはありません。", "No games have ended yet.")}</p>;
+  return (
+    <ol className="game-results">
+      {games.map((g) => (
+        <li key={g.gameId} className="card game-result">
+          <h3>
+            {g.name}
+            <span className="game-format small">{gameFormatLabel(g.format, lang)}</span>
+          </h3>
+          {g.uncounted && (
+            <p className="muted small">
+              {t(
+                "イベントの終了の後に終了したので、ポイントには数えていません。",
+                "Ended after the event ended, so it doesn’t count toward points.",
+              )}
+            </p>
+          )}
+          {g.awards.length === 0 ? (
+            <p className="muted small">{t("点数が入った人はいません。", "No one got points.")}</p>
+          ) : (
+            <ul className="game-result-awards">
+              {g.awards.map((a) => (
+                <li key={`${a.slotName}-${a.points}`}>
+                  <div className="game-result-slot">
+                    <strong>{a.slotName}</strong>
+                    <span className="game-result-points">+{a.points}</span>
+                  </div>
+                  <p className="small">{a.names.join(t("、", ", "))}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </li>
+      ))}
+    </ol>
   );
 }
 

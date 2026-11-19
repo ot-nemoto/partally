@@ -54,6 +54,7 @@ describe("API", () => {
         prizesVisible: false,
         tieBreakOrder: ["upload", "favoriteGiven", "favoriteReceived", "game", "registered"],
         scheduleVisible: false,
+        gameResultsVisible: false,
         scheduleDate: "",
       });
 

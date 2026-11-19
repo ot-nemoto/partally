@@ -2,6 +2,8 @@ import {
   formatDisplayName,
   GAME_FORMAT_RULES,
   type GameRequest,
+  type GameResultDto,
+  type GameResultsResponse,
   gameAnswerRequestSchema,
   gameConfirmProblem,
   gameRequestSchema,
@@ -20,7 +22,7 @@ import {
   InvalidStateError,
   NotFoundError,
 } from "../repository.js";
-import { isKeywordCorrect } from "../scoring.js";
+import { gameResults, isKeywordCorrect } from "../scoring.js";
 import type { AppContext } from "./context.js";
 
 const GAME_CONFLICT_MESSAGE = "ほかの画面でこのゲームが変更されました。開き直してから直してください";
@@ -115,6 +117,27 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
       game: toCurrentGameDto(game, answer, imageUrlOf),
       ...(text !== undefined ? { correct: true } : {}),
     });
+  });
+
+  // 終了したゲームの結果（設定で見せるときだけ。見せないときは空にする）
+  app.get("/game-results", requireUser, async (c) => {
+    const settings = await repo.getSettings();
+    if (!settings.gameResultsVisible) return c.json({ games: [] } satisfies GameResultsResponse);
+    const [entries, end, users] = await Promise.all([gamesWithAnswers(), repo.getEventEnd(), repo.listUsers()]);
+    const names = new Map(users.map((u) => [u.userId, formatDisplayName(u.epithet, u.name)]));
+    const games: GameResultDto[] = gameResults(entries, end?.endedAt).map(({ game, uncounted, awards }) => ({
+      gameId: game.gameId,
+      name: game.name,
+      format: game.format,
+      confirmedAt: game.confirmedAt,
+      ...(uncounted ? { uncounted } : {}),
+      awards: awards.map((a) => ({
+        slotName: a.slotName,
+        points: a.points,
+        names: a.userIds.map((id) => names.get(id) ?? "?"),
+      })),
+    }));
+    return c.json({ games } satisfies GameResultsResponse);
   });
 
   // 投票で選べる人（自分と、紐づけを解除した人を除く）。ゲームの画面を開いたときに 1 回だけ読む

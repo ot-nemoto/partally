@@ -208,6 +208,7 @@ export const DEFAULT_SETTINGS: Settings = {
   prizesVisible: false,
   tieBreakOrder: [...TIE_BREAK_KEYS],
   scheduleVisible: false,
+  gameResultsVisible: false,
   scheduleDate: "",
 };
 

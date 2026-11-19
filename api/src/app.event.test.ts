@@ -100,6 +100,15 @@ describe("API", () => {
       const bHistory = ranking.find((r: any) => r.name === "鈴木").history;
       expect(Math.max(...bHistory.map((p: any) => p.points))).toBe(10);
 
+      // ゲームの結果では、終了の後に終了したゲームに印を付ける
+      const { settings } = (await admin("GET", "/api/admin/settings")).body;
+      await admin("PUT", "/api/admin/settings", { ...settings, gameResultsVisible: true });
+      const results = (await a.request("GET", "/api/game-results")).body.games;
+      expect(results.map((g: any) => [g.name, g.uncounted ?? false])).toEqual([
+        ["大会30", false],
+        ["大会50", true],
+      ]);
+
       // 取り消すと、終了の後の分も数える
       expect((await admin("POST", "/api/admin/event/reopen")).status).toBe(200);
       expect((await a.request("GET", "/api/me")).body.rules).not.toHaveProperty("eventEndedAt");

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { type Client, useApiTest } from "./test-support.js";
+import { type Client, createClient, useApiTest } from "./test-support.js";
 
 describe("API", () => {
   const t = useApiTest();
@@ -13,6 +13,48 @@ describe("API", () => {
       Object.fromEntries(
         (await admin("GET", "/api/admin/users")).body.users.map((u: any) => [u.name, [u.points, u.gamePoints]]),
       );
+
+    it("ゲームの結果は、見せる設定のときだけ、終了したゲームを終了した順に返す（同じ枠の人はまとめる）", async () => {
+      const admin = await t.adminClient();
+      const a = await participant("田中");
+      const b = await participant("鈴木");
+      const c = await participant("佐藤");
+      const d = await participant("高橋");
+      const make = async (name: string, slots: unknown[], finish: boolean) => {
+        const game = (await admin("POST", "/api/admin/games", { format: "result", name, slots })).body.game;
+        if (finish) {
+          await admin("POST", `/api/admin/games/${game.gameId}/open`);
+          await admin("POST", `/api/admin/games/${game.gameId}/confirm`);
+        }
+      };
+      await make(
+        "じゃんけん",
+        [
+          { name: "準優勝", points: 20, userIds: [b.userId] },
+          { name: "優勝", points: 30, userIds: [a.userId] },
+          { name: "参加賞", points: 5, userIds: [c.userId, d.userId] },
+        ],
+        true,
+      );
+      await make("ビンゴ", [{ name: "1 番乗り", points: 5, userIds: [b.userId] }], false);
+
+      // 見せない設定（既定）では空
+      expect((await a.request("GET", "/api/game-results")).body).toEqual({ games: [] });
+
+      const { settings } = (await admin("GET", "/api/admin/settings")).body;
+      expect((await admin("PUT", "/api/admin/settings", { ...settings, gameResultsVisible: true })).status).toBe(200);
+      const { games } = (await a.request("GET", "/api/game-results")).body;
+      expect(games).toHaveLength(1);
+      expect(games[0]).toMatchObject({ name: "じゃんけん", format: "result" });
+      expect(games[0]).not.toHaveProperty("uncounted");
+      expect(games[0].awards.map((x: any) => [x.slotName, x.points, x.names.map((n: string) => n.slice(-2))])).toEqual([
+        ["優勝", 30, ["田中"]],
+        ["準優勝", 20, ["鈴木"]],
+        ["参加賞", 5, ["佐藤", "高橋"]],
+      ]);
+      // ログインしていなければ返さない
+      expect((await createClient(t.app)("GET", "/api/game-results")).status).toBe(401);
+    });
 
     it("作った・直したゲームは下書きのままではポイントに入らず、確定すると入り、取り消すと消える", async () => {
       const admin = await t.adminClient();
