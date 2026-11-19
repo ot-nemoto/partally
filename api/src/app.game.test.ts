@@ -47,13 +47,56 @@ describe("API", () => {
       expect(games).toHaveLength(1);
       expect(games[0]).toMatchObject({ name: "じゃんけん", format: "result" });
       expect(games[0]).not.toHaveProperty("uncounted");
-      expect(games[0].awards.map((x: any) => [x.slotName, x.points, x.names.map((n: string) => n.slice(-2))])).toEqual([
-        ["優勝", 30, ["田中"]],
-        ["準優勝", 20, ["鈴木"]],
-        ["参加賞", 5, ["佐藤", "高橋"]],
+      // 点数は見せず、結果（枠ごとの人）と自分の結果を返す
+      expect(games[0].winners.map((x: any) => [x.label, x.names.map((n: string) => n.slice(-2))])).toEqual([
+        ["準優勝", ["鈴木"]],
+        ["優勝", ["田中"]],
+        ["参加賞", ["佐藤", "高橋"]],
       ]);
+      expect(games[0]).toMatchObject({ answered: false, myResult: "優勝" });
+      expect(JSON.stringify(games[0])).not.toContain("points");
       // ログインしていなければ返さない
       expect((await createClient(t.app)("GET", "/api/game-results")).status).toBe(401);
+    });
+
+    it("ゲームの結果: クイズは正解と自分の答え・正誤、数値予想は正解の数と自分の答え・順位、上位の人を返す", async () => {
+      const admin = await t.adminClient();
+      const a = await participant("田中");
+      const b = await participant("鈴木");
+      const { settings } = (await admin("GET", "/api/admin/settings")).body;
+      await admin("PUT", "/api/admin/settings", { ...settings, gameResultsVisible: true });
+      const run = async (body: object, answer: (game: any) => [any, object][]) => {
+        const game = (await admin("POST", "/api/admin/games", body)).body.game;
+        await admin("POST", `/api/admin/games/${game.gameId}/open`);
+        for (const [who, ans] of answer(game)) await who.request("PUT", `/api/game/${game.gameId}/answer`, ans);
+        expect((await admin("POST", `/api/admin/games/${game.gameId}/confirm`)).status).toBe(200);
+      };
+      await run(
+        {
+          format: "quiz",
+          name: "Q",
+          choices: [
+            { text: "北海道", points: 10 },
+            { text: "沖縄", points: 0 },
+          ],
+        },
+        (g) => [
+          [a, { choiceId: g.choices[1].choiceId }],
+          [b, { choiceId: g.choices[0].choiceId }],
+        ],
+      );
+      await run({ format: "number", name: "N", correctNumber: 40, ranks: [{ from: 1, to: 1, points: 10 }] }, () => [
+        [a, { value: 45 }],
+        [b, { value: 30 }],
+      ]);
+      const [quiz, number] = (await a.request("GET", "/api/game-results")).body.games;
+      expect(quiz).toEqual(
+        expect.objectContaining({ correct: "北海道", myAnswer: "沖縄", myCorrect: false, answered: true, winners: [] }),
+      );
+      expect(quiz).not.toHaveProperty("myResult");
+      expect(number).toMatchObject({ correct: "40", myAnswer: "45", myResult: "1 位（予想 45）", answered: true });
+      expect(number.winners.map((w: any) => w.label)).toEqual(["1 位（予想 45）"]);
+      expect((await b.request("GET", "/api/game-results")).body.games[0]).toMatchObject({ myCorrect: true });
     });
 
     it("作った・直したゲームは下書きのままではポイントに入らず、確定すると入り、取り消すと消える", async () => {

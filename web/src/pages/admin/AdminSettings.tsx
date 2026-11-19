@@ -295,8 +295,8 @@ export function AdminSettings() {
               <SwitchField
                 label={t("参加者にゲームの結果を見せる", "Show game results to participants")}
                 description={t(
-                  "終了したゲームごとに、点数が入った人（枠・選んだ答え・順位と名前・点数）を見せます。イベントを終了した後の振り返りなどに使えます。",
-                  "For each ended game, shows who got points (slot, answer or rank, name and points). Useful for looking back after the event ends.",
+                  "終了したゲームごとに、正解と、自分の答えと結果、優勝などに入った人を見せます（点数は見せません）。イベントを終了した後の振り返りなどに使えます。",
+                  "For each ended game, shows the answer, each participant’s own answer and result, and who placed (no points). Useful for looking back after the event ends.",
                 )}
                 checked={settings.gameResultsVisible}
                 onChange={(v) => update("gameResultsVisible", v)}

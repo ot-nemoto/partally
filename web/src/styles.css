@@ -2910,13 +2910,17 @@ table.import-table td.nowrap {
   margin: 0.25rem 0 0;
 }
 
-.game-result-slot {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.5rem;
+.game-result-rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0 0 0.5rem;
 }
 
-.game-result-points {
-  color: var(--gold);
-  font-weight: 700;
+.game-result-rows dt {
+  color: var(--muted);
+}
+
+.game-result-rows dd {
+  margin: 0;
 }

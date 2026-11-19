@@ -187,7 +187,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | `trendVisible` / `trendHideNames` / `trendHidePoints` | boolean | 参加者にポイントの推移を見せるか（既定 オフ）と、名前・ポイントを伏せるか（既定 オフ） |
 | `prizesVisible` | boolean | 参加者に景品（何位で何がもらえるか）を見せるか（既定 オフ） |
 | `scheduleVisible` / `scheduleDate` | boolean / string | 参加者にスケジュールを見せるか（既定 オフ）と、イベントの日付（`YYYY-MM-DD`、空なら決めない） |
-| `gameResultsVisible` | boolean | 参加者に終了したゲームの結果（誰に何点入ったか）を見せるか（既定 オフ）。オフの間は `/api/game-results` が空を返す |
+| `gameResultsVisible` | boolean | 参加者に終了したゲームの結果（正解・自分の答えと結果・入った人。点数は見せない）を見せるか（既定 オフ）。オフの間は `/api/game-results` が空を返す |
 | `tieBreakOrder` | list | 合計が同じ人の順位の決め方。`upload`（写真のアップロード）・`favoriteGiven`（お気に入りを選んだ）・`favoriteReceived`（お気に入りに選ばれた）・`game`（ゲーム）・`registered`（登録順）を 1 回ずつ並べ、先頭から比べる。ポイントの項目は多い人を、`registered` は先に登録した人を上にする（既定はこの順）。読み込むときに、知らない項目（以前あった `quiz` など）と重複を除き、足りない項目を補う。足りないポイントの項目は `registered` の前に入れる（後ろに入れると比べられることがない） |
 
 保存されていない項目は既定値で補う（項目を追加しても既存の設定レコードをそのまま使える）。
@@ -440,7 +440,7 @@ sequenceDiagram
 | GET | `/api/trend` | ランキングと累計ポイントの推移。`trendVisible` がオフなら 404。伏せ方は `/api/ranking` と同じ（`trendHideNames`・`trendHidePoints` に従う） |
 | GET | `/api/prizes` | 景品の一覧（名前・数量・渡す順位・画像の署名付き URL）。`prizesVisible` がオフなら 404 |
 | GET | `/api/schedule` | スケジュール（開始時刻の早い順）とイベントの日付。見せない列（`hidden` の項目が 1 つでもある列。管理画面の表示と同じ）の項目は除き、残った列を詰める（`visibleSchedule`）。`scheduleVisible` がオフなら 404 |
-| GET | `/api/game-results` | 終了したゲームの結果（終了した順。ゲームごとに、点数が入った人を枠・選んだ答え・順位と点数でまとめ、点数の高い順。イベントの終了の後に終了したゲームは `uncounted`）。見せない設定のときは空 |
+| GET | `/api/game-results` | 終了したゲームの結果（終了した順）。ゲームごとに、正解 `correct`（クイズは点数がいちばん高い選択肢、数値予想は正解の数、合言葉は合言葉）、自分が答えたか `answered`・自分の答え `myAnswer`・クイズの正誤 `myCorrect`・自分の結果 `myResult`（順位・当選・入った枠）、入った人 `winners`（結果入力は枠ごと、数値予想・投票・合言葉・抽選は点数が入った順位ごと）。点数は返さない。イベントの終了の後に終了したゲームは `uncounted`。見せない設定のときは空 |
 | PUT | `/api/game/{gameId}/answer` | ゲームに答える。クイズは `{choiceId}`、数値予想は `{value}`（0〜100 の整数）、投票は `{targetUserId}`、合言葉は `{text}`（応答に正解か `correct` を含める。不正解は保存せず、正解した後は上書きしない）、抽選は `{entry: true}`。合言葉以外は 1 人 1 回だけで、既に答えていれば 409 `already_answered`（先の答えのまま）。開催中でなければ 409 `game_closed`、形式に合わない答え・結果入力のゲーム・自分や登録されていない人や紐づけを解除した人への投票は 400 |
 | GET | `/api/game/{gameId}/candidates` | 投票で選べる人 `{userId, displayName}` の一覧（自分と紐づけを解除した人を除き、名前の順）。ゲームの画面を開いたとき・アプリに戻ったときに呼ぶ（5 秒ごとの確認には含めない）。投票でなければ 400、開催中でなければ 409 `game_closed` |
 | POST | `/api/photos/upload-url` | アップロード用署名付き POST を発行 |

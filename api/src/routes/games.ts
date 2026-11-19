@@ -123,20 +123,66 @@ export function registerGameRoutes(app: Hono<Env>, ctx: AppContext) {
   app.get("/game-results", requireUser, async (c) => {
     const settings = await repo.getSettings();
     if (!settings.gameResultsVisible) return c.json({ games: [] } satisfies GameResultsResponse);
+    const me = c.get("user").userId;
     const [entries, end, users] = await Promise.all([gamesWithAnswers(), repo.getEventEnd(), repo.listUsers()]);
     const names = new Map(users.map((u) => [u.userId, formatDisplayName(u.epithet, u.name)]));
-    const games: GameResultDto[] = gameResults(entries, end?.endedAt).map(({ game, uncounted, awards }) => ({
-      gameId: game.gameId,
-      name: game.name,
-      format: game.format,
-      confirmedAt: game.confirmedAt,
-      ...(uncounted ? { uncounted } : {}),
-      awards: awards.map((a) => ({
-        slotName: a.slotName,
-        points: a.points,
-        names: a.userIds.map((id) => names.get(id) ?? "?"),
-      })),
-    }));
+    const nameOf = (userId: string) => names.get(userId) ?? "?";
+    const games: GameResultDto[] = gameResults(entries, end?.endedAt).map(({ game, uncounted, answers, awards }) => {
+      const mine = answers.find((a) => a.userId === me);
+      const myAward = awards.find((a) => a.userId === me && a.slotName !== "投票");
+      // 結果: 結果入力は枠ごと（枠の順）、ほかは点数が入った順位ごと（点数の高い順）。投票した人の点数は除く
+      const groups = new Map<string, { label: string; names: string[]; points: number }>();
+      const shown =
+        game.format === "result"
+          ? awards
+          : game.format === "quiz"
+            ? []
+            : awards.filter((a) => a.points > 0 && a.slotName !== "投票");
+      for (const a of shown) {
+        const group = groups.get(a.slotName) ?? { label: a.slotName, names: [], points: a.points };
+        group.names.push(nameOf(a.userId));
+        groups.set(a.slotName, group);
+      }
+      const winners = [...groups.values()];
+      if (game.format !== "result") winners.sort((a, b) => b.points - a.points);
+      const top = Math.max(0, ...game.choices.map((ch) => ch.points));
+      const correctChoices = top > 0 ? game.choices.filter((ch) => ch.points === top) : [];
+      const correct =
+        game.format === "quiz"
+          ? correctChoices.map((ch) => ch.text).join("・") || undefined
+          : game.format === "number"
+            ? game.correctNumber?.toString()
+            : game.format === "keyword"
+              ? game.keyword
+              : undefined;
+      const myAnswer =
+        mine === undefined
+          ? undefined
+          : game.format === "quiz"
+            ? game.choices.find((ch) => ch.choiceId === mine.choiceId)?.text
+            : game.format === "number"
+              ? mine.value?.toString()
+              : game.format === "vote"
+                ? mine.targetUserId && nameOf(mine.targetUserId)
+                : game.format === "keyword"
+                  ? mine.text
+                  : undefined;
+      return {
+        gameId: game.gameId,
+        name: game.name,
+        format: game.format,
+        confirmedAt: game.confirmedAt,
+        ...(uncounted ? { uncounted } : {}),
+        answered: mine !== undefined,
+        ...(correct !== undefined ? { correct } : {}),
+        ...(myAnswer !== undefined ? { myAnswer } : {}),
+        ...(game.format === "quiz" && mine && correctChoices.length > 0
+          ? { myCorrect: correctChoices.some((ch) => ch.choiceId === mine.choiceId) }
+          : {}),
+        ...(myAward && game.format !== "quiz" ? { myResult: myAward.slotName } : {}),
+        winners: winners.map(({ label, names }) => ({ label, names })),
+      };
+    });
     return c.json({ games } satisfies GameResultsResponse);
   });
 

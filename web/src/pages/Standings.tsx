@@ -81,7 +81,7 @@ export function Standings() {
   );
 }
 
-/** 終了したゲームごとに、点数が入った人（枠・答え・順位ごと）を見せる（終了した順） */
+/** 終了したゲームごとに、正解・自分の答えと結果・入った人を見せる（終了した順。点数は見せない） */
 function GameResultsView() {
   const t = useT();
   const lang = useLang();
@@ -97,6 +97,24 @@ function GameResultsView() {
   }, []);
   useEffect(load, [load]);
   useOnReload(load);
+
+  /** 自分の答えと結果を 1 行にする（答えていなければ「答えていません」） */
+  const mineOf = (g: GameResultDto) => {
+    if (g.format === "result") return g.myResult;
+    if (!g.answered) {
+      return g.format === "keyword"
+        ? t("正解できませんでした", "Didn’t get it")
+        : g.format === "lottery"
+          ? t("参加していません", "Didn’t enter")
+          : t("答えていません", "Didn’t answer");
+    }
+    const parts = [
+      g.myAnswer,
+      g.myCorrect === undefined ? undefined : g.myCorrect ? t("◯ 正解", "◯ Correct") : t("× 不正解", "× Wrong"),
+      g.myResult ?? (g.format === "lottery" ? t("はずれ", "Not drawn") : undefined),
+    ].filter((x) => x !== undefined);
+    return parts.join(t("　", " · "));
+  };
 
   if (error) return <p className="error">{error}</p>;
   if (!games) return <p className="muted">{t("読み込み中…", "Loading…")}</p>;
@@ -118,17 +136,28 @@ function GameResultsView() {
               )}
             </p>
           )}
-          {g.awards.length === 0 ? (
-            <p className="muted small">{t("点数が入った人はいません。", "No one got points.")}</p>
-          ) : (
+          <dl className="game-result-rows">
+            {g.correct !== undefined && (
+              <>
+                <dt>{t("正解", "Answer")}</dt>
+                <dd>
+                  <strong>{g.correct}</strong>
+                </dd>
+              </>
+            )}
+            {mineOf(g) && (
+              <>
+                <dt>{t("あなた", "You")}</dt>
+                <dd>{mineOf(g)}</dd>
+              </>
+            )}
+          </dl>
+          {g.winners.length > 0 && (
             <ul className="game-result-awards">
-              {g.awards.map((a) => (
-                <li key={`${a.slotName}-${a.points}`}>
-                  <div className="game-result-slot">
-                    <strong>{a.slotName}</strong>
-                    <span className="game-result-points">+{a.points}</span>
-                  </div>
-                  <p className="small">{a.names.join(t("、", ", "))}</p>
+              {g.winners.map((w) => (
+                <li key={w.label}>
+                  <strong>{w.label}</strong>
+                  <p className="small">{w.names.join(t("、", ", "))}</p>
                 </li>
               ))}
             </ul>
