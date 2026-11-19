@@ -2924,3 +2924,31 @@ table.import-table td.nowrap {
 .game-result-rows dd {
   margin: 0;
 }
+
+/* ラウンドの問題（参加者の画面。順に並べる） */
+.round-games {
+  display: grid;
+  gap: 2.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.round-game-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.3rem;
+}
+
+.round-game-number {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  min-width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 0.95rem;
+}

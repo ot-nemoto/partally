@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gameBannerText } from "./game-banner.js";
+import { gameBannerText, roundBannerText } from "./game-banner.js";
 import type { CurrentGameDto } from "./types.js";
 
 const game = (format: CurrentGameDto["format"], mine: Partial<CurrentGameDto> = {}): CurrentGameDto => ({
@@ -42,5 +42,17 @@ describe("開催中のゲームのお知らせ", () => {
     });
     expect(gameBannerText(game("vote", { myTargetUserId: "U1" }), "en").note).toBe("第 1 問 · Voted");
     expect(gameBannerText(game("number", { myValue: 0 }), "en").note).toContain("Answered");
+  });
+});
+
+describe("開催中のラウンドのお知らせ", () => {
+  it("答えた問題の数を出す（結果入力は数えない）", () => {
+    const games = [game("quiz", { myChoiceId: "A" }), game("number"), game("result")];
+    expect(roundBannerText({ name: "第 1 部" }, games)).toEqual({
+      title: "問題が出ています",
+      note: "第 1 部・2 問中 1 問回答済み",
+    });
+    expect(roundBannerText({ name: "Part 1" }, games, "en").note).toBe("Part 1 · 1 of 2 answered");
+    expect(roundBannerText({ name: "大会" }, [game("result")]).note).toBe("大会・タップして見る");
   });
 });
