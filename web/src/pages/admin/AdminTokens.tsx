@@ -88,6 +88,7 @@ export function AdminTokens() {
               <th>{t("状態", "Status")}</th>
               <th>{t("登録者", "Registered by")}</th>
               <th>{t("登録日時", "Registered at")}</th>
+              <th>{t("参加リンク", "Join link")}</th>
             </tr>
           </thead>
           <tbody>
@@ -97,11 +98,55 @@ export function AdminTokens() {
                 <td>{tk.status === "bound" ? t("登録済み", "Registered") : t("未使用", "Unused")}</td>
                 <td>{tk.displayName ?? "-"}</td>
                 <td>{tk.boundAt ? new Date(tk.boundAt).toLocaleString(lang === "en" ? "en-US" : "ja-JP") : "-"}</td>
+                <td>
+                  <CopyLink url={`${location.origin}/q/${tk.token}`} label={tk.label} />
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
     </section>
+  );
+}
+
+/**
+ * 参加リンク（/q/<token>）をコピーするボタン。リンクは QR コードと同じく、そのまま参加・ログインに使えるので、
+ * 管理画面の中だけで出す。コピーできない環境（http など）では、選んでコピーできるよう欄に出す
+ */
+function CopyLink(props: { url: string; label: string }) {
+  const t = useT();
+  const [state, setState] = useState<"idle" | "copied" | "manual">("idle");
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(props.url);
+      setState("copied");
+      setTimeout(() => setState("idle"), 2000);
+    } catch {
+      setState("manual");
+    }
+  }
+  if (state === "manual") {
+    return (
+      <input
+        className="copy-link-input"
+        readOnly
+        value={props.url}
+        aria-label={t(`${props.label} の参加リンク`, `Join link for ${props.label}`)}
+        onFocus={(e) => e.currentTarget.select()}
+        // biome-ignore lint/a11y/noAutofocus: コピーできなかったときに、すぐ選んでコピーできるようにする
+        autoFocus
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="copy-link"
+      onClick={copy}
+      aria-label={t(`${props.label} の参加リンクをコピー`, `Copy the join link for ${props.label}`)}
+    >
+      {state === "copied" ? t("コピーしました", "Copied") : t("コピー", "Copy")}
+    </button>
   );
 }

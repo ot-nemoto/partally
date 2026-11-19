@@ -3017,3 +3017,17 @@ table.import-table td.nowrap {
   flex: none;
   gap: 0.25rem;
 }
+
+/* QR の参加リンク（管理画面） */
+.copy-link {
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.copy-link-input {
+  width: 22rem;
+  max-width: 60vw;
+  font-size: 0.8rem;
+}
