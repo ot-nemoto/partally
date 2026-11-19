@@ -12,6 +12,7 @@ npm workspaces のモノレポです。
 | `api` | API（Hono / AWS Lambda）、写真の取り込み、本番データの初期化 |
 | `web` | 画面（Vite + React の静的 SPA）。参加者の画面と管理画面 |
 | `infra` | AWS CDK（DynamoDB / Lambda / API Gateway / S3 / CloudFront） |
+| `e2e` | 画面を通した E2E テスト（Playwright） |
 | `docs` | 設計書・手順書・ガイド（一覧は [docs/README.md](README.md)） |
 | `.github` | CI・リリース・初期化のワークフロー、Issue・PR のテンプレート、Dependabot |
 
@@ -66,13 +67,19 @@ npm run typecheck # 全パッケージの型チェック
 npm run lint      # Biome による lint と整形のチェック
 npm run format    # 整形と import の並べ替え、安全な自動修正を適用する
 npm run build     # 画面のビルド
+npm run e2e       # 画面を通した E2E テスト（Playwright。API と画面を起動して実行する）
 ```
 
-PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`・`npm test`・`npm run build`）を手元で通します。
+PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`・`npm test`・`npm run build`）を手元で通します。画面に関わる変更では `npm run e2e` も通します（CI でも実行します）。
 
 - テストは `packages/shared`・`api` では `src/**/*.test.ts`、`infra` では `test/*.test.ts` にあります。API のテストはメモリ上のリポジトリ・ストレージで動かし、DynamoDB・S3・CloudFront を呼ぶ部分は `aws-sdk-client-mock` で確かめます。
 - API のテストは領域ごとに `api/src/app.<領域>.test.ts`（`app.auth`・`app.admin`・`app.photos`・`app.favorites`・`app.game`・`app.game-<形式>`・`app.prizes`・`app.schedule`・`app.ingest`）に、ランキングの計算は `scoring.test.ts` に分けています。共通の準備は `api/src/test-support.ts` の `useApiTest()` を使います（テストごとにメモリ上のリポジトリとアプリを作り直し、`register()` で参加者の登録、`adminClient()` で管理者のログインまで済ませたクライアントを返します）。
-- 画面（`web`）には自動テストがありません。画面の計算のうち、テストしたいもの（景品の順位の数え方など）は `packages/shared` に置いてテストします。
+- 画面（`web`）の単体テストは少ししかありません。画面の計算のうち、テストしたいもの（景品の順位の数え方など）は `packages/shared` に置いてテストします。
+- 画面を通した流れは、`e2e/tests` の E2E テスト（Playwright）で確かめます。一覧と分担は [E2E テスト一覧](e2e-tests.md) にあります。
+  - `npm run e2e` は、メモリ上の API（`api/src/dev.ts`）と画面（Vite）を起動してから実行します。手元で起動済みなら、それを使います。本番 AWS には流しません。
+  - API は 1 つでデータはテストの間で共有されるので、1 つずつ順に実行します。各テストは自分で作ったデータだけを見て、開催中のゲームやイベントの終了を残さないようにします。
+  - 準備のデータ（QR の発行・参加者の登録・ゲームの作成）は `e2e/tests/helpers.ts` の `adminApi()`・`participant()` で API から作り、確かめたい流れだけを画面から操作します。確認ダイアログは `acceptConfirm()` で「OK」を押します。
+  - 手元で初めて実行するときは、`npx playwright install chromium`（`e2e` で）でブラウザを入れます。
 
 ## コードの約束事
 

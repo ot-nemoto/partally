@@ -45,4 +45,4 @@
 ## リポジトリの基本
 
 - 開発のメインブランチ（デフォルトブランチ）は `develop`。`master` はリリース済みの版を置く。
-- npm workspaces のモノレポ（`packages/shared`・`api`・`web`・`infra`）。Node.js 22 と npm 11 以上を使う。
+- npm workspaces のモノレポ（`packages/shared`・`api`・`web`・`infra`・`e2e`）。Node.js 22 と npm 11 以上を使う。
