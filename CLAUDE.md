@@ -6,7 +6,7 @@
 
 すべての作業は Issue から始める。
 
-1. **Issue を作る**。本文には次の 3 つを必ず書く（GitHub の画面では「作業」テンプレート `.github/ISSUE_TEMPLATE/task.yml` で必須にしている。API などで作るときも同じ見出しで書く）。
+1. **Issue を作る**。本文には次の 3 つを必ず書く（GitHub の画面では「作業依頼」テンプレート `.github/ISSUE_TEMPLATE/task.yml` で必須にしている。API などで作るときも同じ見出しで書く）。
    - **概要**: 何のために、何をするか
    - **作業内容**: 変更する内容と方針
    - **確認内容**: 何を、どうやって確かめるか（テスト・lint・型チェック・ブラウザでの動作確認など）
@@ -45,4 +45,4 @@
 ## リポジトリの基本
 
 - 開発のメインブランチ（デフォルトブランチ）は `develop`。`master` はリリース済みの版を置く。
-- npm workspaces のモノレポ（`packages/shared`・`api`・`web`・`infra`）。Node.js 22 と npm 11 以上を使う。
+- npm workspaces のモノレポ（`packages/shared`・`api`・`web`・`infra`・`e2e`）。Node.js 22 と npm 11 以上を使う。

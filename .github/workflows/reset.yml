@@ -40,11 +40,14 @@ jobs:
             exit 1
           fi
 
-      - uses: aws-actions/configure-aws-credentials@v6
+      # 認証の action（.github/actions/aws-oidc）を使うために取り出す
+      - uses: actions/checkout@v7
+
+      # ログにアカウント ID を割り出せる値を出さないため、configure-aws-credentials ではなく自前の action で認証する
+      - uses: ./.github/actions/aws-oidc
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          mask-aws-account-id: true
+          role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          region: ${{ env.AWS_REGION }}
 
       # 関数名は infra/lib/partally-stack.ts、合言葉は api/src/reset.ts の RESET_CONFIRMATION と同じ
       - name: Reset

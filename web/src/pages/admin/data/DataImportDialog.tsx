@@ -2,6 +2,7 @@ import type { PrizeDto, ScheduleItemDto } from "@partally/shared";
 import type { DataArchive } from "@partally/shared/data-archive";
 import { type ReactNode, useState } from "react";
 import { ApiError, api, errorMessage } from "../../../api";
+import { confirmDialog } from "../../../components/ConfirmDialog";
 import { Modal } from "../../../components/Modal";
 import { useT } from "../../../i18n";
 import { GamePreview, importGame, importRounds } from "./games";
@@ -75,7 +76,10 @@ export function DataImportDialog(props: {
       include.settings &&
         t("設定は、取り込んだ内容に置き換わります。", "Settings will be replaced with the imported ones."),
     ].filter(Boolean);
-    if (notes.length > 0 && !confirm(t(`${notes.join("\n")}\nよろしいですか？`, `${notes.join("\n")}\nContinue?`)))
+    if (
+      notes.length > 0 &&
+      !(await confirmDialog(t(`${notes.join("\n")}\nよろしいですか？`, `${notes.join("\n")}\nContinue?`)))
+    )
       return;
 
     setRunning(true);

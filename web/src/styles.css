@@ -288,14 +288,22 @@ input {
   font-weight: 600;
 }
 
+/* 二つ名が現れる演出。透明から始めると、出た直後は背景に溶けて読めないので、大きさだけを変える */
 @keyframes reveal {
   from {
-    opacity: 0;
     transform: scale(0.6);
   }
+  70% {
+    transform: scale(1.08);
+  }
   to {
-    opacity: 1;
     transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal .epithet {
+    animation: none;
   }
 }
 
@@ -3008,4 +3016,28 @@ table.import-table td.nowrap {
   display: flex;
   flex: none;
   gap: 0.25rem;
+}
+
+/* QR の参加リンク（管理画面） */
+.copy-link {
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.copy-link-input {
+  width: 22rem;
+  max-width: 60vw;
+  font-size: 0.8rem;
+}
+
+/* 画面内の確認ダイアログ（改行は文のとおりに出す） */
+.confirm-dialog {
+  width: min(28rem, calc(100vw - 2rem));
+}
+
+.confirm-message {
+  margin: 0 0 1rem;
+  white-space: pre-line;
 }

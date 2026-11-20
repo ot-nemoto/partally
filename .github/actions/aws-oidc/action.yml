@@ -1,0 +1,55 @@
+name: AWS の認証（OIDC）
+description: >-
+  GitHub の OIDC のトークンで AWS のロールを引き受け、認証情報を環境変数に入れる。
+  公開リポジトリの Actions のログに、アカウント ID を割り出せる値（ロールの一意な ID・ARN・アカウント ID）を出さないため、
+  aws-actions/configure-aws-credentials（「Authenticated as assumedRoleId …」を出す）の代わりに使う。
+  呼び出すジョブには `permissions: id-token: write` が要る
+inputs:
+  role-arn:
+    description: 引き受けるロールの ARN（Secret から渡す。Secret の値はログで伏せられる）
+    required: true
+  region:
+    description: AWS のリージョン
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Assume role with OIDC
+      shell: bash
+      env:
+        ROLE_ARN: ${{ inputs.role-arn }}
+        REGION: ${{ inputs.region }}
+      run: |
+        set -euo pipefail
+        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+          echo "::error::OIDC のトークンを取れません。ジョブの permissions に id-token: write を付けてください"
+          exit 1
+        fi
+        TOKEN=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+          "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r '.value')
+        echo "::add-mask::$TOKEN"
+        CREDS=$(aws sts assume-role-with-web-identity \
+          --region "$REGION" \
+          --role-arn "$ROLE_ARN" \
+          --role-session-name GitHubActions \
+          --web-identity-token "$TOKEN" \
+          --duration-seconds 3600 \
+          --output json)
+        # 表示する前にすべて伏せる（ロールの一意な ID からもアカウント ID を割り出せるため、それも伏せる）
+        ROLE_ID=$(jq -r '.AssumedRoleUser.AssumedRoleId' <<<"$CREDS")
+        ARN=$(jq -r '.AssumedRoleUser.Arn' <<<"$CREDS")
+        for v in \
+          "$(jq -r '.Credentials.AccessKeyId' <<<"$CREDS")" \
+          "$(jq -r '.Credentials.SecretAccessKey' <<<"$CREDS")" \
+          "$(jq -r '.Credentials.SessionToken' <<<"$CREDS")" \
+          "$ROLE_ID" "${ROLE_ID%%:*}" "$ARN" "$(cut -d: -f5 <<<"$ARN")"; do
+          echo "::add-mask::$v"
+        done
+        {
+          echo "AWS_ACCESS_KEY_ID=$(jq -r '.Credentials.AccessKeyId' <<<"$CREDS")"
+          echo "AWS_SECRET_ACCESS_KEY=$(jq -r '.Credentials.SecretAccessKey' <<<"$CREDS")"
+          echo "AWS_SESSION_TOKEN=$(jq -r '.Credentials.SessionToken' <<<"$CREDS")"
+          echo "AWS_REGION=$REGION"
+          echo "AWS_DEFAULT_REGION=$REGION"
+        } >> "$GITHUB_ENV"
+        echo "AWS のロールを引き受けました"

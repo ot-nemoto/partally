@@ -1,4 +1,5 @@
 import { Link, Navigate, Route, Routes } from "react-router-dom";
+import { ConfirmHost } from "./components/ConfirmDialog";
 import { ParticipantLayout } from "./components/ParticipantLayout";
 import { useT } from "./i18n";
 import { AdminData } from "./pages/admin/AdminData";
@@ -22,6 +23,16 @@ import { QrLanding } from "./pages/QrLanding";
 import { Standings } from "./pages/Standings";
 
 export function App() {
+  return (
+    <>
+      <AppRoutes />
+      {/* 画面内の確認ダイアログ（window.confirm の代わり） */}
+      <ConfirmHost />
+    </>
+  );
+}
+
+function AppRoutes() {
   return (
     <Routes>
       <Route element={<ParticipantLayout />}>
