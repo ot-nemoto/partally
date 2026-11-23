@@ -12,6 +12,7 @@ npm workspaces のモノレポです。
 | `api` | API（Hono / AWS Lambda）、写真の取り込み、本番データの初期化 |
 | `web` | 画面（Vite + React の静的 SPA）。参加者の画面と管理画面 |
 | `infra` | AWS CDK（DynamoDB / Lambda / API Gateway / S3 / CloudFront） |
+| `e2e` | 画面を通した E2E テスト（Playwright） |
 | `docs` | 設計書・手順書・ガイド（一覧は [docs/README.md](README.md)） |
 | `.github` | CI・リリース・初期化のワークフロー、Issue・PR のテンプレート、Dependabot |
 
@@ -66,13 +67,19 @@ npm run typecheck # 全パッケージの型チェック
 npm run lint      # Biome による lint と整形のチェック
 npm run format    # 整形と import の並べ替え、安全な自動修正を適用する
 npm run build     # 画面のビルド
+npm run e2e       # 画面を通した E2E テスト（Playwright。API と画面を起動して実行する）
 ```
 
-PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`・`npm test`・`npm run build`）を手元で通します。
+PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`・`npm test`・`npm run build`）を手元で通します。画面に関わる変更では `npm run e2e` も通します（CI でも実行します）。
 
 - テストは `packages/shared`・`api` では `src/**/*.test.ts`、`infra` では `test/*.test.ts` にあります。API のテストはメモリ上のリポジトリ・ストレージで動かし、DynamoDB・S3・CloudFront を呼ぶ部分は `aws-sdk-client-mock` で確かめます。
 - API のテストは領域ごとに `api/src/app.<領域>.test.ts`（`app.auth`・`app.admin`・`app.photos`・`app.favorites`・`app.game`・`app.game-<形式>`・`app.prizes`・`app.schedule`・`app.ingest`）に、ランキングの計算は `scoring.test.ts` に分けています。共通の準備は `api/src/test-support.ts` の `useApiTest()` を使います（テストごとにメモリ上のリポジトリとアプリを作り直し、`register()` で参加者の登録、`adminClient()` で管理者のログインまで済ませたクライアントを返します）。
-- 画面（`web`）には自動テストがありません。画面の計算のうち、テストしたいもの（景品の順位の数え方など）は `packages/shared` に置いてテストします。
+- 画面（`web`）の単体テストは少ししかありません。画面の計算のうち、テストしたいもの（景品の順位の数え方など）は `packages/shared` に置いてテストします。
+- 画面を通した流れは、`e2e/tests` の E2E テスト（Playwright）で確かめます。一覧と分担は [E2E テスト一覧](e2e-tests.md) にあります。
+  - `npm run e2e` は、メモリ上の API（`api/src/dev.ts`）と画面（Vite）を起動してから実行します。手元で起動済みなら、それを使います。本番 AWS には流しません。
+  - API は 1 つでデータはテストの間で共有されるので、1 つずつ順に実行します。各テストは自分で作ったデータだけを見て、開催中のゲームやイベントの終了を残さないようにします。
+  - 準備のデータ（QR の発行・参加者の登録・ゲームの作成）は `e2e/tests/helpers.ts` の `adminApi()`・`participant()` で API から作り、確かめたい流れだけを画面から操作します。確認ダイアログは `acceptConfirm()` で「OK」を押します。
+  - 手元で初めて実行するときは、`npx playwright install chromium`（`e2e` で）でブラウザを入れます。
 
 ## コードの約束事
 
@@ -82,6 +89,8 @@ PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`
 - 英語は短く平易に書き、ボタンは動詞で始めます（例: Register, Log in）。数で変わる語は単数・複数を分けます（1 point / 2 points）。幹事や参加者が入れた内容と二つ名は訳しません。
 - 設定（`Settings`）に項目を足すときは、`updateSettingsRequestSchema` で省略可にし、`DEFAULT_SETTINGS` に既定値を入れます。保存済みの設定に無い項目は既定値で補われます（古い画面から保存されても 400 にしないため）。
 - ゲームの形式ごとの決まりは表にまとめています。答えに使う項目と順位の単位は `packages/shared/src/game-rules.ts` の `GAME_FORMAT_RULES`、点数の数え方は `api/src/scoring.ts` の `GAME_SCORING` に書きます。形式を足すときは、`GAME_FORMATS` と、この 2 つの表と、形式ごとの名前・表示の表（`GAME_FORMAT_LABEL` と英語の `GAME_FORMAT_LABEL_EN`、お知らせの `game-banner.ts`（日本語と英語）、管理画面の `web/src/pages/admin/games/formats.ts` のアイコン・説明（`FORMAT_TEXT` と英語の `FORMAT_TEXT_EN`）・並び）と、画面（`GameView`・管理画面のゲーム）を直します。足し忘れた表は型チェックで分かります。
+- 管理画面の一覧（GSI で読むもの）は、保存・削除の直後に取り直すと古い内容が返ることがあります（反映が少し遅れるため）。保存・削除の後は、応答で受け取ったものを `web/src/hooks/useFreshList.ts` で一覧に重ね、取り直した一覧だけに頼らないでください。
+- 確認は `window.confirm()` ではなく、`web/src/components/ConfirmDialog.tsx` の `confirmDialog()`（画面内の確認ダイアログ）を使います（`if (!(await confirmDialog("…よろしいですか？"))) return;`）。ブラウザ標準のダイアログは、自動操作で承認できず、見た目もほかのモーダルと揃わないためです。
 - 個人や環境の情報（AWS アカウント ID、ロール ARN、メールアドレス、パスワード、実際のドメインなど）はリポジトリに書きません。
 
 ## ブランチ・PR・リリース
