@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-このリポジトリで作業するときのルール。資料の一覧は [docs/README.md](docs/README.md)。開発の手順（ローカル開発・テスト・コードの約束事）は [docs/development.md](docs/development.md)、機能のルールは [docs/spec.md](docs/spec.md)、仕組みは [docs/design.md](docs/design.md)、初期設定とデプロイは [docs/setup.md](docs/setup.md) を参照。
+このリポジトリで作業するときのルール。資料の一覧は [docs/README.md](docs/README.md)。開発の手順（ローカル開発・テスト・コードの約束事）は [docs/development.md](docs/development.md)、機能のルールは [docs/spec.md](docs/spec.md)、仕組みは [docs/design.md](docs/design.md)、セキュリティ対策は [docs/security.md](docs/security.md)、初期設定とデプロイは [docs/setup.md](docs/setup.md) を参照。
 
 ## 作業の進め方
 
@@ -41,6 +41,7 @@
 | API・データ・設定の項目・画面の一覧 | `docs/design.md` |
 | デプロイ・環境変数・AWS のリソース | `docs/setup.md` |
 | 開発の手順・コマンド・ワークフロー | `docs/development.md` |
+| セキュリティ対策（認証・権限・秘密の値・公開範囲・ログに出すもの） | `docs/security.md` |
 
 ## リポジトリの基本
 
