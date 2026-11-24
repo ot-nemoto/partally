@@ -592,7 +592,19 @@ sequenceDiagram
 - 独自ドメインを使う場合は Route 53 ホストゾーン $0.5/月。
 - AWS Budgets で月 $5 超過時に通知するアラートを設定する。
 
-### 8.2 運用・その他
+### 8.2 応答のヘッダ（セキュリティ）
+
+CloudFront の応答ヘッダーのポリシー（`infra/lib/partally-stack.ts` の `SecurityHeaders`）で、画面・API・写真・景品の画像のすべての応答に次を付ける（オリジンが付けた値より優先する）。
+
+| ヘッダ | 値 | ねらい |
+|---|---|---|
+| `Strict-Transport-Security` | `max-age=31536000` | 以後は HTTPS だけで開かせる |
+| `X-Content-Type-Options` | `nosniff` | 写真などを、送った Content-Type 以外（HTML・スクリプト）として扱わせない |
+| `X-Frame-Options` | `DENY` | ほかのサイトの枠（iframe）に入れさせない（クリックジャッキング対策） |
+| `Referrer-Policy` | `same-origin` | ほかのサイトへ URL を送らない（参加リンク `/q/<トークン>` の URL にトークンが入るため） |
+| `Content-Security-Policy` | `frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'` | 画面の動きに関わらない項目だけ。スクリプト・画像などの読み込み元を絞る項目（`script-src` など）は、画面の動きを確かめながら足す（#227） |
+
+### 8.3 運用・その他
 
 - すべてのリソースに `Project=partally` タグを付与し、コストを分離する。
 - 事前に数名でリハーサルし、会場の通信状況を確認する。QR は予備を印刷しておく。

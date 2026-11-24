@@ -150,6 +150,25 @@ function handler(event) {
 }`),
     });
 
+    // 画面・API・写真のすべての応答に付けるセキュリティ用のヘッダ（料金はかからない）。
+    // - HSTS: 以後は HTTPS だけで開かせる
+    // - nosniff: 写真などを、送った Content-Type 以外（HTML やスクリプト）として扱わせない
+    // - X-Frame-Options / frame-ancestors: ほかのサイトの枠（iframe）に入れさせない（クリックジャッキング対策）
+    // - Referrer-Policy: ほかのサイトへ URL を送らない（参加リンク /q/<トークン> の URL にトークンが入るため）
+    // - CSP: 画面の動きに関わらない項目だけを付ける（script-src などは画面の確かめと合わせて別に足す）
+    const securityHeaders = new cloudfront.ResponseHeadersPolicy(this, "SecurityHeaders", {
+      securityHeadersBehavior: {
+        strictTransportSecurity: { accessControlMaxAge: Duration.days(365), includeSubdomains: false, override: true },
+        contentTypeOptions: { override: true },
+        frameOptions: { frameOption: cloudfront.HeadersFrameOption.DENY, override: true },
+        referrerPolicy: { referrerPolicy: cloudfront.HeadersReferrerPolicy.SAME_ORIGIN, override: true },
+        contentSecurityPolicy: {
+          contentSecurityPolicy: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'",
+          override: true,
+        },
+      },
+    });
+
     // S3 のキーは photos/... なので、パスを書き換えずにそのまま写真バケットへ送る
     const photoOrigin = origins.S3BucketOrigin.withOriginAccessControl(photoBucket);
     const photoBehavior: cloudfront.BehaviorOptions = {
@@ -157,6 +176,7 @@ function handler(event) {
       viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
       cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
       trustedKeyGroups: [photoKeyGroup],
+      responseHeadersPolicy: securityHeaders,
     };
 
     const distribution = new cloudfront.Distribution(this, "Distribution", {
@@ -168,6 +188,7 @@ function handler(event) {
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
         functionAssociations: [{ function: spaRewrite, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }],
+        responseHeadersPolicy: securityHeaders,
       },
       additionalBehaviors: {
         "/api/*": {
@@ -176,6 +197,7 @@ function handler(event) {
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          responseHeadersPolicy: securityHeaders,
         },
         // 公開済みは署名付き Cookie、検閲待ちは署名付き URL が無いと 403 になる
         "/photos/approved/*": photoBehavior,
