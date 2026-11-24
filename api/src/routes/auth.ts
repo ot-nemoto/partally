@@ -32,7 +32,6 @@ export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
     setUserSession,
     setPhotoCookies,
     participantUser,
-    requireUser,
     userSessionOf,
     deviceAccountsOf,
     setDeviceAccounts,
@@ -168,11 +167,31 @@ export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
     return c.json({ user: await participantUser(user) });
   });
 
-  app.get("/me", requireUser, async (c) => {
+  app.get("/me", async (c) => {
+    const session = userSessionOf(c);
+    let user = session && (await repo.getUser(session.uid));
+    if (!session || user?.status !== "active" || user.token !== session.tok) {
+      // 今の参加者が使えなくなった（紐づけ解除など）ときは、この端末で覚えているほかの参加者に切り替える。
+      // 画面が自分の情報を読み直すこの API だけで行う（ほかの操作を、別の参加者として行ってしまわないように）
+      user = undefined;
+      const rest = deviceAccountsOf(c).filter((a) => a.uid !== session?.uid);
+      for (const account of rest) {
+        const next = await deviceUser(c, account.uid);
+        if (!next) continue;
+        setUserSession(c, next, rest);
+        user = next;
+        break;
+      }
+      if (!user) {
+        setDeviceAccounts(c, []);
+        deleteCookie(c, USER_COOKIE, { path: "/", secure: secureCookies });
+        return fail(c, 401, "unauthorized");
+      }
+    }
     // 写真用の署名付き Cookie は有効期間が短いので、アプリを開くたびに更新する
     setPhotoCookies(c);
     const [settings, end] = await Promise.all([repo.getSettings(), repo.getEventEnd()]);
-    return c.json({ user: await participantUser(c.get("user"), settings), rules: toRules(settings, end) });
+    return c.json({ user: await participantUser(user, settings), rules: toRules(settings, end) });
   });
 
   app.post("/admin/login", async (c) => {

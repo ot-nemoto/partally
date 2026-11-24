@@ -156,4 +156,34 @@ describe("1 台の端末で複数の参加者を切り替える", () => {
     const stranger = await registerOn(device(t.app), "他人", 3);
     expect((await d.request("POST", "/api/photos/upload-url", { userId: stranger.userId })).status).toBe(403);
   });
+
+  it("今の参加者が紐づけ解除されたら、自分の情報を読み直したときに、覚えているほかの参加者に切り替わる", async () => {
+    const d = device(t.app);
+    const parent = await registerOn(d, "親", 1);
+    const child = await registerOn(d, "子", 2);
+    const admin = await t.adminClient();
+    await admin("POST", `/api/admin/users/${child.userId}/unbind`);
+
+    // ほかの操作は、別の参加者として行わない（401 のまま）
+    expect((await d.request("POST", "/api/photos/upload-url")).status).toBe(401);
+
+    const me = await d.request("GET", "/api/me");
+    expect(me.status).toBe(200);
+    expect(me.body.user.userId).toBe(parent.userId);
+    expect((await d.request("GET", "/api/accounts")).body).toEqual({
+      current: parent.userId,
+      accounts: [expect.objectContaining({ userId: parent.userId })],
+    });
+    expect((await d.request("POST", "/api/photos/upload-url")).status).toBe(200);
+  });
+
+  it("覚えている参加者が誰も使えなければ、ログインしていない状態になる", async () => {
+    const d = device(t.app);
+    const only = await registerOn(d, "ひとり", 1);
+    const admin = await t.adminClient();
+    await admin("POST", `/api/admin/users/${only.userId}/unbind`);
+    expect((await d.request("GET", "/api/me")).status).toBe(401);
+    expect(d.jar.has("session")).toBe(false);
+    expect(d.jar.has("accounts")).toBe(false);
+  });
 });
