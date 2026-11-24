@@ -1,5 +1,12 @@
 import { CloudFrontClient, CreateInvalidationCommand } from "@aws-sdk/client-cloudfront";
-import { CopyObjectCommand, DeleteObjectsCommand, HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  CopyObjectCommand,
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  NoSuchKey,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { S3PhotoStorage } from "./photo-storage.js";
@@ -36,5 +43,30 @@ describe("S3PhotoStorage（景品の画像）", () => {
       DistributionId: "DIST",
       InvalidationBatch: { Paths: { Quantity: 1, Items: ["/prizes/I1.jpg"] } },
     });
+  });
+});
+
+describe("S3PhotoStorage（写真の形式）", () => {
+  beforeEach(() => s3.reset());
+
+  // S3 の応答の本文のうち、使うところ（バイト列への変換）だけを持つもの
+  const body = (bytes: number[]): any => ({ transformToByteArray: async () => new Uint8Array(bytes) });
+
+  it("先頭の 3 バイトだけを読み、JPEG の形式（FF D8 FF）かを返す", async () => {
+    s3.on(GetObjectCommand)
+      .resolvesOnce({ Body: body([0xff, 0xd8, 0xff]) })
+      .resolvesOnce({ Body: body([0x3c, 0x68, 0x74]) });
+    expect(await storage.isJpeg("uploads/P1/full.jpg")).toBe(true);
+    expect(await storage.isJpeg("uploads/P2/full.jpg")).toBe(false);
+    expect(s3.commandCalls(GetObjectCommand)[0]!.args[0].input).toEqual({
+      Bucket: "bucket",
+      Key: "uploads/P1/full.jpg",
+      Range: "bytes=0-2",
+    });
+  });
+
+  it("オブジェクトが無ければ false", async () => {
+    s3.on(GetObjectCommand).rejects(new NoSuchKey({ message: "missing", $metadata: {} }));
+    expect(await storage.isJpeg("uploads/P1/full.jpg")).toBe(false);
   });
 });

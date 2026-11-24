@@ -72,6 +72,11 @@ export type UpdateUserRequest = z.infer<typeof updateUserRequestSchema>;
 
 export const PHOTO_FULL_MAX_BYTES = 5 * 1024 * 1024;
 export const PHOTO_THUMB_MAX_BYTES = 500 * 1024;
+/** 1 人あたりの確認待ちの写真の上限。超えると、幹事が確認するまで新しく送れない */
+export const PHOTO_PENDING_MAX = 30;
+/** アップロード枠の発行を数える区切り（ミリ秒）と、区切りの中で 1 人が取れる数 */
+export const PHOTO_UPLOAD_WINDOW_MS = 10 * 60 * 1000;
+export const PHOTO_UPLOAD_MAX_PER_WINDOW = 30;
 export const PHOTO_FULL_MAX_EDGE = 1600;
 export const PHOTO_THUMB_MAX_EDGE = 400;
 

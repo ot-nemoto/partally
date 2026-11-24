@@ -121,10 +121,11 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | 設定 | `SETTINGS` | `GLOBAL` | – | – |
 | イベントの終了 | `EVENT` | `END` | – | – |
 | 通し番号カウンタ | `COUNTER` | `TOKEN_LABEL` | – | – |
+| 写真のアップロード枠の発行数 | `USER#<userId>` | `UPLOADS#<区切りの始まり>` | – | – |
 | 管理者のログインの試行回数 | `ADMIN_LOGIN` | `<区切りの始まり>#ALL`（全体）・`<区切りの始まり>#SRC#<IP>`（接続元ごと） | – | – |
 
 - **GSI1**: 一覧取得用（トークン一覧・ユーザ一覧・状態別の写真一覧を時系列で、写真ごとのお気に入りした人の一覧、景品一覧、スケジュールの項目の一覧、ゲーム一覧、ゲームごとの答えの一覧）。
-- 管理者のログインの試行回数は `attempts`（回数）と `expiresAt`（エポック秒）を持つ。テーブルの TTL（`expiresAt`）で、区切りが終わって 1 時間ほど後に自動で消える。
+- 写真のアップロード枠の発行数は `issued`（回数）と `expiresAt` を、管理者のログインの試行回数は `attempts`（回数）と `expiresAt`（エポック秒）を持つ。どちらもテーブルの TTL（`expiresAt`）で、区切りが終わって 1 時間ほど後に自動で消える。
 - 以前のクイズ（`QUIZ#`・`ANSWER#`・`QUIZ_STATE`）は、ゲームに統合したので読まない（残っていても使われず、初期化で消える）。
 - **GSI2**: ユーザ別の写真一覧。写真のみ `GSI2PK = USER#<uploaderId>`, `GSI2SK = <createdAt>#<photoId>` を持つ。
 - QR トークンの GSI1SK は通し番号を 6 桁ゼロ埋めした値（表示用 `label` は 3 桁）。通し番号はカウンタへのアトミック加算で採番する。
@@ -457,7 +458,7 @@ sequenceDiagram
 | GET | `/api/game-results` | 終了したゲームの結果（終了した順）。ゲームごとに、正解 `correct`（クイズは点数がいちばん高い選択肢、数値予想は正解の数、合言葉は合言葉）、自分が答えたか `answered`・自分の答え `myAnswer`・クイズの正誤 `myCorrect`・自分の結果 `myResult`（順位・当選・入った枠）、入った人 `winners`（結果入力は枠ごと、数値予想・投票・合言葉・抽選は点数が入った順位ごと）。点数は返さない。イベントの終了の後に終了したゲームは `uncounted`。見せない設定のときは空 |
 | PUT | `/api/game/{gameId}/answer` | ゲームに答える。クイズは `{choiceId}`、数値予想は `{value}`（0〜100 の整数）、投票は `{targetUserId}`、合言葉は `{text}`（応答に正解か `correct` を含める。不正解は保存せず、正解した後は上書きしない）、抽選は `{entry: true}`。合言葉以外は 1 人 1 回だけで、既に答えていれば 409 `already_answered`（先の答えのまま）。開催中でなければ 409 `game_closed`、形式に合わない答え・結果入力のゲーム・自分や登録されていない人や紐づけを解除した人への投票は 400 |
 | GET | `/api/game/{gameId}/candidates` | 投票で選べる人 `{userId, displayName}` の一覧（自分と紐づけを解除した人を除き、名前の順）。ゲームの画面を開いたとき・アプリに戻ったときに呼ぶ（5 秒ごとの確認には含めない）。投票でなければ 400、開催中でなければ 409 `game_closed` |
-| POST | `/api/photos/upload-url` | アップロード用署名付き POST を発行 |
+| POST | `/api/photos/upload-url` | アップロード用署名付き POST を発行。確認待ちが 30 枚以上なら 429 `too_many_pending`、10 分ごとの区切りの中で 30 回を超えると 429 `upload_rate_limited`（あと何分かと `Retry-After`。断ったものは数えない） |
 | GET | `/api/photos` | 公開済み写真一覧（アップロード者の表示名・お気に入り数・自分が選んでいるか付き） |
 | PUT | `/api/photos/{photoId}/favorite` | お気に入りに選ぶ（選択済みなら何もしない）。受付終了は 409 `favorites_disabled`、上限超過は 409 `favorite_limit`、自分の写真・未公開は 409 `invalid_state` |
 | DELETE | `/api/photos/{photoId}/favorite` | お気に入りを外す（未選択なら何もしない） |

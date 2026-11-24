@@ -336,6 +336,22 @@ describe("DynamoRepository", () => {
     });
   });
 
+  describe("写真のアップロード枠の発行数", () => {
+    it("上限に達していないときだけ、区切りの記録を 1 つ増やす。達していれば false", async () => {
+      ddb.on(UpdateCommand).resolves({});
+      await expect(repo.reserveUploadSlot("U1", "2026-11-24T10:00:00.000Z", 30, 1_800_000_000)).resolves.toBe(true);
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input).toMatchObject({
+        Key: { PK: "USER#U1", SK: "UPLOADS#2026-11-24T10:00:00.000Z" },
+        UpdateExpression: "ADD issued :one SET expiresAt = :expiresAt",
+        ConditionExpression: "attribute_not_exists(issued) OR issued < :max",
+        ExpressionAttributeValues: { ":one": 1, ":max": 30, ":expiresAt": 1_800_000_000 },
+      });
+      ddb.reset();
+      ddb.on(UpdateCommand).rejects(new ConditionalCheckFailedException({ message: "failed", $metadata: {} }));
+      await expect(repo.reserveUploadSlot("U1", "2026-11-24T10:00:00.000Z", 30, 1_800_000_000)).resolves.toBe(false);
+    });
+  });
+
   describe("写真", () => {
     const photo: PhotoRecord = {
       photoId: "P1",
