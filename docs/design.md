@@ -121,8 +121,10 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | 設定 | `SETTINGS` | `GLOBAL` | – | – |
 | イベントの終了 | `EVENT` | `END` | – | – |
 | 通し番号カウンタ | `COUNTER` | `TOKEN_LABEL` | – | – |
+| 管理者のログインの試行回数 | `ADMIN_LOGIN` | `<区切りの始まり>#ALL`（全体）・`<区切りの始まり>#SRC#<IP>`（接続元ごと） | – | – |
 
 - **GSI1**: 一覧取得用（トークン一覧・ユーザ一覧・状態別の写真一覧を時系列で、写真ごとのお気に入りした人の一覧、景品一覧、スケジュールの項目の一覧、ゲーム一覧、ゲームごとの答えの一覧）。
+- 管理者のログインの試行回数は `attempts`（回数）と `expiresAt`（エポック秒）を持つ。テーブルの TTL（`expiresAt`）で、区切りが終わって 1 時間ほど後に自動で消える。
 - 以前のクイズ（`QUIZ#`・`ANSWER#`・`QUIZ_STATE`）は、ゲームに統合したので読まない（残っていても使われず、初期化で消える）。
 - **GSI2**: ユーザ別の写真一覧。写真のみ `GSI2PK = USER#<uploaderId>`, `GSI2SK = <createdAt>#<photoId>` を持つ。
 - QR トークンの GSI1SK は通し番号を 6 桁ゼロ埋めした値（表示用 `label` は 3 桁）。通し番号はカウンタへのアトミック加算で採番する。
@@ -301,7 +303,14 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 
 - `/admin` 画面でパスワードを入力 → `POST /api/admin/login` で `ADMIN_PASSWORD` と定数時間比較。
 - 成功時に `admin_session` Cookie（`{ adm: true, iat }` を `SESSION_SECRET` で HMAC 署名、`HttpOnly; Secure; SameSite=Strict; Path=/api/admin; Max-Age=12時間`）を発行。
-- パスワードの総当たりは、`POST /api/admin/login` だけを別のルートにして付けた低いスロットリング（5 rps / バースト 10）で緩和する（ステージ全体の上限は、参加者の一斉の答えに合わせて 200 rps / バースト 400 と高いため）。
+- パスワードの総当たりは、次の 2 つで防ぐ。
+  - `POST /api/admin/login` だけを別のルートにして付けた低いスロットリング（5 rps / バースト 10）。ステージ全体の上限は、参加者の一斉の答えに合わせて 200 rps / バースト 400 と高いため。
+  - 試行回数の制限（`api/src/admin-login-limit.ts`）。15 分ごとの区切りの中で、接続元ごとに 10 回、全体で 50 回まで試せる。上限に達したら、その区切りが終わるまで 429 `login_locked`（あと何分かと `Retry-After`）で断り、合っていても断る。
+    - 接続元は、CloudFront が付ける閲覧者の IP（`CloudFront-Viewer-Address` のポートを外したもの）。
+    - 試す前に数える（DynamoDB の条件付き更新を、接続元ごとと全体の 2 つまとめてトランザクションで行う）。同時にたくさん送っても上限までしか試せない。
+    - 合っていたら、その接続元の回数を消し、全体の回数から 1 つ引く（全体は間違えた数だけを数える）。
+    - 全体の上限は、接続元をたくさん使う攻撃や、接続元の偽装（API Gateway に直接送ると `CloudFront-Viewer-Address` を自分で付けられる）でも、試せる総数を抑えるためのもの。そのぶん、攻撃を受けている間は幹事も入れないことがある。
+    - 解除：区切りが終わるのを待つ（15 分以内）、別の回線から入る（接続元ごとの上限のとき）、GitHub Actions の「Unlock admin login」で記録を消す（初期化 Lambda を `{"action":"unlock-admin-login"}` で呼ぶ）。
 
 ---
 
@@ -456,7 +465,7 @@ sequenceDiagram
 
 | メソッド | パス | 説明 |
 |---|---|---|
-| POST | `/api/admin/login` | パスワードでログイン |
+| POST | `/api/admin/login` | パスワードでログイン。違えば 401 `unauthorized`、続けて間違えて断っている間は 429 `login_locked`（[4.2](#42-管理者)） |
 | POST | `/api/admin/logout` | Cookie 削除 |
 | POST | `/api/admin/tokens` | QR トークンを N 件発行 `{count}` |
 | GET | `/api/admin/tokens` | トークン一覧（印刷・配布管理用） |

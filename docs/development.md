@@ -105,5 +105,6 @@ PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`
 | `bump-version.yml` | 上の PR のラベル | バージョンを上げる（Issue に `enhancement` があれば minor、なければ patch） |
 | `release.yml` | `master` へのマージ | タグと GitHub Release を作る |
 | `reset.yml` | 手動実行 | 本番データの初期化（[手順](setup.md#本番データの初期化)） |
+| `unlock-admin-login.yml` | 手動実行 | 管理者のログインの制限の解除（[手順](setup.md#管理者のログインの制限の解除)） |
 
 依存パッケージと Actions の更新は、Dependabot が毎週 `develop` 宛てに PR を作ります。

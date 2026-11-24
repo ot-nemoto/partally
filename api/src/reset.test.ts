@@ -5,7 +5,7 @@ import { DeleteObjectsCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/c
 import { BatchWriteCommand, DynamoDBDocumentClient, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
-import { RESET_CONFIRMATION, resetAll } from "./reset.js";
+import { RESET_CONFIRMATION, resetAll, UNLOCK_ADMIN_LOGIN_ACTION } from "./reset.js";
 
 const ddb = mockClient(DynamoDBDocumentClient);
 const s3 = mockClient(S3Client);
@@ -116,5 +116,10 @@ describe("resetAll", () => {
     expect(ddb.calls()).toHaveLength(0);
     expect(s3.calls()).toHaveLength(0);
     expect(cloudfront.calls()).toHaveLength(0);
+  });
+
+  it("Unlock admin login ワークフローは、解除の action の値で呼ぶ", () => {
+    const workflow = readFileSync(new URL("../../.github/workflows/unlock-admin-login.yml", import.meta.url), "utf8");
+    expect(workflow).toContain(`"action":"${UNLOCK_ADMIN_LOGIN_ACTION}"`);
   });
 });

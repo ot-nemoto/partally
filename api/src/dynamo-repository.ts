@@ -24,6 +24,7 @@ import {
   type TieBreakKey,
 } from "@partally/shared";
 import {
+  type AdminLoginAttempt,
   DEFAULT_SETTINGS,
   EpithetTakenError,
   type EventEndRecord,
@@ -65,6 +66,8 @@ export const keys = {
   scheduleItem: (itemId: string) => ({ PK: `SCHEDULE#${itemId}`, SK: "META" }),
   game: (gameId: string) => ({ PK: `GAME#${gameId}`, SK: "META" }),
   round: (roundId: string) => ({ PK: `ROUND#${roundId}`, SK: "META" }),
+  /** 管理者のログインの試行回数。scope は全体（ALL）か接続元（SRC#<IP>） */
+  adminLogin: (window: string, scope: string) => ({ PK: ADMIN_LOGIN_PK, SK: `${window}#${scope}` }),
   settings: { PK: "SETTINGS", SK: "GLOBAL" },
   eventEnd: { PK: "EVENT", SK: "END" },
   tokenLabelCounter: { PK: "COUNTER", SK: "TOKEN_LABEL" },
@@ -73,6 +76,8 @@ export const keys = {
 const GSI1 = "GSI1";
 const GSI2 = "GSI2";
 const BATCH_WRITE_MAX = 25;
+/** 管理者のログインの試行回数の記録をまとめるパーティション（解除のときにまとめて消す） */
+const ADMIN_LOGIN_PK = "ADMIN_LOGIN";
 const BATCH_GET_MAX = 100;
 
 export class DynamoRepository implements Repository {
@@ -298,6 +303,62 @@ export class DynamoRepository implements Repository {
 
   async clearUserPin(userId: string) {
     return this.updateUserAttributes(userId, "REMOVE pinHash, pinFailures");
+  }
+
+  async reserveAdminLoginAttempt({ window, source, maxPerSource, maxTotal, expiresAt }: AdminLoginAttempt) {
+    const count = (key: Record<string, string>, max: number) => ({
+      Update: {
+        TableName: this.tableName,
+        Key: key,
+        UpdateExpression: "ADD attempts :one SET expiresAt = :expiresAt",
+        ConditionExpression: "attribute_not_exists(attempts) OR attempts < :max",
+        ExpressionAttributeValues: { ":one": 1, ":max": max, ":expiresAt": expiresAt },
+      },
+    });
+    try {
+      await this.transactWithRetry(
+        new TransactWriteCommand({
+          TransactItems: [
+            count(keys.adminLogin(window, `SRC#${source}`), maxPerSource),
+            count(keys.adminLogin(window, "ALL"), maxTotal),
+          ],
+        }),
+      );
+      return true;
+    } catch (e) {
+      if (conditionFailures(e)) return false;
+      throw e;
+    }
+  }
+
+  async releaseAdminLoginAttempt(window: string, source: string) {
+    await this.client.send(
+      new DeleteCommand({ TableName: this.tableName, Key: keys.adminLogin(window, `SRC#${source}`) }),
+    );
+    try {
+      await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: keys.adminLogin(window, "ALL"),
+          UpdateExpression: "ADD attempts :minus",
+          ConditionExpression: "attempts > :zero",
+          ExpressionAttributeValues: { ":minus": -1, ":zero": 0 },
+        }),
+      );
+    } catch (e) {
+      // 記録が無い（期限で消えた・解除した）ときは引かない
+      if (!isConditionalCheckFailed(e)) throw e;
+    }
+  }
+
+  async clearAdminLoginAttempts() {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk",
+      ExpressionAttributeValues: { ":pk": ADMIN_LOGIN_PK },
+      ProjectionExpression: "PK, SK",
+    });
+    await this.batchWrite(items.map((item) => ({ DeleteRequest: { Key: { PK: item.PK, SK: item.SK } } })));
+    return items.length;
   }
 
   /** ユーザの属性を変えて、変えた後のユーザを返す。@throws NotFoundError */

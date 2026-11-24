@@ -84,6 +84,8 @@ export type ApiErrorCode =
   | "pin_invalid"
   /** 暗証番号を間違えすぎてロック中 */
   | "pin_locked"
+  /** 管理者のパスワードを続けて間違えたため、しばらくログインを断っている */
+  | "login_locked"
   | "epithet_taken"
   | "invalid_state"
   | "favorites_disabled"

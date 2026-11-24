@@ -54,6 +54,8 @@ export class PartallyStack extends Stack {
       partitionKey: { name: "PK", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "SK", type: dynamodb.AttributeType.STRING },
       billing: dynamodb.Billing.onDemand(),
+      // 期限のある記録（管理者のログインの試行回数）を自動で消す
+      timeToLiveAttribute: "expiresAt",
       globalSecondaryIndexes: [
         {
           indexName: "GSI1",
@@ -279,7 +281,8 @@ function handler(event) {
       suffix: "/full.jpg",
     });
 
-    // 本番データの初期化。GitHub Actions の Reset ワークフローが関数名で呼ぶ（infra/github-oidc.yaml で呼び出しを許可）
+    // 本番データの初期化と、管理者のログインの制限の解除。GitHub Actions の Reset・Unlock admin login ワークフローが
+    // 関数名で呼ぶ（infra/github-oidc.yaml で呼び出しを許可）
     const resetFunction = new nodejs.NodejsFunction(this, "ResetFunction", {
       functionName: RESET_FUNCTION_NAME,
       entry: path("../../api/src/reset-lambda.ts"),

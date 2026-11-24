@@ -178,11 +178,12 @@ https://github.com/ot-nemoto/partally/settings/environments → **New environmen
 
 | 種類 | 名前 | 値 |
 |---|---|---|
-| Environment secrets | `PARTALLY_ADMIN_PASSWORD` | 管理者パスワード |
+| Environment secrets | `PARTALLY_ADMIN_PASSWORD` | 管理者パスワード（20 文字以上のランダムな値にする。下の「管理者パスワードの決め方」） |
 | Environment secrets | `AWS_ROLE_ARN` | A-1 で控えたロール ARN（必ず Secret にする。Variables だとステップの見出しに ARN がそのまま出て、公開リポジトリの Actions ログにアカウント ID が残る。未登録ならワークフローは最初に止まる） |
 | Environment secrets | `PARTALLY_BUDGET_EMAIL` | 任意: 予算アラートの通知先（公開リポジトリの Actions ログに出ないよう Secret にする） |
 | Environment variables | `PARTALLY_BUDGET_USD` | 任意: 予算（USD、既定 5） |
 
+- **管理者パスワードの決め方**: 管理画面の URL を知られても当てられないよう、20 文字以上のランダムな値にする（例: `openssl rand -base64 24`）。ログインは続けて間違えると一時的に断られるが（[管理者のログインの制限の解除](#管理者のログインの制限の解除)）、短い・推測しやすいパスワードでは守りきれない。
 - Repository secrets（Settings → Secrets and variables → Actions）に登録しても動くが、Environment に登録すると **デプロイジョブ以外から参照できなくなる** ので、こちらを推奨する。
 - **Deployment branches and tags** を「Selected branches and tags」にして `develop` だけを許可する。develop 以外のブランチに置いたワークフローからは `production` に入れず、ロールも引き受けられなくなる（develop への反映には PR のマージが必要になる）。
 - 「Required reviewers」に自分を入れると、デプロイ前に承認が必要になる。
@@ -384,6 +385,19 @@ https://github.com/ot-nemoto/partally/actions/workflows/reset.yml → **Run work
 - 「Reset」ステップのログに、消したアイテム数と写真の数が出る（例: `結果: {"items":420,"objects":180}`）。
 - 失敗したら、もう一度実行すれば残りを消せる（何度実行しても同じ結果になる）。エラーの詳細は公開ログには出さず、CloudWatch Logs の `ResetLogs` に残る。
 - 初期化の後は、管理画面で QR を発行し直して印刷する。景品も登録し直す。
+
+## 管理者のログインの制限の解除
+
+管理者のパスワードを続けて間違えると、ログインが一時的に断られる（15 分ごとの区切りの中で、接続元ごとに 10 回・全体で 50 回まで）。画面には「しばらくログインできません（あと N 分）」と出る。解除の方法は次のどれか。
+
+- **待つ**: 区切りが終わると自動で解ける（15 分以内）。
+- **別の回線から入る**: 接続元ごとの上限なら、スマホの回線などに替えると入れる。
+- **解除のワークフローを実行する**: https://github.com/ot-nemoto/partally/actions/workflows/unlock-admin-login.yml → **Run workflow**（ブランチは `develop`）。試行回数の記録を消すので、すぐに入れる。ほかのデータは消さない。
+  - 実行できるのは、リポジトリへの書き込み権限があり、`production` Environment に入れる人だけ。
+  - 初期化と同じ Lambda を呼ぶので、[本番データの初期化](#本番データの初期化)の「準備」が済んでいれば、ほかの準備は要らない。
+  - ログには消した記録の数だけが出る。失敗したときの詳細は CloudWatch Logs の `ResetLogs` に残る。
+
+覚えのない失敗で断られている（誰かがパスワードを試している）ときは、解除しても繰り返し断られることがある。その場合は管理者パスワードを変えて（`PARTALLY_ADMIN_PASSWORD` を更新してデプロイし直す）、時間をおく。
 
 ## セッション署名鍵とは
 
