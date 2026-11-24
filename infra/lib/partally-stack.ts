@@ -26,8 +26,8 @@ import {
 import type { Construct } from "constructs";
 
 export interface PartallyStackProps extends StackProps {
-  /** 管理者パスワード。Lambda の環境変数に入る */
-  adminPassword: string;
+  /** 管理者パスワードを保存した SSM SecureString の名前（デプロイの CI が GitHub の Secret から書き込む） */
+  adminPasswordParam: string;
   /** セッション署名鍵を保存した SSM SecureString の名前（デプロイ前に作成しておく） */
   sessionSecretParam: string;
   /** CloudFront 署名用の秘密鍵を保存する SSM SecureString の名前（デプロイ時に自動作成） */
@@ -117,6 +117,10 @@ export class PartallyStack extends Stack {
     // ---- API（Lambda + HTTP API）----
     const sessionSecret = ssm.StringParameter.fromSecureStringParameterAttributes(this, "SessionSecret", {
       parameterName: props.sessionSecretParam,
+    });
+    // 管理者パスワードは値をテンプレート・環境変数に入れず、Lambda が SSM から読む
+    const adminPassword = ssm.StringParameter.fromSecureStringParameterAttributes(this, "AdminPassword", {
+      parameterName: props.adminPasswordParam,
     });
 
     const httpApi = new apigw.HttpApi(this, "HttpApi", { createDefaultStage: false });
@@ -231,7 +235,7 @@ function handler(event) {
       timeout: Duration.seconds(10),
       environment: {
         ...commonEnv,
-        ADMIN_PASSWORD: props.adminPassword,
+        ADMIN_PASSWORD_PARAM: props.adminPasswordParam,
         SESSION_SECRET_PARAM: props.sessionSecretParam,
         CLOUDFRONT_PRIVATE_KEY_PARAM: props.cloudfrontPrivateKeyParam,
         CLOUDFRONT_KEY_PAIR_ID: photoPublicKey.publicKeyId,
@@ -244,6 +248,7 @@ function handler(event) {
     });
     table.grantReadWriteData(apiFunction);
     sessionSecret.grantRead(apiFunction);
+    adminPassword.grantRead(apiFunction);
     // 署名付き POST はこの関数の権限で S3 に書き込まれる
     photoBucket.grantReadWrite(apiFunction);
     photoBucket.grantDelete(apiFunction);

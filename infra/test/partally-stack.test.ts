@@ -11,8 +11,8 @@ describe("PartallyStack", () => {
     const app = new App();
     const stack = new PartallyStack(app, "Test", {
       env: { account: "123456789012", region: "ap-northeast-1" },
-      adminPassword: "pw",
       sessionSecretParam: "/partally/session-secret",
+      adminPasswordParam: "/partally/admin-password",
       cloudfrontPrivateKeyParam: "/partally/cloudfront-private-key",
       budgetEmail: "ops@example.com",
     });
@@ -32,7 +32,7 @@ describe("PartallyStack", () => {
       Architectures: ["arm64"],
       Environment: {
         Variables: Match.objectLike({
-          ADMIN_PASSWORD: "pw",
+          ADMIN_PASSWORD_PARAM: "/partally/admin-password",
           SESSION_SECRET_PARAM: "/partally/session-secret",
           CLOUDFRONT_PRIVATE_KEY_PARAM: "/partally/cloudfront-private-key",
           CLOUDFRONT_KEY_PAIR_ID: Match.anyValue(),
@@ -42,6 +42,34 @@ describe("PartallyStack", () => {
         }),
       },
     });
+  });
+
+  it("管理者パスワードは値を環境変数に入れず、API の Lambda が SSM のパラメータを読む", () => {
+    for (const fn of Object.values(template.findResources("AWS::Lambda::Function"))) {
+      expect(Object.keys(fn.Properties?.Environment?.Variables ?? {})).not.toContain("ADMIN_PASSWORD");
+    }
+    template.hasResourceProperties("AWS::IAM::Policy", {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith(["ssm:GetParameter"]),
+            Resource: Match.objectLike({
+              "Fn::Join": Match.arrayWith([
+                Match.arrayWith([Match.stringLikeRegexp(":parameter/partally/admin-password$")]),
+              ]),
+            }),
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("管理者パスワードのパラメータ名は、デプロイの CI と GitHub Actions のロールの権限と同じ", () => {
+    const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+    const param = JSON.parse(read("../cdk.json")).context.adminPasswordParam;
+    expect(param).toBe("/partally/admin-password");
+    expect(read("../github-oidc.yaml")).toContain(`:parameter${param}`);
+    expect(read("../../.github/workflows/ci.yml")).toContain("adminPasswordParam");
   });
 
   it("写真バケットは非公開で、POST の CORS だけを許可し、受け口の残りを 1 日で消す", () => {
