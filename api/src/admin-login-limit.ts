@@ -4,13 +4,14 @@ import type { AdminLoginAttempt } from "./repository.js";
 /**
  * 管理者のログインの試行回数の制限（パスワードの総当たりを防ぐ）。
  * 15 分ごとの区切りの中で、接続元ごと・全体の上限まで試せる。上限に達したら、その区切りが終わるまで断る。
- * 全体の上限は、接続元をたくさん使う攻撃でも、試せる回数の総数を抑えるためのもの。
+ * 全体の上限は、接続元をたくさん使う攻撃でも、試せる回数の総数を抑えるためのもの（1 日約 2 万回まで）。
+ * 低すぎると、少ない回線で全員（幹事も）を締め出せてしまうので、締め出しに 20 回線が要る 200 回にしている。
  * 接続元（CloudFront-Viewer-Address）を偽って API Gateway に直接送ったものは、X-Origin-Verify が合わずに API が断る（app.ts）。
  * 断っている間は、区切りが終わるのを待つか、別の回線から入るか、Unlock admin login のワークフローで記録を消す
  */
 export const ADMIN_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 export const ADMIN_LOGIN_MAX_PER_SOURCE = 10;
-export const ADMIN_LOGIN_MAX_TOTAL = 50;
+export const ADMIN_LOGIN_MAX_TOTAL = 200;
 /** 記録は区切りが終わってからも少し残す（DynamoDB の TTL での削除は遅れることがあり、残っていても区切りが違えば数えない） */
 const RECORD_TTL_MS = ADMIN_LOGIN_WINDOW_MS + 60 * 60 * 1000;
 
