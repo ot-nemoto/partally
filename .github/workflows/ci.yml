@@ -89,17 +89,21 @@ jobs:
       contents: read
     env:
       AWS_REGION: ap-northeast-1
-      PARTALLY_ADMIN_PASSWORD: ${{ secrets.PARTALLY_ADMIN_PASSWORD }}
       PARTALLY_BUDGET_EMAIL: ${{ secrets.PARTALLY_BUDGET_EMAIL }}
       PARTALLY_BUDGET_USD: ${{ vars.PARTALLY_BUDGET_USD }}
     steps:
       # 設定漏れは時間のかかるインストールの前に止める
-      - name: Check AWS_ROLE_ARN secret
+      - name: Check secrets
         env:
           HAS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN != '' }}
+          HAS_ADMIN_PASSWORD: ${{ secrets.PARTALLY_ADMIN_PASSWORD != '' }}
         run: |
           if [ "$HAS_ROLE_ARN" != "true" ]; then
             echo "::error::production の Environment secrets に AWS_ROLE_ARN を登録してください（Variables ではログにアカウント ID が出るため使いません）"
+            exit 1
+          fi
+          if [ "$HAS_ADMIN_PASSWORD" != "true" ]; then
+            echo "::error::production の Environment secrets に PARTALLY_ADMIN_PASSWORD を登録してください"
             exit 1
           fi
 
@@ -143,6 +147,25 @@ jobs:
         with:
           role-arn: ${{ secrets.AWS_ROLE_ARN }}
           region: ${{ env.AWS_REGION }}
+
+      # 管理者パスワードを、GitHub の Secret から SSM の暗号化パラメータに書き込む（テンプレートと Lambda の環境変数には入れない。
+      # API の Lambda が SSM から読む）。パラメータ名は infra/cdk.json の context adminPasswordParam。
+      # 値はコマンドの引数に置かず、自分だけが読める一時ファイルの JSON で渡す
+      - name: Store admin password
+        if: steps.latest.outputs.deploy == 'true'
+        env:
+          PARTALLY_ADMIN_PASSWORD: ${{ secrets.PARTALLY_ADMIN_PASSWORD }}
+        run: |
+          PARAM=$(jq -r '.context.adminPasswordParam' infra/cdk.json)
+          INPUT="$RUNNER_TEMP/admin-password.json"
+          trap 'rm -f "$INPUT"' EXIT
+          (umask 077 && jq -n --arg name "$PARAM" --arg value "$PARTALLY_ADMIN_PASSWORD" \
+            '{Name: $name, Type: "SecureString", Overwrite: true, Value: $value}' > "$INPUT")
+          if ! aws ssm put-parameter --cli-input-json "file://$INPUT" > /dev/null; then
+            echo "::error::管理者パスワードを SSM に書き込めませんでした。GitHub Actions のロール（partally-github-oidc スタック）を最新のテンプレートで更新してください（docs/setup.md）"
+            exit 1
+          fi
+          echo "管理者パスワードを SSM に書き込みました"
 
       # 今のスタックの Outputs（URL・バケット名・テーブル名）とスタック ID を伏せる。
       # デプロイのエラーのメッセージに出たときのため。URL はドメインごと伏せる（/admin 付きも伏せる）。

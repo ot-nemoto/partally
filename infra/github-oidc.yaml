@@ -2,7 +2,8 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   partally: GitHub Actions から OIDC でデプロイするための IAM ロール。
   ロール自体は CDK のブートストラップロール（cdk-hnb659fds-*）を引き受ける権限と、
-  本番データの初期化 Lambda（partally-reset）を呼ぶ権限だけを持つ。
+  本番データの初期化 Lambda（partally-reset）を呼ぶ権限と、
+  管理者パスワードの SSM パラメータ（/partally/admin-password）に書き込む権限だけを持つ。
 
 Parameters:
   GitHubOwner:
@@ -79,6 +80,15 @@ Resources:
               - Effect: Allow
                 Action: sts:AssumeRole
                 Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/cdk-hnb659fds-*
+        # デプロイの CI（.github/workflows/ci.yml）が、GitHub の Secret の管理者パスワードを SSM に書き込む。
+        # パラメータ名は infra/cdk.json の context adminPasswordParam と同じ。書き込みだけで、読み取りは許さない
+        - PolicyName: put-admin-password
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:PutParameter
+                Resource: !Sub arn:aws:ssm:*:${AWS::AccountId}:parameter/partally/admin-password
         # Reset ワークフロー（.github/workflows/reset.yml）が初期化 Lambda を呼ぶ。関数名は infra/lib/partally-stack.ts と同じ
         - PolicyName: invoke-reset-function
           PolicyDocument:

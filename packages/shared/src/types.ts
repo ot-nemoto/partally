@@ -78,12 +78,20 @@ export type ApiErrorCode =
   /** 付ける画像が受け口に無い（アップロードしていない・ほかで使った・保存の失敗で片付けた） */
   | "image_not_uploaded"
   | "unauthorized"
+  /** CloudFront を通っていないリクエスト（API Gateway に直接送られたもの） */
+  | "forbidden"
   | "invalid_token"
   | "token_already_bound"
   /** 暗証番号が違う */
   | "pin_invalid"
   /** 暗証番号を間違えすぎてロック中 */
   | "pin_locked"
+  /** 管理者のパスワードを続けて間違えたため、しばらくログインを断っている */
+  | "login_locked"
+  /** 確認待ちの写真が上限に達しているため、写真を送れない */
+  | "too_many_pending"
+  /** 短い間にアップロード枠を取りすぎたため、しばらく写真を送れない */
+  | "upload_rate_limited"
   | "epithet_taken"
   | "invalid_state"
   | "favorites_disabled"

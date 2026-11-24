@@ -1,0 +1,55 @@
+name: Unlock admin login
+
+# 管理者のパスワードを続けて間違えて、ログインが断られているのを解除する（試行回数の記録を消す）。
+# 待てば 15 分以内に自動で解けるので、すぐに入りたいときに使う。ほかのデータは消さない。
+# 手動実行のみ。production Environment（develop だけ）で動く
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: unlock-admin-login
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # OIDC で AWS のロールを引き受けるため
+  contents: read
+
+jobs:
+  unlock:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_REGION: ap-northeast-1
+    steps:
+      - name: Check AWS_ROLE_ARN secret
+        env:
+          HAS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN != '' }}
+        run: |
+          if [ "$HAS_ROLE_ARN" != "true" ]; then
+            echo "::error::production の Environment secrets に AWS_ROLE_ARN を登録してください"
+            exit 1
+          fi
+
+      # 認証の action（.github/actions/aws-oidc）を使うために取り出す
+      - uses: actions/checkout@v7
+
+      # ログにアカウント ID を割り出せる値を出さないため、configure-aws-credentials ではなく自前の action で認証する
+      - uses: ./.github/actions/aws-oidc
+        with:
+          role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          region: ${{ env.AWS_REGION }}
+
+      # 関数名は infra/lib/partally-stack.ts、action の値は api/src/reset.ts の UNLOCK_ADMIN_LOGIN_ACTION と同じ
+      - name: Unlock
+        run: |
+          aws lambda invoke \
+            --function-name partally-reset \
+            --cli-binary-format raw-in-base64-out \
+            --payload '{"action":"unlock-admin-login"}' \
+            result.json > response.json
+          # 失敗時のエラーの詳細（ARN を含みうる）は公開ログに出さず、CloudWatch Logs で確かめる
+          if jq -e '.FunctionError' response.json > /dev/null; then
+            echo "::error::解除に失敗しました（$(jq -r '.errorType // "Error"' result.json)）。詳細は CloudWatch Logs の ResetLogs"
+            exit 1
+          fi
+          echo "解除しました（消した記録: $(jq -r '.cleared' result.json) 件）"

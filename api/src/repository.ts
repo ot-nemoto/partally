@@ -204,6 +204,20 @@ export interface GameAnswerRecord {
   answeredAt: string;
 }
 
+/** 管理者のログインを 1 回試す分を数えるときの値（数え方は api/src/admin-login-limit.ts） */
+export interface AdminLoginAttempt {
+  /** 数える区切り（区切りの始まりの時刻） */
+  window: string;
+  /** 接続元（閲覧者の IP） */
+  source: string;
+  /** 区切りの中で、接続元ごとに試せる回数 */
+  maxPerSource: number;
+  /** 区切りの中で、全体で試せる回数 */
+  maxTotal: number;
+  /** 記録を自動で消す時刻（エポック秒。DynamoDB の TTL） */
+  expiresAt: number;
+}
+
 export interface Page<T> {
   items: T[];
   /** 続きがある場合の位置。次の呼び出しにそのまま渡す */
@@ -341,7 +355,28 @@ export interface Repository {
   /** 暗証番号を消す（幹事。次にほかの端末で読み込んだときに決め直す）。@throws NotFoundError */
   clearUserPin(userId: string): Promise<UserRecord>;
 
+  // ---- 管理者のログインの試行回数 ----
+
+  /**
+   * 管理者のログインを 1 回試す分を、区切りの中の接続元ごとの回数と全体の回数に数える。
+   * どちらかが上限に達していれば（断っている間）数えずに false。
+   * 試す前に数えるので、同時に何回送っても上限までしか試せない
+   */
+  reserveAdminLoginAttempt(attempt: AdminLoginAttempt): Promise<boolean>;
+
+  /** パスワードが合っていたとき。その接続元の回数を消し、全体の回数から 1 つ引く（全体は間違えた数だけを数える） */
+  releaseAdminLoginAttempt(window: string, source: string): Promise<void>;
+
+  /** 管理者のログインの試行回数の記録をすべて消す（解除）。消した記録の数を返す */
+  clearAdminLoginAttempts(): Promise<number>;
+
   // ---- 写真 ----
+
+  /**
+   * 写真のアップロード枠を 1 回発行する分を、区切りの中の数に数える。上限に達していれば数えずに false。
+   * expiresAt（エポック秒）を過ぎた記録は DynamoDB の TTL で消える
+   */
+  reserveUploadSlot(userId: string, window: string, max: number, expiresAt: number): Promise<boolean>;
 
   /**
    * 写真を読む。consistent を付けると、直前の更新も必ず反映した値を読む

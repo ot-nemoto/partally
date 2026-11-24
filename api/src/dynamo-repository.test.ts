@@ -271,6 +271,87 @@ describe("DynamoRepository", () => {
     });
   });
 
+  describe("管理者のログインの試行回数", () => {
+    const attempt = {
+      window: "2026-11-24T10:00:00.000Z",
+      source: "203.0.113.1",
+      maxPerSource: 10,
+      maxTotal: 50,
+      expiresAt: 1_800_000_000,
+    };
+
+    it("接続元ごとと全体の回数を、上限に達していないときだけ 1 つのトランザクションで増やす", async () => {
+      ddb.on(TransactWriteCommand).resolves({});
+      await expect(repo.reserveAdminLoginAttempt(attempt)).resolves.toBe(true);
+      const items = ddb.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+      expect(items.map((i) => i.Update)).toMatchObject([
+        {
+          Key: { PK: "ADMIN_LOGIN", SK: "2026-11-24T10:00:00.000Z#SRC#203.0.113.1" },
+          UpdateExpression: "ADD attempts :one SET expiresAt = :expiresAt",
+          ConditionExpression: "attribute_not_exists(attempts) OR attempts < :max",
+          ExpressionAttributeValues: { ":one": 1, ":max": 10, ":expiresAt": 1_800_000_000 },
+        },
+        {
+          Key: { PK: "ADMIN_LOGIN", SK: "2026-11-24T10:00:00.000Z#ALL" },
+          ExpressionAttributeValues: { ":one": 1, ":max": 50, ":expiresAt": 1_800_000_000 },
+        },
+      ]);
+    });
+
+    it("どちらかが上限に達していれば（条件チェックの失敗）、数えずに false", async () => {
+      ddb.on(TransactWriteCommand).rejects(canceled(["None", "ConditionalCheckFailed"]));
+      await expect(repo.reserveAdminLoginAttempt(attempt)).resolves.toBe(false);
+    });
+
+    it("合っていたら、接続元の記録を消し、全体から 1 つ引く（記録が無ければ引かない）", async () => {
+      ddb.on(DeleteCommand).resolves({});
+      ddb.on(UpdateCommand).rejects(new ConditionalCheckFailedException({ message: "failed", $metadata: {} }));
+      await expect(repo.releaseAdminLoginAttempt(attempt.window, attempt.source)).resolves.toBeUndefined();
+      expect(ddb.commandCalls(DeleteCommand)[0]!.args[0].input.Key).toEqual({
+        PK: "ADMIN_LOGIN",
+        SK: "2026-11-24T10:00:00.000Z#SRC#203.0.113.1",
+      });
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input).toMatchObject({
+        Key: { PK: "ADMIN_LOGIN", SK: "2026-11-24T10:00:00.000Z#ALL" },
+        UpdateExpression: "ADD attempts :minus",
+        ConditionExpression: "attempts > :zero",
+      });
+    });
+
+    it("解除では、管理者のログインの記録だけをすべて消す", async () => {
+      const items = [
+        { PK: "ADMIN_LOGIN", SK: "2026-11-24T10:00:00.000Z#ALL" },
+        { PK: "ADMIN_LOGIN", SK: "2026-11-24T10:00:00.000Z#SRC#203.0.113.1" },
+      ];
+      ddb.on(QueryCommand).resolves({ Items: items });
+      ddb.on(BatchWriteCommand).resolves({});
+      await expect(repo.clearAdminLoginAttempts()).resolves.toBe(2);
+      expect(ddb.commandCalls(QueryCommand)[0]!.args[0].input).toMatchObject({
+        KeyConditionExpression: "PK = :pk",
+        ExpressionAttributeValues: { ":pk": "ADMIN_LOGIN" },
+      });
+      expect(ddb.commandCalls(BatchWriteCommand)[0]!.args[0].input.RequestItems!.table).toEqual(
+        items.map((Key) => ({ DeleteRequest: { Key } })),
+      );
+    });
+  });
+
+  describe("写真のアップロード枠の発行数", () => {
+    it("上限に達していないときだけ、区切りの記録を 1 つ増やす。達していれば false", async () => {
+      ddb.on(UpdateCommand).resolves({});
+      await expect(repo.reserveUploadSlot("U1", "2026-11-24T10:00:00.000Z", 30, 1_800_000_000)).resolves.toBe(true);
+      expect(ddb.commandCalls(UpdateCommand)[0]!.args[0].input).toMatchObject({
+        Key: { PK: "USER#U1", SK: "UPLOADS#2026-11-24T10:00:00.000Z" },
+        UpdateExpression: "ADD issued :one SET expiresAt = :expiresAt",
+        ConditionExpression: "attribute_not_exists(issued) OR issued < :max",
+        ExpressionAttributeValues: { ":one": 1, ":max": 30, ":expiresAt": 1_800_000_000 },
+      });
+      ddb.reset();
+      ddb.on(UpdateCommand).rejects(new ConditionalCheckFailedException({ message: "failed", $metadata: {} }));
+      await expect(repo.reserveUploadSlot("U1", "2026-11-24T10:00:00.000Z", 30, 1_800_000_000)).resolves.toBe(false);
+    });
+  });
+
   describe("写真", () => {
     const photo: PhotoRecord = {
       photoId: "P1",

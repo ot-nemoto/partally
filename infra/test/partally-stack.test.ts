@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
-import { PartallyStack, RESET_FUNCTION_NAME } from "../lib/partally-stack.js";
+import { ORIGIN_VERIFY_HEADER, PartallyStack, RESET_FUNCTION_NAME, reportOnlyCsp } from "../lib/partally-stack.js";
 
 describe("PartallyStack", () => {
   let template: Template;
@@ -11,9 +11,10 @@ describe("PartallyStack", () => {
     const app = new App();
     const stack = new PartallyStack(app, "Test", {
       env: { account: "123456789012", region: "ap-northeast-1" },
-      adminPassword: "pw",
       sessionSecretParam: "/partally/session-secret",
+      adminPasswordParam: "/partally/admin-password",
       cloudfrontPrivateKeyParam: "/partally/cloudfront-private-key",
+      originVerifyParam: "/partally/origin-verify",
       budgetEmail: "ops@example.com",
     });
     template = Template.fromStack(stack);
@@ -32,9 +33,10 @@ describe("PartallyStack", () => {
       Architectures: ["arm64"],
       Environment: {
         Variables: Match.objectLike({
-          ADMIN_PASSWORD: "pw",
+          ADMIN_PASSWORD_PARAM: "/partally/admin-password",
           SESSION_SECRET_PARAM: "/partally/session-secret",
           CLOUDFRONT_PRIVATE_KEY_PARAM: "/partally/cloudfront-private-key",
+          ORIGIN_VERIFY_PARAM: "/partally/origin-verify",
           CLOUDFRONT_KEY_PAIR_ID: Match.anyValue(),
           TABLE_NAME: Match.anyValue(),
           PHOTO_BUCKET: Match.anyValue(),
@@ -42,6 +44,69 @@ describe("PartallyStack", () => {
         }),
       },
     });
+  });
+
+  it("管理者パスワードは値を環境変数に入れず、API の Lambda が SSM のパラメータを読む", () => {
+    for (const fn of Object.values(template.findResources("AWS::Lambda::Function"))) {
+      expect(Object.keys(fn.Properties?.Environment?.Variables ?? {})).not.toContain("ADMIN_PASSWORD");
+    }
+    template.hasResourceProperties("AWS::IAM::Policy", {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith(["ssm:GetParameter"]),
+            Resource: Match.objectLike({
+              "Fn::Join": Match.arrayWith([
+                Match.arrayWith([Match.stringLikeRegexp(":parameter/partally/admin-password$")]),
+              ]),
+            }),
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("管理者パスワードのパラメータ名は、デプロイの CI と GitHub Actions のロールの権限と同じ", () => {
+    const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+    const param = JSON.parse(read("../cdk.json")).context.adminPasswordParam;
+    expect(param).toBe("/partally/admin-password");
+    expect(read("../github-oidc.yaml")).toContain(`:parameter${param}`);
+    expect(read("../../.github/workflows/ci.yml")).toContain("adminPasswordParam");
+  });
+
+  it("CloudFront は API へのリクエストに秘密の値のヘッダを付ける（値はカスタムリソースが作り、テンプレートには入らない）", () => {
+    const [distribution] = Object.values(template.findResources("AWS::CloudFront::Distribution"));
+    const apiOrigin = distribution!.Properties.DistributionConfig.Origins.find(
+      (o: { CustomOriginConfig?: unknown }) => o.CustomOriginConfig,
+    );
+    expect(apiOrigin.OriginCustomHeaders).toEqual([
+      {
+        HeaderName: ORIGIN_VERIFY_HEADER,
+        HeaderValue: { "Fn::GetAtt": [expect.stringMatching(/^OriginSecret/), "Secret"] },
+      },
+    ]);
+    template.hasResourceProperties("AWS::CloudFormation::CustomResource", { ParameterName: "/partally/origin-verify" });
+  });
+
+  it("読み込み元を絞る CSP を Report-Only で付け、違反を /api/csp-report に送らせる", () => {
+    template.hasResourceProperties("AWS::CloudFront::ResponseHeadersPolicy", {
+      ResponseHeadersPolicyConfig: Match.objectLike({
+        CustomHeadersConfig: {
+          Items: [
+            { Header: "Content-Security-Policy-Report-Only", Value: reportOnlyCsp("ap-northeast-1"), Override: true },
+          ],
+        },
+      }),
+    });
+    const csp = reportOnlyCsp("ap-northeast-1");
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("report-uri /api/csp-report");
+    expect(csp).toContain("https://*.s3.ap-northeast-1.amazonaws.com");
+  });
+
+  it("API のヘッダの名前は、API（app.ts）と同じ", () => {
+    const app = readFileSync(new URL("../../api/src/app.ts", import.meta.url), "utf8");
+    expect(app).toContain(`"${ORIGIN_VERIFY_HEADER.toLowerCase()}"`);
   });
 
   it("写真バケットは非公開で、POST の CORS だけを許可し、受け口の残りを 1 日で消す", () => {

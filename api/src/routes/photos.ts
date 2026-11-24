@@ -1,4 +1,9 @@
-import { photoStatusSchema } from "@partally/shared";
+import {
+  PHOTO_PENDING_MAX,
+  PHOTO_UPLOAD_MAX_PER_WINDOW,
+  PHOTO_UPLOAD_WINDOW_MS,
+  photoStatusSchema,
+} from "@partally/shared";
 import type { Context, Hono } from "hono";
 import { isVisible, type VisiblePhoto } from "../dto.js";
 import { type Env, fail } from "../http.js";
@@ -22,8 +27,30 @@ export function registerPhotoRoutes(app: Hono<Env>, ctx: AppContext) {
   const { repo, storage, now, newId, setPhotoCookies, toPhotoDto, uploadersOf, participantUser, requireUser } = ctx;
 
   app.post("/photos/upload-url", requireUser, async (c) => {
+    const user = c.get("user");
+    // 確認待ちが多いときは、幹事が確認するまで送らせない（検閲待ちの一覧と保存先を埋めさせない）。
+    // 投稿数（uploadCount）は確認待ちと公開中の数なので、公開数を引くと確認待ちの数になる
+    if (user.uploadCount - user.approvedCount >= PHOTO_PENDING_MAX) {
+      return fail(c, 429, "too_many_pending", `確認待ちの写真が ${PHOTO_PENDING_MAX} 枚あります`);
+    }
+    // 短い間に枠を取りすぎないよう、区切りごとに数える（断ったものは数えない）
+    const nowMs = now().getTime();
+    const start = Math.floor(nowMs / PHOTO_UPLOAD_WINDOW_MS) * PHOTO_UPLOAD_WINDOW_MS;
+    const expiresAt = Math.floor((start + PHOTO_UPLOAD_WINDOW_MS) / 1000) + 60 * 60;
+    if (
+      !(await repo.reserveUploadSlot(
+        user.userId,
+        new Date(start).toISOString(),
+        PHOTO_UPLOAD_MAX_PER_WINDOW,
+        expiresAt,
+      ))
+    ) {
+      const seconds = Math.max(1, Math.ceil((start + PHOTO_UPLOAD_WINDOW_MS - nowMs) / 1000));
+      c.header("Retry-After", String(seconds));
+      return fail(c, 429, "upload_rate_limited", `あと ${Math.ceil(seconds / 60)} 分`);
+    }
     const photoId = newId();
-    const { full, thumb } = await storage.createUploads(photoId, c.get("user").userId);
+    const { full, thumb } = await storage.createUploads(photoId, user.userId);
     return c.json({ photoId, full, thumb });
   });
 

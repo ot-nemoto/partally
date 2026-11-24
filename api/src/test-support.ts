@@ -7,6 +7,9 @@ import type { UrlSigner } from "./url-signer.js";
 /** テスト用の管理者パスワード */
 export const ADMIN_PASSWORD = "secret-password";
 
+/** 取り込みで JPEG と見なされる最小限のデータ（先頭が FF D8 FF）。rest は後ろに足す中身 */
+export const jpegBytes = (...rest: number[]) => new Uint8Array([0xff, 0xd8, 0xff, ...rest]);
+
 /** 署名の代わりに印を付けるだけの署名器 */
 export const testSigner: UrlSigner = {
   approvedCookies: () => ({ "CloudFront-Policy": "policy", "CloudFront-Signature": "sig" }),

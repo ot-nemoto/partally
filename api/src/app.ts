@@ -4,13 +4,18 @@ import { InvalidCursorError } from "./repository.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { API_BASE_PATH, type AppDeps, createContext } from "./routes/context.js";
+import { registerCspReportRoute } from "./routes/csp-report.js";
 import { registerGameRoutes } from "./routes/games.js";
 import { registerPhotoRoutes } from "./routes/photos.js";
 import { registerPrizeRoutes } from "./routes/prizes.js";
 import { registerRankingRoutes } from "./routes/ranking.js";
 import { registerScheduleRoutes } from "./routes/schedule.js";
+import { safeEqual } from "./session.js";
 
 export type { AppDeps } from "./routes/context.js";
+
+/** CloudFront が API へのリクエストに付けるヘッダ（infra/lib/partally-stack.ts の ORIGIN_VERIFY_HEADER） */
+const ORIGIN_VERIFY_HEADER = "x-origin-verify";
 
 export function createApp(deps: AppDeps) {
   const ctx = createContext(deps);
@@ -23,6 +28,19 @@ export function createApp(deps: AppDeps) {
     return fail(c, 500, "internal_error");
   });
   app.notFound((c) => fail(c, 404, "not_found"));
+
+  // CloudFront を通ったリクエストだけを受ける。API Gateway の元の URL に直接送られたものは、応答のヘッダ（CloudFront で付ける）や
+  // 接続元（CloudFront-Viewer-Address。管理者のログインの試行回数を数えるのに使う）を迂回・偽装できるため断る
+  const { originVerifySecret } = deps;
+  if (originVerifySecret) {
+    app.use("*", async (c, next) => {
+      if (!safeEqual(c.req.header(ORIGIN_VERIFY_HEADER) ?? "", originVerifySecret)) return fail(c, 403, "forbidden");
+      await next();
+    });
+  }
+
+  // CSP の違反の報告（application/csp-report で届く）。JSON だけを受ける確かめより前に登録する
+  registerCspReportRoute(app);
 
   // 更新系は JSON に限定する。クロスオリジンからの JSON 送信はプリフライトが必要になるため CSRF 対策になる
   app.use("*", async (c, next) => {

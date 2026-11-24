@@ -1,5 +1,12 @@
 import type { PresignedPost } from "@partally/shared";
-import { type PhotoArea, type PhotoKind, type PhotoStorage, photoKey, prizeImageKey } from "./photo-storage.js";
+import {
+  type PhotoArea,
+  type PhotoKind,
+  type PhotoStorage,
+  photoKey,
+  prizeImageKey,
+  startsWithJpegMagic,
+} from "./photo-storage.js";
 
 interface StoredObject {
   data: Uint8Array<ArrayBuffer>;
@@ -40,6 +47,11 @@ export class MemoryPhotoStorage implements PhotoStorage {
 
   async getUploader(key: string) {
     return this.objects.get(key)?.uploader;
+  }
+
+  async isJpeg(key: string) {
+    const obj = this.objects.get(key);
+    return obj ? startsWithJpegMagic(obj.data) : false;
   }
 
   async copy(photoId: string, from: PhotoArea, to: Exclude<PhotoArea, "uploads">) {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ingestUpload } from "./ingest.js";
-import { type Client, useApiTest } from "./test-support.js";
+import { type Client, jpegBytes, useApiTest } from "./test-support.js";
 
 describe("API", () => {
   const t = useApiTest();
@@ -22,7 +22,7 @@ describe("API", () => {
       const res = await request("POST", "/api/photos/upload-url");
       for (const kind of ["thumb", "full"] as const) {
         const { fields } = res.body[kind];
-        t.storage.put(fields.key, new Uint8Array([1, 2, 3]), fields["x-amz-meta-uploader"]);
+        t.storage.put(fields.key, jpegBytes(), fields["x-amz-meta-uploader"]);
       }
       await ingestUpload(t, res.body.full.fields.key);
       expect((await admin("POST", `/api/admin/photos/${res.body.photoId}/approve`)).status).toBe(200);

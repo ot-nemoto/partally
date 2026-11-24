@@ -58,7 +58,7 @@ flowchart LR
 
 | パスパターン | オリジン | 備考 |
 |---|---|---|
-| `/api/*` | API Gateway (HTTP API) | キャッシュ無効。Cookie・クエリ・必要ヘッダを転送 |
+| `/api/*` | API Gateway (HTTP API) | キャッシュ無効。Cookie・クエリ・必要ヘッダを転送。秘密の値を `X-Origin-Verify` ヘッダで付け、API はこれが合わないリクエスト（API Gateway の元の URL に直接送られたもの）を 403 で断る |
 | `/photos/approved/*` | photos バケット (OAC) | **署名付き Cookie または URL** 必須（公開済み写真） |
 | `/photos/pending/*` | photos バケット (OAC) | **署名付き URL** 必須（検閲待ち。管理者・本人のみ） |
 | `/prizes/*` | photos バケット (OAC) | **署名付き URL** 必須（景品の画像とゲームの画像（問題・選択肢）。管理者と、景品を見せる設定・開催中のゲームの参加者） |
@@ -86,16 +86,18 @@ flowchart LR
 | `api` | API Gateway | すべての API。Node.js 22 + [Hono](https://hono.dev/) で 1 関数内ルーティング（処理は領域ごとのファイルに分ける。構成は[開発ガイド](development.md#リポジトリ構成)） |
 | `photo-ingest` | S3 `ObjectCreated`（`uploads/*/full.jpg`） | アップロード完了の検証と写真レコード登録、アップロード数加算 |
 | （カスタムリソース） | デプロイ時 | CloudFront 署名用の鍵ペアを生成し、秘密鍵を SSM に保存、公開鍵を CloudFront に登録 |
+| （カスタムリソース） | デプロイ時 | CloudFront から API へのリクエストに付ける秘密の値を生成し、SSM に保存、CloudFront のオリジンのカスタムヘッダに入れる |
 
 ### 2.3 秘密情報
 
 | 名前 | 保管場所 | 用途 |
 |---|---|---|
-| `ADMIN_PASSWORD` | Lambda 環境変数（デプロイ時に指定） | 管理者ログイン |
+| `ADMIN_PASSWORD` | SSM SecureString（`/partally/admin-password`） | 管理者ログイン。GitHub の Secret `PARTALLY_ADMIN_PASSWORD` から、デプロイの CI が書き込む（[setup.md](setup.md#a-2-github-の-environment-設定)）。テンプレートと Lambda の環境変数には入らない |
 | `SESSION_SECRET` | SSM SecureString（`/partally/session-secret`） | セッション Cookie の HMAC 署名。作成手順と扱いは [setup.md](setup.md#セッション署名鍵とは) |
+| `X-Origin-Verify` の値 | SSM SecureString（`/partally/origin-verify`） | CloudFront を通ったリクエストだけを API が受けるための値。**デプロイ時にカスタムリソースが自動生成**し、一度作ったら使い回す。CloudFront のオリジンのカスタムヘッダに入る（スタックの表示には出さない）。API の Lambda は起動時に SSM から読む |
 | CloudFront 署名用秘密鍵 | SSM SecureString（`/partally/cloudfront-private-key`） | 署名付き Cookie / URL の発行。**デプロイ時にカスタムリソースが自動生成**し、公開鍵だけを CloudFront の Key Group に登録する（テンプレートに秘密鍵は残らない） |
 
-SSM Parameter Store の標準パラメータは無料。Lambda のコールドスタート時に取得してメモリにキャッシュする。
+SSM Parameter Store の標準パラメータは無料。Lambda のコールドスタート時に取得してメモリにキャッシュする。管理者パスワードだけは 5 分ごとに読み直し、変わっていればアプリを作り直す（パスワードを変えたとき、温まっている Lambda も切り替わるように）。
 
 ---
 
@@ -121,8 +123,11 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 | 設定 | `SETTINGS` | `GLOBAL` | – | – |
 | イベントの終了 | `EVENT` | `END` | – | – |
 | 通し番号カウンタ | `COUNTER` | `TOKEN_LABEL` | – | – |
+| 写真のアップロード枠の発行数 | `USER#<userId>` | `UPLOADS#<区切りの始まり>` | – | – |
+| 管理者のログインの試行回数 | `ADMIN_LOGIN` | `<区切りの始まり>#ALL`（全体）・`<区切りの始まり>#SRC#<IP>`（接続元ごと） | – | – |
 
 - **GSI1**: 一覧取得用（トークン一覧・ユーザ一覧・状態別の写真一覧を時系列で、写真ごとのお気に入りした人の一覧、景品一覧、スケジュールの項目の一覧、ゲーム一覧、ゲームごとの答えの一覧）。
+- 写真のアップロード枠の発行数は `issued`（回数）と `expiresAt` を、管理者のログインの試行回数は `attempts`（回数）と `expiresAt`（エポック秒）を持つ。どちらもテーブルの TTL（`expiresAt`）で、区切りが終わって 1 時間ほど後に自動で消える。
 - 以前のクイズ（`QUIZ#`・`ANSWER#`・`QUIZ_STATE`）は、ゲームに統合したので読まない（残っていても使われず、初期化で消える）。
 - **GSI2**: ユーザ別の写真一覧。写真のみ `GSI2PK = USER#<uploaderId>`, `GSI2SK = <createdAt>#<photoId>` を持つ。
 - QR トークンの GSI1SK は通し番号を 6 桁ゼロ埋めした値（表示用 `label` は 3 桁）。通し番号はカウンタへのアトミック加算で採番する。
@@ -290,7 +295,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
   - 署名鍵は `SESSION_SECRET`。署名が合わない Cookie は未ログインとして扱うため、中身を書き換えてのなりすましはできない
   - 属性: `HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=30日`。`iat` から 30 日を過ぎたものもサーバ側で拒否する
 - API は毎リクエストでユーザレコードを読み、`status = active` かつ `token` が Cookie の `tok` と一致することを確認する。紐づけ解除・再紐づけされたユーザの古い Cookie は 401 となり、SPA は QR 読み込みを促す。
-- 署名鍵を変更すると、発行済みの Cookie はすべて無効になる（全員が再ログイン）。
+- 署名鍵を変更すると、発行済みの Cookie はすべて無効になる（全員が再ログイン）。管理者の Cookie だけを無効にするときは、管理者パスワードを変える（[4.2](#42-管理者)）。
 - 更新系 API は `Content-Type: application/json` のみ受け付ける。クロスオリジンからの JSON 送信はプリフライトが必要になるため、`SameSite=Lax` と合わせて CSRF 対策とする。
 - 同時に **CloudFront 署名付き Cookie**（`CloudFront-Policy` / `CloudFront-Signature` / `CloudFront-Key-Pair-Id`、`Path=/photos/approved/`、有効期限 12 時間）を発行する。`GET /api/me` を呼ぶたびに再発行する（参加者画面は表示時に必ず呼ぶ）。
 - Cookie を失った場合（ブラウザ変更・アプリ内ブラウザ等）は QR を再度読み込み、暗証番号を入れればログインできる。QR コードだけを見た人はログインできない（暗証番号は 5 回間違えるとロック）。
@@ -300,8 +305,18 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 ### 4.2 管理者
 
 - `/admin` 画面でパスワードを入力 → `POST /api/admin/login` で `ADMIN_PASSWORD` と定数時間比較。
-- 成功時に `admin_session` Cookie（`{ adm: true, iat }` を `SESSION_SECRET` で HMAC 署名、`HttpOnly; Secure; SameSite=Strict; Path=/api/admin; Max-Age=12時間`）を発行。
-- パスワードの総当たりは、`POST /api/admin/login` だけを別のルートにして付けた低いスロットリング（5 rps / バースト 10）で緩和する（ステージ全体の上限は、参加者の一斉の答えに合わせて 200 rps / バースト 400 と高いため）。
+- 成功時に `admin_session` Cookie（`{ adm: true, iat }` を HMAC 署名、`HttpOnly; Secure; SameSite=Strict; Path=/api/admin; Max-Age=12時間`）を発行。
+  - 署名鍵は、`SESSION_SECRET` と `ADMIN_PASSWORD` から作った鍵（`HMAC(SESSION_SECRET, "admin-session:" + ADMIN_PASSWORD)`）。管理者パスワードを変えると鍵も変わり、それまでの管理者の Cookie は署名が合わずに未ログインとして扱う（盗まれた Cookie も、パスワードを変えれば使えなくなる）。参加者の Cookie には影響しない。
+  - ログアウトは手元の Cookie を消すだけで、サーバ側では取り消さない。Cookie が漏れたおそれがあるときは、管理者パスワードを変える。
+- パスワードの総当たりは、次の 2 つで防ぐ。
+  - `POST /api/admin/login` だけを別のルートにして付けた低いスロットリング（5 rps / バースト 10）。ステージ全体の上限は、参加者の一斉の答えに合わせて 200 rps / バースト 400 と高いため。
+  - 試行回数の制限（`api/src/admin-login-limit.ts`）。15 分ごとの区切りの中で、接続元ごとに 10 回、全体で 50 回まで試せる。上限に達したら、その区切りが終わるまで 429 `login_locked`（あと何分かと `Retry-After`）で断り、合っていても断る。
+    - 接続元は、CloudFront が付ける閲覧者の IP（`CloudFront-Viewer-Address` のポートを外したもの）。
+    - 試す前に数える（DynamoDB の条件付き更新を、接続元ごとと全体の 2 つまとめてトランザクションで行う）。同時にたくさん送っても上限までしか試せない。
+    - 合っていたら、その接続元の回数を消し、全体の回数から 1 つ引く（全体は間違えた数だけを数える）。
+    - 全体の上限は、接続元をたくさん使う攻撃でも、試せる総数を抑えるためのもの。そのぶん、攻撃を受けている間は幹事も入れないことがある。
+    - 接続元を偽って `CloudFront-Viewer-Address` を付けたリクエストを API Gateway に直接送っても、`X-Origin-Verify` が合わないので API が断る（[2.1](#21-cloudfront-のビヘイビア)）。
+    - 解除：区切りが終わるのを待つ（15 分以内）、別の回線から入る（接続元ごとの上限のとき）、GitHub Actions の「Unlock admin login」で記録を消す（初期化 Lambda を `{"action":"unlock-admin-login"}` で呼ぶ）。
 
 ---
 
@@ -446,7 +461,7 @@ sequenceDiagram
 | GET | `/api/game-results` | 終了したゲームの結果（終了した順）。ゲームごとに、正解 `correct`（クイズは点数がいちばん高い選択肢、数値予想は正解の数、合言葉は合言葉）、自分が答えたか `answered`・自分の答え `myAnswer`・クイズの正誤 `myCorrect`・自分の結果 `myResult`（順位・当選・入った枠）、入った人 `winners`（結果入力は枠ごと、数値予想・投票・合言葉・抽選は点数が入った順位ごと）。点数は返さない。イベントの終了の後に終了したゲームは `uncounted`。見せない設定のときは空 |
 | PUT | `/api/game/{gameId}/answer` | ゲームに答える。クイズは `{choiceId}`、数値予想は `{value}`（0〜100 の整数）、投票は `{targetUserId}`、合言葉は `{text}`（応答に正解か `correct` を含める。不正解は保存せず、正解した後は上書きしない）、抽選は `{entry: true}`。合言葉以外は 1 人 1 回だけで、既に答えていれば 409 `already_answered`（先の答えのまま）。開催中でなければ 409 `game_closed`、形式に合わない答え・結果入力のゲーム・自分や登録されていない人や紐づけを解除した人への投票は 400 |
 | GET | `/api/game/{gameId}/candidates` | 投票で選べる人 `{userId, displayName}` の一覧（自分と紐づけを解除した人を除き、名前の順）。ゲームの画面を開いたとき・アプリに戻ったときに呼ぶ（5 秒ごとの確認には含めない）。投票でなければ 400、開催中でなければ 409 `game_closed` |
-| POST | `/api/photos/upload-url` | アップロード用署名付き POST を発行 |
+| POST | `/api/photos/upload-url` | アップロード用署名付き POST を発行。確認待ちが 30 枚以上なら 429 `too_many_pending`、10 分ごとの区切りの中で 30 回を超えると 429 `upload_rate_limited`（あと何分かと `Retry-After`。断ったものは数えない） |
 | GET | `/api/photos` | 公開済み写真一覧（アップロード者の表示名・お気に入り数・自分が選んでいるか付き） |
 | PUT | `/api/photos/{photoId}/favorite` | お気に入りに選ぶ（選択済みなら何もしない）。受付終了は 409 `favorites_disabled`、上限超過は 409 `favorite_limit`、自分の写真・未公開は 409 `invalid_state` |
 | DELETE | `/api/photos/{photoId}/favorite` | お気に入りを外す（未選択なら何もしない） |
@@ -456,7 +471,8 @@ sequenceDiagram
 
 | メソッド | パス | 説明 |
 |---|---|---|
-| POST | `/api/admin/login` | パスワードでログイン |
+| POST | `/api/csp-report` | CSP の違反の報告を受ける（ブラウザが送る。`application/csp-report`）。伏せた要約をログに残して 204。8KB を超えるもの・読めないものは捨てる（[8.2](#82-応答のヘッダセキュリティ)） |
+| POST | `/api/admin/login` | パスワードでログイン。違えば 401 `unauthorized`、続けて間違えて断っている間は 429 `login_locked`（[4.2](#42-管理者)） |
 | POST | `/api/admin/logout` | Cookie 削除 |
 | POST | `/api/admin/tokens` | QR トークンを N 件発行 `{count}` |
 | GET | `/api/admin/tokens` | トークン一覧（印刷・配布管理用） |
@@ -581,7 +597,28 @@ sequenceDiagram
 - 独自ドメインを使う場合は Route 53 ホストゾーン $0.5/月。
 - AWS Budgets で月 $5 超過時に通知するアラートを設定する。
 
-### 8.2 運用・その他
+### 8.2 応答のヘッダ（セキュリティ）
+
+CloudFront の応答ヘッダーのポリシー（`infra/lib/partally-stack.ts` の `SecurityHeaders`）で、画面・API・写真・景品の画像のすべての応答に次を付ける（オリジンが付けた値より優先する）。
+
+| ヘッダ | 値 | ねらい |
+|---|---|---|
+| `Strict-Transport-Security` | `max-age=31536000` | 以後は HTTPS だけで開かせる |
+| `X-Content-Type-Options` | `nosniff` | 写真などを、送った Content-Type 以外（HTML・スクリプト）として扱わせない |
+| `X-Frame-Options` | `DENY` | ほかのサイトの枠（iframe）に入れさせない（クリックジャッキング対策） |
+| `Referrer-Policy` | `same-origin` | ほかのサイトへ URL を送らない（参加リンク `/q/<トークン>` の URL にトークンが入るため） |
+| `Content-Security-Policy` | `frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'` | 画面の動きに関わらない項目だけ |
+| `Content-Security-Policy-Report-Only` | 下の「読み込み元を絞る CSP」 | 読み込み元を絞る CSP を、まず報告だけで試す（#227）。本番で違反が出ないことを確かめてから `Content-Security-Policy` に移す |
+
+読み込み元を絞る CSP（`infra/lib/partally-stack.ts` の `reportOnlyCsp()`）:
+
+- `default-src 'self'`。スタイル・フォントも自分のサイトだけ。
+- `script-src 'self' 'unsafe-eval'` と `worker-src 'self' blob:`：HEIC の変換（heic2any）が `blob:` の URL から Worker を作り、その中で `new Function` を使うため。`'unsafe-eval'` が無いと HEIC の写真を送れない（ローカルで確かめた）。インラインのスクリプトとほかのサイトのスクリプトは許さない。
+- `img-src 'self' data: blob:`：端末で縮小した写真や QR の画像のため。
+- `connect-src 'self' https://*.s3.<リージョン>.amazonaws.com https://s3.<リージョン>.amazonaws.com`：写真・景品の画像の署名付き POST の送り先。バケット名は書かない。
+- `report-uri /api/csp-report`：違反を API に報告させる。API は、違反した項目、読み込もうとしたもののオリジンか種類（`inline`・`eval`・`data` など）、ページとスクリプトのパスだけを、CloudWatch Logs（`ApiLogs`）に `{"cspViolation": …}` で残す。参加リンクのトークン（`/q/<トークン>`）とクエリは伏せる。報告は `application/csp-report` で届くので、「更新は JSON だけ」の確かめより前に受ける（状態は変えない）。
+
+### 8.3 運用・その他
 
 - すべてのリソースに `Project=partally` タグを付与し、コストを分離する。
 - 事前に数名でリハーサルし、会場の通信状況を確認する。QR は予備を印刷しておく。

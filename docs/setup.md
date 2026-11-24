@@ -170,7 +170,19 @@ aws cloudformation describe-stacks --stack-name partally-github-oidc \
 - 引き受けられるのは **`ot-nemoto/partally` リポジトリの `production` Environment で動くジョブだけ**（`sub` クレームで制限）。
 - GitHub の OIDC トークンの `sub` は、ユーザ名・リポジトリ名に数値 ID が付いた形式（`repo:ot-nemoto@<owner ID>/partally@<repo ID>:environment:production`）で発行される。ID を条件に含めることで、リポジトリやアカウントが削除され同じ名前で作り直された場合のなりすましも防ぐ。
 - `GitHubOwnerId` / `GitHubRepoId` を省略すると、ID なしの形式（`repo:ot-nemoto/partally:environment:production`）で照合する。ロールの引き受けに失敗してトークンの形式を確かめたいときは、一時的に CI ワークフローの deploy ジョブへトークンのクレーム（`sub` など）を表示するステップを足す（以前の `deploy.yml` の「Show OIDC claims」ステップを git の履歴から戻せる）。
-- ロール自体の権限は、CDK のブートストラップロール（`cdk-hnb659fds-*`）を引き受けることと、本番データの初期化 Lambda（`partally-reset`）を呼ぶことだけ。実際のリソース作成は、ブートストラップで作られた CloudFormation 実行ロールが行う。
+- ロール自体の権限は、CDK のブートストラップロール（`cdk-hnb659fds-*`）を引き受けること、本番データの初期化 Lambda（`partally-reset`）を呼ぶこと、管理者パスワードの SSM パラメータ（`/partally/admin-password`）に書き込むことだけ（読み取りはできない）。実際のリソース作成は、ブートストラップで作られた CloudFormation 実行ロールが行う。
+
+#### 既にロールを作ってある場合（権限の更新）
+
+テンプレートに権限を足したとき（初期化 Lambda の呼び出し、管理者パスワードの書き込み）は、最新のテンプレートでスタックを更新する。パラメータは前回の値が引き継がれる。
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/ot-nemoto/partally/develop/infra/github-oidc.yaml
+aws cloudformation deploy --stack-name partally-github-oidc \
+  --template-file github-oidc.yaml --capabilities CAPABILITY_NAMED_IAM
+```
+
+- **管理者パスワードを SSM に置く版（#219）へ上げる前に、必ず更新する。** 更新していないと、デプロイの CI が「管理者パスワードを SSM に書き込めませんでした」で止まる（デプロイはされず、本番はそれまでの版のまま動く）。更新してから CI を `develop` で手動実行すればよい。
 
 ### A-2. GitHub の Environment 設定
 
@@ -178,11 +190,12 @@ https://github.com/ot-nemoto/partally/settings/environments → **New environmen
 
 | 種類 | 名前 | 値 |
 |---|---|---|
-| Environment secrets | `PARTALLY_ADMIN_PASSWORD` | 管理者パスワード |
+| Environment secrets | `PARTALLY_ADMIN_PASSWORD` | 管理者パスワード（20 文字以上のランダムな値にする。下の「管理者パスワードの決め方」）。デプロイの CI が SSM の暗号化パラメータ `/partally/admin-password` に書き込み、API の Lambda はそこから読む（CloudFormation のテンプレートと Lambda の環境変数には入らない） |
 | Environment secrets | `AWS_ROLE_ARN` | A-1 で控えたロール ARN（必ず Secret にする。Variables だとステップの見出しに ARN がそのまま出て、公開リポジトリの Actions ログにアカウント ID が残る。未登録ならワークフローは最初に止まる） |
 | Environment secrets | `PARTALLY_BUDGET_EMAIL` | 任意: 予算アラートの通知先（公開リポジトリの Actions ログに出ないよう Secret にする） |
 | Environment variables | `PARTALLY_BUDGET_USD` | 任意: 予算（USD、既定 5） |
 
+- **管理者パスワードの決め方**: 管理画面の URL を知られても当てられないよう、20 文字以上のランダムな値にする（例: `openssl rand -base64 24`）。ログインは続けて間違えると一時的に断られるが（[管理者のログインの制限の解除](#管理者のログインの制限の解除)）、短い・推測しやすいパスワードでは守りきれない。
 - Repository secrets（Settings → Secrets and variables → Actions）に登録しても動くが、Environment に登録すると **デプロイジョブ以外から参照できなくなる** ので、こちらを推奨する。
 - **Deployment branches and tags** を「Selected branches and tags」にして `develop` だけを許可する。develop 以外のブランチに置いたワークフローからは `production` に入れず、ロールも引き受けられなくなる（develop への反映には PR のマージが必要になる）。
 - 「Required reviewers」に自分を入れると、デプロイ前に承認が必要になる。
@@ -197,7 +210,7 @@ develop へ PR をマージする（develop へ push される）と、CI ワー
 
 初回や、コードを変えずにデプロイし直したいときは、https://github.com/ot-nemoto/partally/actions/workflows/ci.yml → **Run workflow**（ブランチは `develop`）で手動実行する。
 
-deploy ジョブは「インストール → 画面ビルド → CDK デプロイ」を行う。デプロイは 1 つずつ行い、続けて push されたときは最新のコミットだけをデプロイする（develop の先頭でなくなったコミットは省略する。新しいコミットが古い変更も含むため）。初回は CloudFront の作成があるため 10 分前後かかる。URL はログに出さない。確かめ方は次のどちらか。
+deploy ジョブは「インストール → 画面ビルド → 管理者パスワードを SSM に書き込む → CDK デプロイ」を行う。デプロイは 1 つずつ行い、続けて push されたときは最新のコミットだけをデプロイする（develop の先頭でなくなったコミットは省略する。新しいコミットが古い変更も含むため）。初回は CloudFront の作成があるため 10 分前後かかる。URL はログに出さない。確かめ方は次のどちらか。
 
 - CI の実行結果のページの「デプロイ先」（ジョブのまとめ）にあるリンクから、CloudFormation コンソールのスタック `Partally` の Outputs を開く。AWS にログインしている必要がある。リンクに入るのはリージョンとスタック名だけ。
 - 手元で、デプロイ先のアカウントの認証情報を使って次を実行する。
@@ -247,7 +260,9 @@ cd partally
 npx npm@11 install
 
 export AWS_REGION=ap-northeast-1
-export PARTALLY_ADMIN_PASSWORD='管理者パスワード'
+# 管理者パスワードを SSM の暗号化パラメータに置く（初回と、変えるときだけ。値は CloudFormation に渡さない）
+aws ssm put-parameter --name /partally/admin-password --type SecureString --overwrite \
+  --value '管理者パスワード'
 export PARTALLY_BUDGET_EMAIL='alert@example.com'   # 任意
 export PARTALLY_BUDGET_USD=5                        # 任意
 npm run deploy
@@ -318,7 +333,6 @@ aws ce update-cost-allocation-tags-status --region us-east-1 \
 
 | 変数 | 必須 | 既定値 | 説明 |
 |---|---|---|---|
-| `PARTALLY_ADMIN_PASSWORD` | ○ | – | 管理画面のログインパスワード。Lambda の環境変数 `ADMIN_PASSWORD` として渡る。未設定だと synth/deploy がエラーで止まる |
 | `PARTALLY_BUDGET_EMAIL` | – | – | 設定すると AWS Budgets の月額予算を作成し、このアドレスにアラートメールを送る。未設定なら予算は作らない |
 | `PARTALLY_BUDGET_USD` | – | `5` | 月額予算の金額（USD）。実績がこの 80% を超えると通知する。`PARTALLY_BUDGET_EMAIL` 未設定時は無視される |
 | `AWS_PROFILE` / `AWS_REGION` など | – | – | 通常の AWS CLI の認証・リージョン設定。CDK はここからデプロイ先アカウント・リージョンを決める（`CDK_DEFAULT_ACCOUNT` / `CDK_DEFAULT_REGION` として CDK CLI が自動で設定する）。リージョンが取れない場合は `ap-northeast-1` |
@@ -330,7 +344,9 @@ SSM パラメータ名は環境変数ではなく `infra/cdk.json` の context �
 | context | 既定値 | 説明 |
 |---|---|---|
 | `sessionSecretParam` | `/partally/session-secret` | セッション署名鍵（手順 2 で作成） |
+| `adminPasswordParam` | `/partally/admin-password` | 管理者パスワード（GitHub Actions からのデプロイでは CI が `PARTALLY_ADMIN_PASSWORD` から書き込む。手元からのデプロイでは B の手順で作る）。名前を変えるときは `infra/github-oidc.yaml` の書き込みの権限も合わせる |
 | `cloudfrontPrivateKeyParam` | `/partally/cloudfront-private-key` | CloudFront 署名用の秘密鍵（デプロイ時に自動作成） |
+| `originVerifyParam` | `/partally/origin-verify` | CloudFront から API へのリクエストに付ける秘密の値（`X-Origin-Verify`。デプロイ時に自動作成） |
 
 ### Lambda 実行時（CDK が自動で設定するため、手動での設定は不要）
 
@@ -339,16 +355,17 @@ API の Lambda には次のすべてを、写真の取り込み・初期化の L
 | 変数 | 説明 |
 |---|---|
 | `TABLE_NAME` | DynamoDB テーブル名 |
-| `ADMIN_PASSWORD` | 管理者パスワード（`PARTALLY_ADMIN_PASSWORD` の値） |
+| `ADMIN_PASSWORD_PARAM` | 管理者パスワードの SSM パラメータ名。起動時に読み、その後は 5 分ごとに読み直す（変わっていれば新しいパスワードに切り替える） |
 | `SESSION_SECRET_PARAM` | セッション署名鍵の SSM パラメータ名。コールドスタート時に値を取得する |
 | `PHOTO_BUCKET` | 写真・景品の画像を置く S3 バケット名 |
 | `DISTRIBUTION_ID` | CloudFront ディストリビューション ID（キャッシュの無効化に使う） |
 | `CLOUDFRONT_PRIVATE_KEY_PARAM` / `CLOUDFRONT_KEY_PAIR_ID` | 写真・景品の画像の署名付き Cookie / URL を作る鍵（SSM パラメータ名と公開鍵 ID） |
+| `ORIGIN_VERIFY_PARAM` | CloudFront から API へのリクエストに付く秘密の値（`X-Origin-Verify`）の SSM パラメータ名。コールドスタート時に値を取得し、合わないリクエストを断る |
 | `NODE_OPTIONS` | `--enable-source-maps`（エラーのスタックトレースを TypeScript の行番号で出す） |
 
 ### 注意
 
-- 管理者パスワードは Lambda の環境変数（と CloudFormation テンプレート）に平文で入る。
+- 管理者パスワード・セッション署名鍵・CloudFront の秘密鍵は SSM の暗号化パラメータに置き、CloudFormation のテンプレートと Lambda の環境変数には名前だけを入れる。
 - 予算アラートは `Project=partally` タグで絞り込む。タグでの絞り込みには、請求コンソールで `Project` をコスト配分タグとして有効化しておく必要がある。
 - DynamoDB テーブルと写真バケットは誤削除防止のため、スタックを削除しても残る（`RETAIN`）。消し方は「[後片付け](#後片付け)」を参照。
 
@@ -384,6 +401,26 @@ https://github.com/ot-nemoto/partally/actions/workflows/reset.yml → **Run work
 - 「Reset」ステップのログに、消したアイテム数と写真の数が出る（例: `結果: {"items":420,"objects":180}`）。
 - 失敗したら、もう一度実行すれば残りを消せる（何度実行しても同じ結果になる）。エラーの詳細は公開ログには出さず、CloudWatch Logs の `ResetLogs` に残る。
 - 初期化の後は、管理画面で QR を発行し直して印刷する。景品も登録し直す。
+
+## 管理者のログインの制限の解除
+
+管理者のパスワードを続けて間違えると、ログインが一時的に断られる（15 分ごとの区切りの中で、接続元ごとに 10 回・全体で 50 回まで）。画面には「しばらくログインできません（あと N 分）」と出る。解除の方法は次のどれか。
+
+- **待つ**: 区切りが終わると自動で解ける（15 分以内）。
+- **別の回線から入る**: 接続元ごとの上限なら、スマホの回線などに替えると入れる。
+- **解除のワークフローを実行する**: https://github.com/ot-nemoto/partally/actions/workflows/unlock-admin-login.yml → **Run workflow**（ブランチは `develop`）。試行回数の記録を消すので、すぐに入れる。ほかのデータは消さない。
+  - 実行できるのは、リポジトリへの書き込み権限があり、`production` Environment に入れる人だけ。
+  - 初期化と同じ Lambda を呼ぶので、[本番データの初期化](#本番データの初期化)の「準備」が済んでいれば、ほかの準備は要らない。
+  - ログには消した記録の数だけが出る。失敗したときの詳細は CloudWatch Logs の `ResetLogs` に残る。
+
+覚えのない失敗で断られている（誰かがパスワードを試している）ときは、解除しても繰り返し断られることがある。その場合は管理者パスワードを変えて（[管理者パスワードの変え方](#管理者パスワードの変え方)）、時間をおく。
+
+## 管理者パスワードの変え方
+
+`production` Environment の `PARTALLY_ADMIN_PASSWORD` を新しい値に更新し、CI ワークフローを `develop` で手動実行する（CI が SSM のパラメータを書き換える）。手元からなら、B の手順の `aws ssm put-parameter --overwrite` で書き換える（デプロイし直さなくてよい）。
+
+- 書き換えてから 5 分以内に、API の Lambda が新しいパスワードに切り替わる。切り替わると、それまでにログインしていた管理画面はすべてログインし直しになる（古いパスワードで発行した管理者の Cookie は使えなくなる）。パスワードや Cookie が漏れたおそれがあるときは、これで締め出せる。
+- 参加者のログインには影響しない。
 
 ## セッション署名鍵とは
 

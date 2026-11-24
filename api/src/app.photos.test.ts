@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ingestUpload } from "./ingest.js";
 import { photoKey } from "./photo-storage.js";
 import { DEFAULT_SETTINGS } from "./repository.js";
-import { type Client, createClient, useApiTest } from "./test-support.js";
+import { type Client, createClient, jpegBytes, useApiTest } from "./test-support.js";
 
 describe("API", () => {
   const t = useApiTest();
@@ -21,7 +21,7 @@ describe("API", () => {
       expect(res.status).toBe(200);
       for (const kind of ["thumb", "full"] as const) {
         const { fields } = res.body[kind];
-        t.storage.put(fields.key, new Uint8Array([1, 2, 3]), fields["x-amz-meta-uploader"]);
+        t.storage.put(fields.key, jpegBytes(), fields["x-amz-meta-uploader"]);
       }
       const result = await ingestUpload(t, res.body.full.fields.key);
       return { photoId: res.body.photoId as string, result };
@@ -255,10 +255,12 @@ describe("API", () => {
     });
 
     it("ギャラリーは新しい順にページングする", async () => {
+      // 1 人が短い間に送れる枚数には上限があるので、2 人で交互に送る
       const { request } = await registerUser();
+      const other = (await t.register("鈴木", [0, 1])).request;
       await t.repo.putSettings({ ...DEFAULT_SETTINGS, moderation: "post" });
       const ids: string[] = [];
-      for (let i = 0; i < 31; i++) ids.push((await upload(request)).photoId);
+      for (let i = 0; i < 31; i++) ids.push((await upload(i % 2 === 0 ? request : other)).photoId);
 
       const first = await request("GET", "/api/photos");
       expect(first.body.photos).toHaveLength(30);
@@ -288,7 +290,7 @@ describe("API", () => {
       const res = await request("POST", "/api/photos/upload-url");
       for (const kind of ["thumb", "full"] as const) {
         const { fields } = res.body[kind];
-        t.storage.put(fields.key, new Uint8Array(bytes), fields["x-amz-meta-uploader"]);
+        t.storage.put(fields.key, jpegBytes(...bytes), fields["x-amz-meta-uploader"]);
       }
       return {
         photoId: res.body.photoId as string,
@@ -309,7 +311,7 @@ describe("API", () => {
       expect(t.storage.get(photoKey("uploads", photoId, "full"))).toBeUndefined();
 
       await admin("POST", `/api/admin/photos/${photoId}/approve`);
-      expect([...t.storage.get(photoKey("approved", photoId, "full"))!]).toEqual([1]);
+      expect([...t.storage.get(photoKey("approved", photoId, "full"))!]).toEqual([...jpegBytes(1)]);
     });
 
     it("削除した写真は同じ署名付き POST で再アップロードしても復活しない", async () => {

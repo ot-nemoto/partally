@@ -8,6 +8,7 @@ import {
 } from "@partally/shared";
 import type { Hono } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
+import { adminLoginAttempt, adminLoginWindow, viewerAddress } from "../admin-login-limit.js";
 import { toRules } from "../dto.js";
 import { type Env, fail, parseBody } from "../http.js";
 import { hashPin, verifyPin } from "../pin.js";
@@ -20,8 +21,8 @@ const EPITHET_ATTEMPTS = 10;
 export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
   const {
     repo,
-    sessionSecret,
     adminPassword,
+    adminKey,
     secureCookies,
     now,
     rand,
@@ -135,10 +136,20 @@ export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
   app.post("/admin/login", async (c) => {
     const body = await parseBody(c, adminLoginRequestSchema);
     if (!body.ok) return body.response;
+
+    // 試す前に数える。続けて間違えて上限に達していたら、区切りが終わるまで断る
+    const { window, endsAt } = adminLoginWindow(now());
+    const source = viewerAddress(c);
+    if (!(await repo.reserveAdminLoginAttempt(adminLoginAttempt(window, source)))) {
+      const seconds = Math.max(1, Math.ceil((endsAt.getTime() - now().getTime()) / 1000));
+      c.header("Retry-After", String(seconds));
+      return fail(c, 429, "login_locked", `あと ${Math.ceil(seconds / 60)} 分`);
+    }
     if (!safeEqual(body.data.password, adminPassword)) return fail(c, 401, "unauthorized");
+    await repo.releaseAdminLoginAttempt(window, source);
 
     const session: AdminSession = { adm: true, iat: nowSeconds() };
-    setCookie(c, ADMIN_COOKIE, sign(session, sessionSecret), {
+    setCookie(c, ADMIN_COOKIE, sign(session, adminKey), {
       httpOnly: true,
       secure: secureCookies,
       sameSite: "Strict",

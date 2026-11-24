@@ -26,12 +26,14 @@ import {
 import type { Construct } from "constructs";
 
 export interface PartallyStackProps extends StackProps {
-  /** 管理者パスワード。Lambda の環境変数に入る */
-  adminPassword: string;
+  /** 管理者パスワードを保存した SSM SecureString の名前（デプロイの CI が GitHub の Secret から書き込む） */
+  adminPasswordParam: string;
   /** セッション署名鍵を保存した SSM SecureString の名前（デプロイ前に作成しておく） */
   sessionSecretParam: string;
   /** CloudFront 署名用の秘密鍵を保存する SSM SecureString の名前（デプロイ時に自動作成） */
   cloudfrontPrivateKeyParam: string;
+  /** CloudFront から API へのリクエストに付ける秘密の値を保存する SSM SecureString の名前（デプロイ時に自動作成） */
+  originVerifyParam: string;
   /** 指定すると月額予算アラートをこのアドレスへ送る */
   budgetEmail?: string;
   /** 月額予算アラートの閾値（USD） */
@@ -39,6 +41,9 @@ export interface PartallyStackProps extends StackProps {
 }
 
 const path = (p: string) => fileURLToPath(new URL(p, import.meta.url));
+/** CloudFront から API へのリクエストに付けるヘッダの名前（api/src/app.ts と同じ） */
+export const ORIGIN_VERIFY_HEADER = "X-Origin-Verify";
+
 /** 管理者のログインの API（Hono の basePath "/api" を含む、CloudFront から API Gateway に届くパス） */
 const ADMIN_LOGIN_PATH = "/api/admin/login";
 
@@ -54,6 +59,8 @@ export class PartallyStack extends Stack {
       partitionKey: { name: "PK", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "SK", type: dynamodb.AttributeType.STRING },
       billing: dynamodb.Billing.onDemand(),
+      // 期限のある記録（管理者のログインの試行回数）を自動で消す
+      timeToLiveAttribute: "expiresAt",
       globalSecondaryIndexes: [
         {
           indexName: "GSI1",
@@ -112,9 +119,39 @@ export class PartallyStack extends Stack {
     });
     const photoKeyGroup = new cloudfront.KeyGroup(this, "PhotoKeyGroup", { items: [photoPublicKey] });
 
+    // CloudFront から API へのリクエストに付ける秘密の値（X-Origin-Verify）。API Gateway の元の URL に直接送られたものを
+    // API が断るために使う（CloudFront を迂回して、応答のヘッダや接続元を偽れないようにする）
+    const originSecretFunction = new nodejs.NodejsFunction(this, "OriginSecretFunction", {
+      entry: path("../lambda/origin-secret.ts"),
+      runtime: lambda.Runtime.NODEJS_22_X,
+      architecture: lambda.Architecture.ARM_64,
+      timeout: Duration.seconds(30),
+      bundling: { format: nodejs.OutputFormat.ESM, minify: true },
+    });
+    const originVerifyParamArn = this.formatArn({
+      service: "ssm",
+      resource: "parameter",
+      resourceName: props.originVerifyParam.replace(/^\//, ""),
+    });
+    originSecretFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["ssm:GetParameter", "ssm:PutParameter", "ssm:DeleteParameter"],
+        resources: [originVerifyParamArn],
+      }),
+    );
+    const originSecret = new CustomResource(this, "OriginSecret", {
+      serviceToken: new cr.Provider(this, "OriginSecretProvider", { onEventHandler: originSecretFunction })
+        .serviceToken,
+      properties: { ParameterName: props.originVerifyParam },
+    });
+
     // ---- API（Lambda + HTTP API）----
     const sessionSecret = ssm.StringParameter.fromSecureStringParameterAttributes(this, "SessionSecret", {
       parameterName: props.sessionSecretParam,
+    });
+    // 管理者パスワードは値をテンプレート・環境変数に入れず、Lambda が SSM から読む
+    const adminPassword = ssm.StringParameter.fromSecureStringParameterAttributes(this, "AdminPassword", {
+      parameterName: props.adminPasswordParam,
     });
 
     const httpApi = new apigw.HttpApi(this, "HttpApi", { createDefaultStage: false });
@@ -148,6 +185,32 @@ function handler(event) {
 }`),
     });
 
+    // 画面・API・写真のすべての応答に付けるセキュリティ用のヘッダ（料金はかからない）。
+    // - HSTS: 以後は HTTPS だけで開かせる
+    // - nosniff: 写真などを、送った Content-Type 以外（HTML やスクリプト）として扱わせない
+    // - X-Frame-Options / frame-ancestors: ほかのサイトの枠（iframe）に入れさせない（クリックジャッキング対策）
+    // - Referrer-Policy: ほかのサイトへ URL を送らない（参加リンク /q/<トークン> の URL にトークンが入るため）
+    // - CSP: 画面の動きに関わらない項目だけを付ける
+    // - CSP（Report-Only）: 読み込み元を絞る CSP を、まず報告だけで試す（違反は /api/csp-report でログに残る）。
+    //   本番で違反が出ないことを確かめてから、Content-Security-Policy に移す（#227）
+    const securityHeaders = new cloudfront.ResponseHeadersPolicy(this, "SecurityHeaders", {
+      customHeadersBehavior: {
+        customHeaders: [
+          { header: "Content-Security-Policy-Report-Only", value: reportOnlyCsp(this.region), override: true },
+        ],
+      },
+      securityHeadersBehavior: {
+        strictTransportSecurity: { accessControlMaxAge: Duration.days(365), includeSubdomains: false, override: true },
+        contentTypeOptions: { override: true },
+        frameOptions: { frameOption: cloudfront.HeadersFrameOption.DENY, override: true },
+        referrerPolicy: { referrerPolicy: cloudfront.HeadersReferrerPolicy.SAME_ORIGIN, override: true },
+        contentSecurityPolicy: {
+          contentSecurityPolicy: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'",
+          override: true,
+        },
+      },
+    });
+
     // S3 のキーは photos/... なので、パスを書き換えずにそのまま写真バケットへ送る
     const photoOrigin = origins.S3BucketOrigin.withOriginAccessControl(photoBucket);
     const photoBehavior: cloudfront.BehaviorOptions = {
@@ -155,6 +218,7 @@ function handler(event) {
       viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
       cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
       trustedKeyGroups: [photoKeyGroup],
+      responseHeadersPolicy: securityHeaders,
     };
 
     const distribution = new cloudfront.Distribution(this, "Distribution", {
@@ -166,14 +230,18 @@ function handler(event) {
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
         functionAssociations: [{ function: spaRewrite, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }],
+        responseHeadersPolicy: securityHeaders,
       },
       additionalBehaviors: {
         "/api/*": {
-          origin: new origins.HttpOrigin(`${httpApi.apiId}.execute-api.${this.region}.amazonaws.com`),
+          origin: new origins.HttpOrigin(`${httpApi.apiId}.execute-api.${this.region}.amazonaws.com`, {
+            customHeaders: { [ORIGIN_VERIFY_HEADER]: originSecret.getAttString("Secret") },
+          }),
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          responseHeadersPolicy: securityHeaders,
         },
         // 公開済みは署名付き Cookie、検閲待ちは署名付き URL が無いと 403 になる
         "/photos/approved/*": photoBehavior,
@@ -207,9 +275,10 @@ function handler(event) {
       timeout: Duration.seconds(10),
       environment: {
         ...commonEnv,
-        ADMIN_PASSWORD: props.adminPassword,
+        ADMIN_PASSWORD_PARAM: props.adminPasswordParam,
         SESSION_SECRET_PARAM: props.sessionSecretParam,
         CLOUDFRONT_PRIVATE_KEY_PARAM: props.cloudfrontPrivateKeyParam,
+        ORIGIN_VERIFY_PARAM: props.originVerifyParam,
         CLOUDFRONT_KEY_PAIR_ID: photoPublicKey.publicKeyId,
       },
       bundling,
@@ -220,6 +289,7 @@ function handler(event) {
     });
     table.grantReadWriteData(apiFunction);
     sessionSecret.grantRead(apiFunction);
+    adminPassword.grantRead(apiFunction);
     // 署名付き POST はこの関数の権限で S3 に書き込まれる
     photoBucket.grantReadWrite(apiFunction);
     photoBucket.grantDelete(apiFunction);
@@ -234,6 +304,9 @@ function handler(event) {
     );
     // API は起動時に秘密鍵を読むので、鍵を作ってから関数を作る
     apiFunction.node.addDependency(keyPair);
+    apiFunction.addToRolePolicy(
+      new iam.PolicyStatement({ actions: ["ssm:GetParameter"], resources: [originVerifyParamArn] }),
+    );
 
     // 関数がディストリビューション ID を参照するため、HTTP API とは別にルートを作る
     const apiIntegration = new integrations.HttpLambdaIntegration("ApiIntegration", apiFunction);
@@ -279,7 +352,8 @@ function handler(event) {
       suffix: "/full.jpg",
     });
 
-    // 本番データの初期化。GitHub Actions の Reset ワークフローが関数名で呼ぶ（infra/github-oidc.yaml で呼び出しを許可）
+    // 本番データの初期化と、管理者のログインの制限の解除。GitHub Actions の Reset・Unlock admin login ワークフローが
+    // 関数名で呼ぶ（infra/github-oidc.yaml で呼び出しを許可）
     const resetFunction = new nodejs.NodejsFunction(this, "ResetFunction", {
       functionName: RESET_FUNCTION_NAME,
       entry: path("../../api/src/reset-lambda.ts"),
@@ -356,4 +430,27 @@ function handler(event) {
     new CfnOutput(this, "TableName", { value: table.tableName });
     new CfnOutput(this, "PhotoBucketName", { value: photoBucket.bucketName });
   }
+}
+
+/**
+ * 読み込み元を絞る CSP（いまは Report-Only で付ける）。
+ * - script-src 'unsafe-eval' と worker-src blob: は、HEIC の変換（heic2any）が blob: の URL から Worker を作り、その中で new Function を使うため
+ * - img-src data: blob: は、端末で縮小した写真のプレビューと QR の画像のため
+ * - connect-src の S3 は、写真・景品の画像の署名付き POST の送り先（バケット名は書かず、リージョンのドメインで許す）
+ */
+export function reportOnlyCsp(region: string): string {
+  return [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-eval'",
+    "worker-src 'self' blob:",
+    "style-src 'self'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    `connect-src 'self' https://*.s3.${region}.amazonaws.com https://s3.${region}.amazonaws.com`,
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "report-uri /api/csp-report",
+  ].join("; ");
 }
