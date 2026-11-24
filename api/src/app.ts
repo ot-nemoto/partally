@@ -4,6 +4,7 @@ import { InvalidCursorError } from "./repository.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { API_BASE_PATH, type AppDeps, createContext } from "./routes/context.js";
+import { registerCspReportRoute } from "./routes/csp-report.js";
 import { registerGameRoutes } from "./routes/games.js";
 import { registerPhotoRoutes } from "./routes/photos.js";
 import { registerPrizeRoutes } from "./routes/prizes.js";
@@ -37,6 +38,9 @@ export function createApp(deps: AppDeps) {
       await next();
     });
   }
+
+  // CSP の違反の報告（application/csp-report で届く）。JSON だけを受ける確かめより前に登録する
+  registerCspReportRoute(app);
 
   // 更新系は JSON に限定する。クロスオリジンからの JSON 送信はプリフライトが必要になるため CSRF 対策になる
   app.use("*", async (c, next) => {
