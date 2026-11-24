@@ -45,6 +45,8 @@ export class MemoryRepository implements Repository {
   private settings: Settings = { ...DEFAULT_SETTINGS };
   /** 管理者のログインの試行回数。キーは `${window}#ALL` と `${window}#SRC#${source}` */
   private adminLoginAttempts = new Map<string, number>();
+  /** 写真のアップロード枠の発行数。キーは `${userId}#${window}` */
+  private uploadSlots = new Map<string, number>();
   private labelCounter = 0;
 
   async getToken(token: string) {
@@ -149,6 +151,14 @@ export class MemoryRepository implements Repository {
     this.adminLoginAttempts.delete(`${window}#SRC#${source}`);
     const total = this.adminLoginAttempts.get(`${window}#ALL`) ?? 0;
     if (total > 0) this.adminLoginAttempts.set(`${window}#ALL`, total - 1);
+  }
+
+  async reserveUploadSlot(userId: string, window: string, max: number) {
+    const key = `${userId}#${window}`;
+    const count = this.uploadSlots.get(key) ?? 0;
+    if (count >= max) return false;
+    this.uploadSlots.set(key, count + 1);
+    return true;
   }
 
   async clearAdminLoginAttempts() {

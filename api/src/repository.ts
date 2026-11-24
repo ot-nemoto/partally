@@ -373,6 +373,12 @@ export interface Repository {
   // ---- 写真 ----
 
   /**
+   * 写真のアップロード枠を 1 回発行する分を、区切りの中の数に数える。上限に達していれば数えずに false。
+   * expiresAt（エポック秒）を過ぎた記録は DynamoDB の TTL で消える
+   */
+  reserveUploadSlot(userId: string, window: string, max: number, expiresAt: number): Promise<boolean>;
+
+  /**
    * 写真を読む。consistent を付けると、直前の更新も必ず反映した値を読む
    * （更新に失敗した直後に、今の状態で後片付けを決めるときに使う）
    */

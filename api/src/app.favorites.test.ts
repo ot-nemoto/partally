@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ingestUpload } from "./ingest.js";
 import { DEFAULT_SETTINGS } from "./repository.js";
-import { type Client, createClient, useApiTest } from "./test-support.js";
+import { type Client, createClient, jpegBytes, useApiTest } from "./test-support.js";
 
 describe("API", () => {
   const t = useApiTest();
@@ -15,7 +15,7 @@ describe("API", () => {
       const res = await request("POST", "/api/photos/upload-url");
       for (const kind of ["thumb", "full"] as const) {
         const { fields } = res.body[kind];
-        t.storage.put(fields.key, new Uint8Array([1]), fields["x-amz-meta-uploader"]);
+        t.storage.put(fields.key, jpegBytes(), fields["x-amz-meta-uploader"]);
       }
       await ingestUpload(t, res.body.full.fields.key);
       return res.body.photoId as string;

@@ -43,6 +43,14 @@ export async function ingestUpload(deps: IngestDeps, key: string): Promise<Inges
     return "ignored";
   }
 
+  // 画面は写真を JPEG に変換して送る。JPEG でないもの（画面を通さずに送られたもの）は取り込まない
+  const thumbKey = key.replace(/full\.jpg$/, "thumb.jpg");
+  if (!(await storage.isJpeg(key)) || !(await storage.isJpeg(thumbKey))) {
+    console.warn(`JPEG ではないため取り込まずに消します: ${key}`);
+    await storage.remove(photoId, "uploads");
+    return "ignored";
+  }
+
   const { moderation } = await repo.getSettings();
   const status = moderation === "post" ? "approved" : "pending";
   await storage.copy(photoId, "uploads", status);

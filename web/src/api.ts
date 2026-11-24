@@ -69,6 +69,16 @@ export function errorMessage(e: unknown): string {
         }
         return `パスワードを続けて間違えたため、しばらくログインできません${detail ? `（${detail}）` : ""}。時間をおくか、別の回線から試すか、GitHub Actions の「Unlock admin login」で解除してください。`;
       }
+      case "too_many_pending":
+        return tr(
+          "確認待ちの写真が多いため、幹事が確認するまで送れません。",
+          "You have many photos waiting for review. Please wait until the organizers check them.",
+        );
+      case "upload_rate_limited":
+        return tr(
+          "短い間にたくさん送りました。少し待ってから送ってください。",
+          "You sent many photos in a short time. Please wait a little.",
+        );
       case "invalid_state":
         // サーバの理由は日本語だけなので、英語の画面では決まった文に添える
         if (en) return `This can’t be done right now.${detail ? ` (${detail})` : " Please refresh."}`;

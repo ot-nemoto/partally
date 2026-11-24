@@ -68,6 +68,8 @@ export const keys = {
   round: (roundId: string) => ({ PK: `ROUND#${roundId}`, SK: "META" }),
   /** 管理者のログインの試行回数。scope は全体（ALL）か接続元（SRC#<IP>） */
   adminLogin: (window: string, scope: string) => ({ PK: ADMIN_LOGIN_PK, SK: `${window}#${scope}` }),
+  /** 写真のアップロード枠の発行数（区切りごと） */
+  uploadSlots: (userId: string, window: string) => ({ PK: `USER#${userId}`, SK: `UPLOADS#${window}` }),
   settings: { PK: "SETTINGS", SK: "GLOBAL" },
   eventEnd: { PK: "EVENT", SK: "END" },
   tokenLabelCounter: { PK: "COUNTER", SK: "TOKEN_LABEL" },
@@ -348,6 +350,24 @@ export class DynamoRepository implements Repository {
     } catch (e) {
       // 記録が無い（期限で消えた・解除した）ときは引かない
       if (!isConditionalCheckFailed(e)) throw e;
+    }
+  }
+
+  async reserveUploadSlot(userId: string, window: string, max: number, expiresAt: number) {
+    try {
+      await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: keys.uploadSlots(userId, window),
+          UpdateExpression: "ADD issued :one SET expiresAt = :expiresAt",
+          ConditionExpression: "attribute_not_exists(issued) OR issued < :max",
+          ExpressionAttributeValues: { ":one": 1, ":max": max, ":expiresAt": expiresAt },
+        }),
+      );
+      return true;
+    } catch (e) {
+      if (isConditionalCheckFailed(e)) return false;
+      throw e;
     }
   }
 

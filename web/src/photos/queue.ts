@@ -34,6 +34,8 @@ export interface QueueState {
 const DB_NAME = "partally";
 const STORE = "uploads";
 const RETRY_INTERVAL_MS = 30_000;
+/** 上限（確認待ちの枚数・短い間の送信数）で断られたときに、もう一度試すまでの間 */
+const LIMITED_RETRY_INTERVAL_MS = 60_000;
 /** 署名付き POST の有効期限（5 分）より少し短く見積もる */
 const TARGET_REUSE_MS = 4 * 60 * 1000;
 /** サーバにこの回数断られた写真は諦めて破棄する（後ろの写真が送れなくなるのを防ぐ） */
@@ -94,6 +96,8 @@ export async function flushQueue(): Promise<void> {
   let failed = false;
   let lastError: unknown;
   let discarded = 0;
+  /** 上限で断られた（写真は捨てずに、しばらく待ってから送り直す） */
+  let limited: ApiError | undefined;
   try {
     const skipped = new Set<string>();
     for (;;) {
@@ -112,6 +116,11 @@ export async function flushQueue(): Promise<void> {
             ],
           });
           return;
+        }
+        // 上限に達している間は、この写真もほかの写真も送れない。失敗に数えず（捨てず）に、待ってから送り直す
+        if (e instanceof ApiError && (e.code === "too_many_pending" || e.code === "upload_rate_limited")) {
+          limited = e;
+          break;
         }
         failed = true;
         lastError = e;
@@ -135,7 +144,21 @@ export async function flushQueue(): Promise<void> {
   }
 
   const errorDetail = lastError instanceof Error ? lastError.message : lastError ? String(lastError) : undefined;
-  if (discarded > 0) {
+  if (limited) {
+    setState({
+      error:
+        limited.code === "too_many_pending"
+          ? [
+              "確認待ちの写真が多いため、幹事が確認するまで送信を待っています。写真は残しておき、自動的に送ります。",
+              "You have many photos waiting for review, so uploads are paused until the organizers check them. Your photos are kept and will be sent automatically.",
+            ]
+          : [
+              "短い間にたくさん送ったため、少し待ってから自動的に送ります。写真は残しておきます。",
+              "You sent many photos in a short time, so the rest will be sent automatically in a little while. Your photos are kept.",
+            ],
+    });
+    retryTimer = setTimeout(() => void flushQueue(), LIMITED_RETRY_INTERVAL_MS);
+  } else if (discarded > 0) {
     setState({
       error: [
         `送信できなかった写真が ${discarded} 枚ありました。もう一度撮影・選択してください。`,
@@ -149,7 +172,7 @@ export async function flushQueue(): Promise<void> {
       errorDetail,
     });
   }
-  if (failed) retryTimer = setTimeout(() => void flushQueue(), RETRY_INTERVAL_MS);
+  if (failed && !limited) retryTimer = setTimeout(() => void flushQueue(), RETRY_INTERVAL_MS);
   if (rerunRequested) {
     rerunRequested = false;
     void flushQueue();

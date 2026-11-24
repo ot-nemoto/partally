@@ -1,5 +1,11 @@
 import { CloudFrontClient, CreateInvalidationCommand } from "@aws-sdk/client-cloudfront";
-import { CopyObjectCommand, DeleteObjectsCommand, HeadObjectCommand, type S3Client } from "@aws-sdk/client-s3";
+import {
+  CopyObjectCommand,
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  type S3Client,
+} from "@aws-sdk/client-s3";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import {
   PHOTO_FULL_MAX_BYTES,
@@ -17,6 +23,13 @@ export type PhotoArea = "uploads" | "pending" | "approved";
 export type PhotoKind = "full" | "thumb";
 
 const KINDS: PhotoKind[] = ["full", "thumb"];
+
+/** JPEG の先頭（SOI と次のマーカーの始まり） */
+const JPEG_MAGIC = [0xff, 0xd8, 0xff];
+
+export function startsWithJpegMagic(bytes: Uint8Array): boolean {
+  return JPEG_MAGIC.every((b, i) => bytes[i] === b);
+}
 const MAX_BYTES: Record<PhotoKind, number> = { full: PHOTO_FULL_MAX_BYTES, thumb: PHOTO_THUMB_MAX_BYTES };
 export const UPLOAD_EXPIRES_SECONDS = 300;
 /** 公開済み写真のブラウザ・CloudFront キャッシュ時間。削除後もこの時間はブラウザに残り得る */
@@ -60,6 +73,8 @@ export interface PhotoStorage {
   createUploads(photoId: string, uploaderId: string): Promise<Record<PhotoKind, PresignedPost>>;
   /** オブジェクトのアップロード者（メタデータ）。オブジェクトが無ければ undefined */
   getUploader(key: string): Promise<string | undefined>;
+  /** オブジェクトの先頭が JPEG の形式か。無ければ false */
+  isJpeg(key: string): Promise<boolean>;
   /** 本体・サムネイルを別の領域へコピーする（コピー元は残す） */
   copy(photoId: string, from: PhotoArea, to: Exclude<PhotoArea, "uploads">): Promise<void>;
   remove(photoId: string, area: PhotoArea): Promise<void>;
@@ -110,6 +125,18 @@ export class S3PhotoStorage implements PhotoStorage {
       return head.Metadata?.uploader ?? "";
     } catch (e) {
       if (e instanceof Error && (e.name === "NotFound" || e.name === "NoSuchKey")) return undefined;
+      throw e;
+    }
+  }
+
+  async isJpeg(key: string) {
+    try {
+      const res = await this.s3.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key, Range: `bytes=0-${JPEG_MAGIC.length - 1}` }),
+      );
+      return startsWithJpegMagic((await res.Body?.transformToByteArray()) ?? new Uint8Array());
+    } catch (e) {
+      if (e instanceof Error && (e.name === "NotFound" || e.name === "NoSuchKey")) return false;
       throw e;
     }
   }
