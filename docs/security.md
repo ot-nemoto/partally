@@ -84,7 +84,7 @@ partally で行っているセキュリティ対策の一覧。何を、どう�
 
 | 対策 | 内容 |
 |---|---|
-| 秘密の値の置き場所 | セッションの署名鍵と CloudFront の秘密鍵は SSM の暗号化パラメータ。管理者パスワードは Lambda の環境変数（[残っている課題](#10-残っている課題)） |
+| 秘密の値の置き場所 | 管理者パスワード・セッションの署名鍵・CloudFront の秘密鍵は、SSM の暗号化パラメータ（SecureString）に置く。CloudFormation のテンプレートと Lambda の環境変数には、パラメータの名前だけが入る。管理者パスワードは GitHub の Secret から、デプロイの CI が書き込む（GitHub Actions のロールは書き込めるだけで、読めない） |
 | 権限 | Lambda ごとに要る権限だけを与える（テーブルの読み書き、バケットの読み書き・削除、特定のパラメータの読み取り、特定のディストリビューションの無効化）。初期化の Lambda は写真の中身を読めない（一覧と削除だけ） |
 | 呼び出しの上限 | API Gateway のステージ全体で毎秒 200 回・一度に 400 回まで（使いすぎの歯止め）。管理者のログインは別に毎秒 5 回 |
 | 本番データの初期化 | GitHub Actions の Reset ワークフローからだけ行う。確認欄に「初期化」と入れないと止まり、Lambda も決まった合言葉付きの呼び出しでなければ何もしない（[手順](setup.md#本番データの初期化)） |
@@ -97,7 +97,7 @@ partally で行っているセキュリティ対策の一覧。何を、どう�
 | 対策 | 内容 |
 |---|---|
 | AWS への入り方 | GitHub Actions の OIDC でロールを引き受ける。長く使えるアクセスキーは置かない。ロールの信頼ポリシーで、このリポジトリの `production` Environment のジョブだけに絞る（リポジトリ・オーナーの ID まで含めて、同じ名前で作り直されたリポジトリからのなりすましも防ぐ） |
-| ロールの権限 | CDK のデプロイ用ロールを引き受けることと、初期化の Lambda を呼ぶことだけ |
+| ロールの権限 | CDK のデプロイ用ロールを引き受けること、初期化の Lambda を呼ぶこと、管理者パスワードの SSM パラメータに書き込むことだけ |
 | デプロイできるブランチ | `production` Environment は `develop` だけに限る。`develop` への反映には PR のマージが要る |
 | 秘密の値 | 管理者パスワード・ロール ARN・予算の通知先は Environment secrets に置く（ログで伏せられ、デプロイのジョブからしか読めない） |
 | ログに出さないもの | アカウント ID、ロールの ID、本番の URL、バケット名・テーブル名、スタック ID。認証は自前の action（`.github/actions/aws-oidc`）で行い、受け取った値は伏せてから使う。`cdk deploy` の Outputs も表示しない。デプロイ先は、ジョブのまとめに出す CloudFormation コンソールのリンクから確かめる |
@@ -121,7 +121,6 @@ partally で行っているセキュリティ対策の一覧。何を、どう�
 
 | Issue | 内容 |
 |---|---|
-| [#219](https://github.com/ot-nemoto/partally/issues/219) | 管理者パスワードが Lambda の環境変数と CloudFormation のテンプレートに平文で入る。SSM の暗号化パラメータに移す |
 | [#220](https://github.com/ot-nemoto/partally/issues/220) | 写真のアップロードに、1 人あたりの上限が無い（容量・料金を増やされる余地） |
 | [#221](https://github.com/ot-nemoto/partally/issues/221) | API Gateway の元の URL に直接アクセスでき、CloudFront を迂回できる（管理者のログインの接続元を偽れる） |
 | [#222](https://github.com/ot-nemoto/partally/issues/222) | 他人の QR を手にした人が、わざと間違えてその人の暗証番号をロックできる |

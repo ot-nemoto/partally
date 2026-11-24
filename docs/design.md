@@ -91,11 +91,11 @@ flowchart LR
 
 | 名前 | 保管場所 | 用途 |
 |---|---|---|
-| `ADMIN_PASSWORD` | Lambda 環境変数（デプロイ時に指定） | 管理者ログイン |
+| `ADMIN_PASSWORD` | SSM SecureString（`/partally/admin-password`） | 管理者ログイン。GitHub の Secret `PARTALLY_ADMIN_PASSWORD` から、デプロイの CI が書き込む（[setup.md](setup.md#a-2-github-の-environment-設定)）。テンプレートと Lambda の環境変数には入らない |
 | `SESSION_SECRET` | SSM SecureString（`/partally/session-secret`） | セッション Cookie の HMAC 署名。作成手順と扱いは [setup.md](setup.md#セッション署名鍵とは) |
 | CloudFront 署名用秘密鍵 | SSM SecureString（`/partally/cloudfront-private-key`） | 署名付き Cookie / URL の発行。**デプロイ時にカスタムリソースが自動生成**し、公開鍵だけを CloudFront の Key Group に登録する（テンプレートに秘密鍵は残らない） |
 
-SSM Parameter Store の標準パラメータは無料。Lambda のコールドスタート時に取得してメモリにキャッシュする。
+SSM Parameter Store の標準パラメータは無料。Lambda のコールドスタート時に取得してメモリにキャッシュする。管理者パスワードだけは 5 分ごとに読み直し、変わっていればアプリを作り直す（パスワードを変えたとき、温まっている Lambda も切り替わるように）。
 
 ---
 

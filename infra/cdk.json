@@ -2,6 +2,7 @@
   "app": "npx tsx bin/partally.ts",
   "context": {
     "sessionSecretParam": "/partally/session-secret",
+    "adminPasswordParam": "/partally/admin-password",
     "cloudfrontPrivateKeyParam": "/partally/cloudfront-private-key"
   }
 }
