@@ -4,8 +4,8 @@ import type { AdminLoginAttempt } from "./repository.js";
 /**
  * 管理者のログインの試行回数の制限（パスワードの総当たりを防ぐ）。
  * 15 分ごとの区切りの中で、接続元ごと・全体の上限まで試せる。上限に達したら、その区切りが終わるまで断る。
- * 全体の上限は、接続元をたくさん使う攻撃や、接続元の偽装（API Gateway に直接送ると CloudFront-Viewer-Address を
- * 自分で付けられる）でも、試せる回数の総数を抑えるためのもの。
+ * 全体の上限は、接続元をたくさん使う攻撃でも、試せる回数の総数を抑えるためのもの。
+ * 接続元（CloudFront-Viewer-Address）を偽って API Gateway に直接送ったものは、X-Origin-Verify が合わずに API が断る（app.ts）。
  * 断っている間は、区切りが終わるのを待つか、別の回線から入るか、Unlock admin login のワークフローで記録を消す
  */
 export const ADMIN_LOGIN_WINDOW_MS = 15 * 60 * 1000;

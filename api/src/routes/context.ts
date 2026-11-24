@@ -50,6 +50,11 @@ export interface AppDeps {
   adminPassword: string;
   /** ローカル開発（http）では false にする */
   secureCookies: boolean;
+  /**
+   * CloudFront が API へのリクエストに付ける秘密の値（X-Origin-Verify ヘッダ）。渡すと、合わないリクエストを 403 で断る
+   * （API Gateway の元の URL に直接送られたものを受けない）。ローカル開発とテストでは渡さない
+   */
+  originVerifySecret?: string;
   now?: () => Date;
   randomInt?: RandomInt;
   newId?: () => string;

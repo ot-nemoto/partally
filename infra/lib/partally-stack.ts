@@ -32,6 +32,8 @@ export interface PartallyStackProps extends StackProps {
   sessionSecretParam: string;
   /** CloudFront 署名用の秘密鍵を保存する SSM SecureString の名前（デプロイ時に自動作成） */
   cloudfrontPrivateKeyParam: string;
+  /** CloudFront から API へのリクエストに付ける秘密の値を保存する SSM SecureString の名前（デプロイ時に自動作成） */
+  originVerifyParam: string;
   /** 指定すると月額予算アラートをこのアドレスへ送る */
   budgetEmail?: string;
   /** 月額予算アラートの閾値（USD） */
@@ -39,6 +41,9 @@ export interface PartallyStackProps extends StackProps {
 }
 
 const path = (p: string) => fileURLToPath(new URL(p, import.meta.url));
+/** CloudFront から API へのリクエストに付けるヘッダの名前（api/src/app.ts と同じ） */
+export const ORIGIN_VERIFY_HEADER = "X-Origin-Verify";
+
 /** 管理者のログインの API（Hono の basePath "/api" を含む、CloudFront から API Gateway に届くパス） */
 const ADMIN_LOGIN_PATH = "/api/admin/login";
 
@@ -113,6 +118,32 @@ export class PartallyStack extends Stack {
       comment: "partally: 写真の署名付き Cookie / URL",
     });
     const photoKeyGroup = new cloudfront.KeyGroup(this, "PhotoKeyGroup", { items: [photoPublicKey] });
+
+    // CloudFront から API へのリクエストに付ける秘密の値（X-Origin-Verify）。API Gateway の元の URL に直接送られたものを
+    // API が断るために使う（CloudFront を迂回して、応答のヘッダや接続元を偽れないようにする）
+    const originSecretFunction = new nodejs.NodejsFunction(this, "OriginSecretFunction", {
+      entry: path("../lambda/origin-secret.ts"),
+      runtime: lambda.Runtime.NODEJS_22_X,
+      architecture: lambda.Architecture.ARM_64,
+      timeout: Duration.seconds(30),
+      bundling: { format: nodejs.OutputFormat.ESM, minify: true },
+    });
+    const originVerifyParamArn = this.formatArn({
+      service: "ssm",
+      resource: "parameter",
+      resourceName: props.originVerifyParam.replace(/^\//, ""),
+    });
+    originSecretFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["ssm:GetParameter", "ssm:PutParameter", "ssm:DeleteParameter"],
+        resources: [originVerifyParamArn],
+      }),
+    );
+    const originSecret = new CustomResource(this, "OriginSecret", {
+      serviceToken: new cr.Provider(this, "OriginSecretProvider", { onEventHandler: originSecretFunction })
+        .serviceToken,
+      properties: { ParameterName: props.originVerifyParam },
+    });
 
     // ---- API（Lambda + HTTP API）----
     const sessionSecret = ssm.StringParameter.fromSecureStringParameterAttributes(this, "SessionSecret", {
@@ -196,7 +227,9 @@ function handler(event) {
       },
       additionalBehaviors: {
         "/api/*": {
-          origin: new origins.HttpOrigin(`${httpApi.apiId}.execute-api.${this.region}.amazonaws.com`),
+          origin: new origins.HttpOrigin(`${httpApi.apiId}.execute-api.${this.region}.amazonaws.com`, {
+            customHeaders: { [ORIGIN_VERIFY_HEADER]: originSecret.getAttString("Secret") },
+          }),
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
@@ -238,6 +271,7 @@ function handler(event) {
         ADMIN_PASSWORD_PARAM: props.adminPasswordParam,
         SESSION_SECRET_PARAM: props.sessionSecretParam,
         CLOUDFRONT_PRIVATE_KEY_PARAM: props.cloudfrontPrivateKeyParam,
+        ORIGIN_VERIFY_PARAM: props.originVerifyParam,
         CLOUDFRONT_KEY_PAIR_ID: photoPublicKey.publicKeyId,
       },
       bundling,
@@ -263,6 +297,9 @@ function handler(event) {
     );
     // API は起動時に秘密鍵を読むので、鍵を作ってから関数を作る
     apiFunction.node.addDependency(keyPair);
+    apiFunction.addToRolePolicy(
+      new iam.PolicyStatement({ actions: ["ssm:GetParameter"], resources: [originVerifyParamArn] }),
+    );
 
     // 関数がディストリビューション ID を参照するため、HTTP API とは別にルートを作る
     const apiIntegration = new integrations.HttpLambdaIntegration("ApiIntegration", apiFunction);

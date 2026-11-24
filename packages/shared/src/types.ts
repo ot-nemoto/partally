@@ -78,6 +78,8 @@ export type ApiErrorCode =
   /** 付ける画像が受け口に無い（アップロードしていない・ほかで使った・保存の失敗で片付けた） */
   | "image_not_uploaded"
   | "unauthorized"
+  /** CloudFront を通っていないリクエスト（API Gateway に直接送られたもの） */
+  | "forbidden"
   | "invalid_token"
   | "token_already_bound"
   /** 暗証番号が違う */

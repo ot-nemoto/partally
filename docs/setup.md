@@ -346,6 +346,7 @@ SSM パラメータ名は環境変数ではなく `infra/cdk.json` の context �
 | `sessionSecretParam` | `/partally/session-secret` | セッション署名鍵（手順 2 で作成） |
 | `adminPasswordParam` | `/partally/admin-password` | 管理者パスワード（GitHub Actions からのデプロイでは CI が `PARTALLY_ADMIN_PASSWORD` から書き込む。手元からのデプロイでは B の手順で作る）。名前を変えるときは `infra/github-oidc.yaml` の書き込みの権限も合わせる |
 | `cloudfrontPrivateKeyParam` | `/partally/cloudfront-private-key` | CloudFront 署名用の秘密鍵（デプロイ時に自動作成） |
+| `originVerifyParam` | `/partally/origin-verify` | CloudFront から API へのリクエストに付ける秘密の値（`X-Origin-Verify`。デプロイ時に自動作成） |
 
 ### Lambda 実行時（CDK が自動で設定するため、手動での設定は不要）
 
@@ -359,6 +360,7 @@ API の Lambda には次のすべてを、写真の取り込み・初期化の L
 | `PHOTO_BUCKET` | 写真・景品の画像を置く S3 バケット名 |
 | `DISTRIBUTION_ID` | CloudFront ディストリビューション ID（キャッシュの無効化に使う） |
 | `CLOUDFRONT_PRIVATE_KEY_PARAM` / `CLOUDFRONT_KEY_PAIR_ID` | 写真・景品の画像の署名付き Cookie / URL を作る鍵（SSM パラメータ名と公開鍵 ID） |
+| `ORIGIN_VERIFY_PARAM` | CloudFront から API へのリクエストに付く秘密の値（`X-Origin-Verify`）の SSM パラメータ名。コールドスタート時に値を取得し、合わないリクエストを断る |
 | `NODE_OPTIONS` | `--enable-source-maps`（エラーのスタックトレースを TypeScript の行番号で出す） |
 
 ### 注意
