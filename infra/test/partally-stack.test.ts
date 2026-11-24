@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
-import { PartallyStack, RESET_FUNCTION_NAME } from "../lib/partally-stack.js";
+import { ORIGIN_VERIFY_HEADER, PartallyStack, RESET_FUNCTION_NAME } from "../lib/partally-stack.js";
 
 describe("PartallyStack", () => {
   let template: Template;
@@ -14,6 +14,7 @@ describe("PartallyStack", () => {
       sessionSecretParam: "/partally/session-secret",
       adminPasswordParam: "/partally/admin-password",
       cloudfrontPrivateKeyParam: "/partally/cloudfront-private-key",
+      originVerifyParam: "/partally/origin-verify",
       budgetEmail: "ops@example.com",
     });
     template = Template.fromStack(stack);
@@ -35,6 +36,7 @@ describe("PartallyStack", () => {
           ADMIN_PASSWORD_PARAM: "/partally/admin-password",
           SESSION_SECRET_PARAM: "/partally/session-secret",
           CLOUDFRONT_PRIVATE_KEY_PARAM: "/partally/cloudfront-private-key",
+          ORIGIN_VERIFY_PARAM: "/partally/origin-verify",
           CLOUDFRONT_KEY_PAIR_ID: Match.anyValue(),
           TABLE_NAME: Match.anyValue(),
           PHOTO_BUCKET: Match.anyValue(),
@@ -70,6 +72,25 @@ describe("PartallyStack", () => {
     expect(param).toBe("/partally/admin-password");
     expect(read("../github-oidc.yaml")).toContain(`:parameter${param}`);
     expect(read("../../.github/workflows/ci.yml")).toContain("adminPasswordParam");
+  });
+
+  it("CloudFront は API へのリクエストに秘密の値のヘッダを付ける（値はカスタムリソースが作り、テンプレートには入らない）", () => {
+    const [distribution] = Object.values(template.findResources("AWS::CloudFront::Distribution"));
+    const apiOrigin = distribution!.Properties.DistributionConfig.Origins.find(
+      (o: { CustomOriginConfig?: unknown }) => o.CustomOriginConfig,
+    );
+    expect(apiOrigin.OriginCustomHeaders).toEqual([
+      {
+        HeaderName: ORIGIN_VERIFY_HEADER,
+        HeaderValue: { "Fn::GetAtt": [expect.stringMatching(/^OriginSecret/), "Secret"] },
+      },
+    ]);
+    template.hasResourceProperties("AWS::CloudFormation::CustomResource", { ParameterName: "/partally/origin-verify" });
+  });
+
+  it("API のヘッダの名前は、API（app.ts）と同じ", () => {
+    const app = readFileSync(new URL("../../api/src/app.ts", import.meta.url), "utf8");
+    expect(app).toContain(`"${ORIGIN_VERIFY_HEADER.toLowerCase()}"`);
   });
 
   it("写真バケットは非公開で、POST の CORS だけを許可し、受け口の残りを 1 日で消す", () => {

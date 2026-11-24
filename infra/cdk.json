@@ -3,6 +3,7 @@
   "context": {
     "sessionSecretParam": "/partally/session-secret",
     "adminPasswordParam": "/partally/admin-password",
-    "cloudfrontPrivateKeyParam": "/partally/cloudfront-private-key"
+    "cloudfrontPrivateKeyParam": "/partally/cloudfront-private-key",
+    "originVerifyParam": "/partally/origin-verify"
   }
 }

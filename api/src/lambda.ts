@@ -20,9 +20,10 @@ let app: { adminPassword: string; handler: ReturnType<typeof handle> } | undefin
 
 /** コールドスタート時に一度だけ秘密情報を取得して、アプリの部品を組み立てる */
 async function init(): Promise<Omit<AppDeps, "adminPassword">> {
-  const [sessionSecret, cloudfrontPrivateKey] = await Promise.all([
+  const [sessionSecret, cloudfrontPrivateKey, originVerifySecret] = await Promise.all([
     getParameter(requireEnv("SESSION_SECRET_PARAM"), true),
     getParameter(requireEnv("CLOUDFRONT_PRIVATE_KEY_PARAM"), true),
+    getParameter(requireEnv("ORIGIN_VERIFY_PARAM"), true),
   ]);
   return {
     repo: createRepository(),
@@ -30,6 +31,7 @@ async function init(): Promise<Omit<AppDeps, "adminPassword">> {
     signer: new CloudFrontSigner(requireEnv("CLOUDFRONT_KEY_PAIR_ID"), cloudfrontPrivateKey),
     sessionSecret,
     secureCookies: true,
+    originVerifySecret,
   };
 }
 

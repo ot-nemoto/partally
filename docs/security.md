@@ -76,6 +76,7 @@ partally で行っているセキュリティ対策の一覧。何を、どう�
 ## 6. 通信と応答のヘッダ
 
 - 画面は HTTP を HTTPS に転送し、API・写真は HTTPS だけを受け付ける。
+- API は CloudFront を通ったリクエストだけを受ける。CloudFront が秘密の値を `X-Origin-Verify` ヘッダで付け、API はこれが合わないリクエスト（API Gateway の元の URL に直接送られたもの）を 403 で断る。応答のヘッダや、接続元（管理者のログインの試行回数を数えるのに使う）を迂回・偽装させないため。
 - CloudFront で、すべての応答にセキュリティ用のヘッダを付ける（HSTS、`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: same-origin`、CSP の一部）。
 - 参加リンク（`/q/<トークン>`）の URL にはトークンが入るので、`Referrer-Policy` でほかのサイトへ URL を送らない。
 
@@ -85,7 +86,7 @@ partally で行っているセキュリティ対策の一覧。何を、どう�
 
 | 対策 | 内容 |
 |---|---|
-| 秘密の値の置き場所 | 管理者パスワード・セッションの署名鍵・CloudFront の秘密鍵は、SSM の暗号化パラメータ（SecureString）に置く。CloudFormation のテンプレートと Lambda の環境変数には、パラメータの名前だけが入る。管理者パスワードは GitHub の Secret から、デプロイの CI が書き込む（GitHub Actions のロールは書き込めるだけで、読めない） |
+| 秘密の値の置き場所 | 管理者パスワード・セッションの署名鍵・CloudFront の秘密鍵・`X-Origin-Verify` の値は、SSM の暗号化パラメータ（SecureString）に置く。CloudFormation のテンプレートと Lambda の環境変数には、パラメータの名前だけが入る。管理者パスワードは GitHub の Secret から、デプロイの CI が書き込む（GitHub Actions のロールは書き込めるだけで、読めない） |
 | 権限 | Lambda ごとに要る権限だけを与える（テーブルの読み書き、バケットの読み書き・削除、特定のパラメータの読み取り、特定のディストリビューションの無効化）。初期化の Lambda は写真の中身を読めない（一覧と削除だけ） |
 | 呼び出しの上限 | API Gateway のステージ全体で毎秒 200 回・一度に 400 回まで（使いすぎの歯止め）。管理者のログインは別に毎秒 5 回 |
 | 本番データの初期化 | GitHub Actions の Reset ワークフローからだけ行う。確認欄に「初期化」と入れないと止まり、Lambda も決まった合言葉付きの呼び出しでなければ何もしない（[手順](setup.md#本番データの初期化)） |
@@ -122,7 +123,6 @@ partally で行っているセキュリティ対策の一覧。何を、どう�
 
 | Issue | 内容 |
 |---|---|
-| [#221](https://github.com/ot-nemoto/partally/issues/221) | API Gateway の元の URL に直接アクセスでき、CloudFront を迂回できる（管理者のログインの接続元を偽れる） |
 | [#222](https://github.com/ot-nemoto/partally/issues/222) | 他人の QR を手にした人が、わざと間違えてその人の暗証番号をロックできる |
 | [#223](https://github.com/ot-nemoto/partally/issues/223) | ビルドにだけ使う依存（aws-cdk-lib の minimatch）に中程度の脆弱性 |
 | [#224](https://github.com/ot-nemoto/partally/issues/224) | 外部の GitHub Actions を、版の番号（タグ）で指定している |

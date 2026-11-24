@@ -58,7 +58,7 @@ flowchart LR
 
 | パスパターン | オリジン | 備考 |
 |---|---|---|
-| `/api/*` | API Gateway (HTTP API) | キャッシュ無効。Cookie・クエリ・必要ヘッダを転送 |
+| `/api/*` | API Gateway (HTTP API) | キャッシュ無効。Cookie・クエリ・必要ヘッダを転送。秘密の値を `X-Origin-Verify` ヘッダで付け、API はこれが合わないリクエスト（API Gateway の元の URL に直接送られたもの）を 403 で断る |
 | `/photos/approved/*` | photos バケット (OAC) | **署名付き Cookie または URL** 必須（公開済み写真） |
 | `/photos/pending/*` | photos バケット (OAC) | **署名付き URL** 必須（検閲待ち。管理者・本人のみ） |
 | `/prizes/*` | photos バケット (OAC) | **署名付き URL** 必須（景品の画像とゲームの画像（問題・選択肢）。管理者と、景品を見せる設定・開催中のゲームの参加者） |
@@ -86,6 +86,7 @@ flowchart LR
 | `api` | API Gateway | すべての API。Node.js 22 + [Hono](https://hono.dev/) で 1 関数内ルーティング（処理は領域ごとのファイルに分ける。構成は[開発ガイド](development.md#リポジトリ構成)） |
 | `photo-ingest` | S3 `ObjectCreated`（`uploads/*/full.jpg`） | アップロード完了の検証と写真レコード登録、アップロード数加算 |
 | （カスタムリソース） | デプロイ時 | CloudFront 署名用の鍵ペアを生成し、秘密鍵を SSM に保存、公開鍵を CloudFront に登録 |
+| （カスタムリソース） | デプロイ時 | CloudFront から API へのリクエストに付ける秘密の値を生成し、SSM に保存、CloudFront のオリジンのカスタムヘッダに入れる |
 
 ### 2.3 秘密情報
 
@@ -93,6 +94,7 @@ flowchart LR
 |---|---|---|
 | `ADMIN_PASSWORD` | SSM SecureString（`/partally/admin-password`） | 管理者ログイン。GitHub の Secret `PARTALLY_ADMIN_PASSWORD` から、デプロイの CI が書き込む（[setup.md](setup.md#a-2-github-の-environment-設定)）。テンプレートと Lambda の環境変数には入らない |
 | `SESSION_SECRET` | SSM SecureString（`/partally/session-secret`） | セッション Cookie の HMAC 署名。作成手順と扱いは [setup.md](setup.md#セッション署名鍵とは) |
+| `X-Origin-Verify` の値 | SSM SecureString（`/partally/origin-verify`） | CloudFront を通ったリクエストだけを API が受けるための値。**デプロイ時にカスタムリソースが自動生成**し、一度作ったら使い回す。CloudFront のオリジンのカスタムヘッダに入る（スタックの表示には出さない）。API の Lambda は起動時に SSM から読む |
 | CloudFront 署名用秘密鍵 | SSM SecureString（`/partally/cloudfront-private-key`） | 署名付き Cookie / URL の発行。**デプロイ時にカスタムリソースが自動生成**し、公開鍵だけを CloudFront の Key Group に登録する（テンプレートに秘密鍵は残らない） |
 
 SSM Parameter Store の標準パラメータは無料。Lambda のコールドスタート時に取得してメモリにキャッシュする。管理者パスワードだけは 5 分ごとに読み直し、変わっていればアプリを作り直す（パスワードを変えたとき、温まっている Lambda も切り替わるように）。
@@ -312,7 +314,8 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
     - 接続元は、CloudFront が付ける閲覧者の IP（`CloudFront-Viewer-Address` のポートを外したもの）。
     - 試す前に数える（DynamoDB の条件付き更新を、接続元ごとと全体の 2 つまとめてトランザクションで行う）。同時にたくさん送っても上限までしか試せない。
     - 合っていたら、その接続元の回数を消し、全体の回数から 1 つ引く（全体は間違えた数だけを数える）。
-    - 全体の上限は、接続元をたくさん使う攻撃や、接続元の偽装（API Gateway に直接送ると `CloudFront-Viewer-Address` を自分で付けられる）でも、試せる総数を抑えるためのもの。そのぶん、攻撃を受けている間は幹事も入れないことがある。
+    - 全体の上限は、接続元をたくさん使う攻撃でも、試せる総数を抑えるためのもの。そのぶん、攻撃を受けている間は幹事も入れないことがある。
+    - 接続元を偽って `CloudFront-Viewer-Address` を付けたリクエストを API Gateway に直接送っても、`X-Origin-Verify` が合わないので API が断る（[2.1](#21-cloudfront-のビヘイビア)）。
     - 解除：区切りが終わるのを待つ（15 分以内）、別の回線から入る（接続元ごとの上限のとき）、GitHub Actions の「Unlock admin login」で記録を消す（初期化 Lambda を `{"action":"unlock-admin-login"}` で呼ぶ）。
 
 ---
