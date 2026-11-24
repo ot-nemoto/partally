@@ -12,6 +12,12 @@ import {
 /** 初期化 Lambda の呼び出しに必ず含める値。誤った呼び出しで消さないための合言葉 */
 export const RESET_CONFIRMATION = "delete-all-partally-data";
 
+/**
+ * 管理者のログインの制限を解除する呼び出しの値（Unlock admin login ワークフローが `{"action": "..."}` で呼ぶ）。
+ * 初期化と同じ Lambda で行う（GitHub Actions のロールに、ほかの関数を呼ぶ権限を足さずに済むため）。ほかのデータは消さない
+ */
+export const UNLOCK_ADMIN_LOGIN_ACTION = "unlock-admin-login";
+
 export interface ResetDeps {
   ddb: DynamoDBDocumentClient;
   tableName: string;

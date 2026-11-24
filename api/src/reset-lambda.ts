@@ -2,11 +2,20 @@ import { CloudFrontClient } from "@aws-sdk/client-cloudfront";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { S3Client } from "@aws-sdk/client-s3";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { requireEnv } from "./aws.js";
-import { resetAll } from "./reset.js";
+import { createRepository, requireEnv } from "./aws.js";
+import { resetAll, UNLOCK_ADMIN_LOGIN_ACTION } from "./reset.js";
 
-/** GitHub Actions の Reset ワークフローから `{"confirm": "..."}` で呼ばれる */
-export const handler = async (event: { confirm?: unknown }) => {
+/**
+ * GitHub Actions から呼ばれる。
+ * - Reset ワークフロー：`{"confirm": "..."}` で本番データをすべて消す
+ * - Unlock admin login ワークフロー：`{"action": "unlock-admin-login"}` で管理者のログインの制限を解除する
+ */
+export const handler = async (event: { confirm?: unknown; action?: unknown }) => {
+  if (event?.action === UNLOCK_ADMIN_LOGIN_ACTION) {
+    const cleared = await createRepository().clearAdminLoginAttempts();
+    console.log(JSON.stringify({ unlockAdminLogin: { cleared } }));
+    return { cleared };
+  }
   const result = await resetAll(
     {
       ddb: DynamoDBDocumentClient.from(new DynamoDBClient({})),

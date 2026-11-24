@@ -1,5 +1,6 @@
 import type { GameStatus, PhotoStatus, Settings } from "@partally/shared";
 import {
+  type AdminLoginAttempt,
   DEFAULT_SETTINGS,
   EpithetTakenError,
   type EventEndRecord,
@@ -42,6 +43,8 @@ export class MemoryRepository implements Repository {
   /** キーは `${userId}#${gameId}` */
   private gameAnswers = new Map<string, GameAnswerRecord>();
   private settings: Settings = { ...DEFAULT_SETTINGS };
+  /** 管理者のログインの試行回数。キーは `${window}#ALL` と `${window}#SRC#${source}` */
+  private adminLoginAttempts = new Map<string, number>();
   private labelCounter = 0;
 
   async getToken(token: string) {
@@ -130,6 +133,28 @@ export class MemoryRepository implements Repository {
     delete user.pinHash;
     delete user.pinFailures;
     return clone(user);
+  }
+
+  async reserveAdminLoginAttempt({ window, source, maxPerSource, maxTotal }: AdminLoginAttempt) {
+    const total = `${window}#ALL`;
+    const own = `${window}#SRC#${source}`;
+    const count = (key: string) => this.adminLoginAttempts.get(key) ?? 0;
+    if (count(own) >= maxPerSource || count(total) >= maxTotal) return false;
+    this.adminLoginAttempts.set(own, count(own) + 1);
+    this.adminLoginAttempts.set(total, count(total) + 1);
+    return true;
+  }
+
+  async releaseAdminLoginAttempt(window: string, source: string) {
+    this.adminLoginAttempts.delete(`${window}#SRC#${source}`);
+    const total = this.adminLoginAttempts.get(`${window}#ALL`) ?? 0;
+    if (total > 0) this.adminLoginAttempts.set(`${window}#ALL`, total - 1);
+  }
+
+  async clearAdminLoginAttempts() {
+    const cleared = this.adminLoginAttempts.size;
+    this.adminLoginAttempts.clear();
+    return cleared;
   }
 
   async unbindUser(userId: string, updatedAt: string) {

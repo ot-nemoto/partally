@@ -61,6 +61,14 @@ export function errorMessage(e: unknown): string {
           "暗証番号を続けて間違えたため、ロックしました。運営に声をかけてください。",
           "Too many wrong PINs, so this QR code is locked. Please ask the organizers.",
         );
+      case "login_locked": {
+        // サーバの説明は「あと N 分」
+        const minutes = detail && /\d+/.exec(detail)?.[0];
+        if (en) {
+          return `Too many wrong passwords, so login is paused${minutes ? ` for ${minutes} more min` : ""}. Wait, try from another network, or run the "Unlock admin login" workflow.`;
+        }
+        return `パスワードを続けて間違えたため、しばらくログインできません${detail ? `（${detail}）` : ""}。時間をおくか、別の回線から試すか、GitHub Actions の「Unlock admin login」で解除してください。`;
+      }
       case "invalid_state":
         // サーバの理由は日本語だけなので、英語の画面では決まった文に添える
         if (en) return `This can’t be done right now.${detail ? ` (${detail})` : " Please refresh."}`;
