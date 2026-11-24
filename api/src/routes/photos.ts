@@ -3,10 +3,11 @@ import {
   PHOTO_UPLOAD_MAX_PER_WINDOW,
   PHOTO_UPLOAD_WINDOW_MS,
   photoStatusSchema,
+  uploadUrlRequestSchema,
 } from "@partally/shared";
 import type { Context, Hono } from "hono";
 import { isVisible, type VisiblePhoto } from "../dto.js";
-import { type Env, fail } from "../http.js";
+import { type Env, fail, parseBody } from "../http.js";
 import { FavoriteLimitError, InvalidStateError, NotFoundError, type PhotoRecord } from "../repository.js";
 import type { AppContext } from "./context.js";
 
@@ -24,10 +25,26 @@ async function photoAction(c: Context, action: () => Promise<PhotoRecord>): Prom
 }
 
 export function registerPhotoRoutes(app: Hono<Env>, ctx: AppContext) {
-  const { repo, storage, now, newId, setPhotoCookies, toPhotoDto, uploadersOf, participantUser, requireUser } = ctx;
+  const {
+    repo,
+    storage,
+    now,
+    newId,
+    setPhotoCookies,
+    toPhotoDto,
+    uploadersOf,
+    participantUser,
+    requireUser,
+    deviceUser,
+  } = ctx;
 
   app.post("/photos/upload-url", requireUser, async (c) => {
-    const user = c.get("user");
+    const body = await parseBody(c, uploadUrlRequestSchema);
+    if (!body.ok) return body.response;
+    // 送信待ちの写真は、撮った参加者の写真として送る（この端末で覚えている参加者なら、今の参加者でなくてよい）
+    const requested = body.data.userId;
+    const user = requested && requested !== c.get("user").userId ? await deviceUser(c, requested) : c.get("user");
+    if (!user) return fail(c, 403, "forbidden", "この端末で覚えていない参加者です");
     // 確認待ちが多いときは、幹事が確認するまで送らせない（検閲待ちの一覧と保存先を埋めさせない）。
     // 投稿数（uploadCount）は確認待ちと公開中の数なので、公開数を引くと確認待ちの数になる
     if (user.uploadCount - user.approvedCount >= PHOTO_PENDING_MAX) {

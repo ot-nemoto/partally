@@ -35,6 +35,18 @@ export const pinSchema = z
   .transform((s) => s.normalize("NFKC").trim())
   .pipe(z.string().regex(new RegExp(`^\\d{${PIN_LENGTH}}$`), `暗証番号は ${PIN_LENGTH} 桁の数字にしてください`));
 
+/** サーバが発行する ID（ULID）。画像の ID など、クライアントから受け取るときに形だけ確かめる */
+const idSchema = z.string().regex(/^[0-9A-Za-z]{1,40}$/);
+
+/** 1 台の端末に覚えておける参加者の数（子どもの分を親の端末で操作するときなど） */
+export const DEVICE_ACCOUNTS_MAX = 5;
+
+/** この端末で覚えている参加者に切り替える */
+export const switchAccountRequestSchema = z.object({ userId: idSchema });
+
+/** 写真のアップロード枠。userId を付けると、この端末で覚えている別の参加者の写真として送る（送信待ちの写真を撮った人で送るため） */
+export const uploadUrlRequestSchema = z.object({ userId: idSchema.optional() });
+
 /**
  * QR コードでのログイン。その人としてログインしたままの端末でなければ、暗証番号（pin）を求める。
  * 暗証番号の無い人は、送った pin を暗証番号として決める
@@ -154,9 +166,6 @@ export const PRIZE_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 export const PRIZE_IMAGE_MAX_EDGE = 1200;
 /** クイズの選択肢の画像の長辺（参加者の画面では小さく並べるので、問題の画像より小さくする） */
 export const GAME_CHOICE_IMAGE_MAX_EDGE = 600;
-
-/** サーバが発行する ID（ULID）。画像の ID など、クライアントから受け取るときに形だけ確かめる */
-const idSchema = z.string().regex(/^[0-9A-Za-z]{1,40}$/);
 
 /**
  * 景品。positions は渡す順位（上から何番目の人か）で、1 つにつき 1 個を使うので数量まで。

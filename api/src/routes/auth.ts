@@ -5,6 +5,7 @@ import {
   qrLoginRequestSchema,
   randomEpithet,
   registerRequestSchema,
+  switchAccountRequestSchema,
 } from "@partally/shared";
 import type { Hono } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
@@ -33,6 +34,9 @@ export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
     participantUser,
     requireUser,
     userSessionOf,
+    deviceAccountsOf,
+    setDeviceAccounts,
+    deviceUser,
   } = ctx;
 
   app.post("/auth/qr", async (c) => {
@@ -53,9 +57,10 @@ export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
       return c.json({ status: "bound" as const, user: await participantUser(user) });
     };
 
-    // その人としてログインしたままの端末なら、暗証番号は聞かない
+    // その人としてログインしたままの端末か、この端末で覚えている人（子どもの分を親の端末で操作するときなど）なら、暗証番号は聞かない
     const session = userSessionOf(c);
     if (session?.uid === user.userId && session.tok === token.token) return login();
+    if (deviceAccountsOf(c).some((a) => a.uid === user.userId && a.tok === token.token)) return login();
 
     const { pin } = body.data;
     if (!user.pinHash) {
@@ -121,9 +126,46 @@ export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
     throw new Error(`二つ名を ${EPITHET_ATTEMPTS} 回抽選しても空きが見つかりませんでした`);
   });
 
-  app.post("/auth/logout", (c) => {
+  // 今の参加者だけを端末から外す。ほかに覚えている参加者がいれば、その人に切り替える
+  app.post("/auth/logout", async (c) => {
+    const current = userSessionOf(c)?.uid;
+    const rest = deviceAccountsOf(c).filter((a) => a.uid !== current);
+    for (const account of rest) {
+      const next = await deviceUser(c, account.uid);
+      if (!next) continue;
+      setUserSession(c, next, rest);
+      return c.json({ user: await participantUser(next) });
+    }
+    setDeviceAccounts(c, []);
     deleteCookie(c, USER_COOKIE, { path: "/", secure: secureCookies });
     return c.json({});
+  });
+
+  // この端末で覚えている参加者の一覧。紐づけを解除された人などは外して覚え直す
+  app.get("/accounts", async (c) => {
+    const saved = deviceAccountsOf(c);
+    const users = await Promise.all(saved.map((a) => deviceUser(c, a.uid)));
+    const valid = users.filter((u) => u !== undefined);
+    if (valid.length !== saved.length)
+      setDeviceAccounts(
+        c,
+        valid.map((u) => ({ uid: u.userId, tok: u.token })),
+      );
+    const current = userSessionOf(c)?.uid;
+    return c.json({
+      current: valid.some((u) => u.userId === current) ? current : undefined,
+      accounts: valid.map((u) => ({ userId: u.userId, name: u.name, epithet: u.epithet })),
+    });
+  });
+
+  // この端末で覚えている参加者に切り替える（暗証番号は聞かない）
+  app.post("/accounts/switch", async (c) => {
+    const body = await parseBody(c, switchAccountRequestSchema);
+    if (!body.ok) return body.response;
+    const user = await deviceUser(c, body.data.userId);
+    if (!user) return fail(c, 404, "not_found");
+    setUserSession(c, user);
+    return c.json({ user: await participantUser(user) });
   });
 
   app.get("/me", requireUser, async (c) => {
