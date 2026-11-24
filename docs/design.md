@@ -471,6 +471,7 @@ sequenceDiagram
 
 | メソッド | パス | 説明 |
 |---|---|---|
+| POST | `/api/csp-report` | CSP の違反の報告を受ける（ブラウザが送る。`application/csp-report`）。伏せた要約をログに残して 204。8KB を超えるもの・読めないものは捨てる（[8.2](#82-応答のヘッダセキュリティ)） |
 | POST | `/api/admin/login` | パスワードでログイン。違えば 401 `unauthorized`、続けて間違えて断っている間は 429 `login_locked`（[4.2](#42-管理者)） |
 | POST | `/api/admin/logout` | Cookie 削除 |
 | POST | `/api/admin/tokens` | QR トークンを N 件発行 `{count}` |
@@ -606,7 +607,16 @@ CloudFront の応答ヘッダーのポリシー（`infra/lib/partally-stack.ts` 
 | `X-Content-Type-Options` | `nosniff` | 写真などを、送った Content-Type 以外（HTML・スクリプト）として扱わせない |
 | `X-Frame-Options` | `DENY` | ほかのサイトの枠（iframe）に入れさせない（クリックジャッキング対策） |
 | `Referrer-Policy` | `same-origin` | ほかのサイトへ URL を送らない（参加リンク `/q/<トークン>` の URL にトークンが入るため） |
-| `Content-Security-Policy` | `frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'` | 画面の動きに関わらない項目だけ。スクリプト・画像などの読み込み元を絞る項目（`script-src` など）は、画面の動きを確かめながら足す（#227） |
+| `Content-Security-Policy` | `frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'` | 画面の動きに関わらない項目だけ |
+| `Content-Security-Policy-Report-Only` | 下の「読み込み元を絞る CSP」 | 読み込み元を絞る CSP を、まず報告だけで試す（#227）。本番で違反が出ないことを確かめてから `Content-Security-Policy` に移す |
+
+読み込み元を絞る CSP（`infra/lib/partally-stack.ts` の `reportOnlyCsp()`）:
+
+- `default-src 'self'`。スタイル・フォントも自分のサイトだけ。
+- `script-src 'self' 'unsafe-eval'` と `worker-src 'self' blob:`：HEIC の変換（heic2any）が `blob:` の URL から Worker を作り、その中で `new Function` を使うため。`'unsafe-eval'` が無いと HEIC の写真を送れない（ローカルで確かめた）。インラインのスクリプトとほかのサイトのスクリプトは許さない。
+- `img-src 'self' data: blob:`：端末で縮小した写真や QR の画像のため。
+- `connect-src 'self' https://*.s3.<リージョン>.amazonaws.com https://s3.<リージョン>.amazonaws.com`：写真・景品の画像の署名付き POST の送り先。バケット名は書かない。
+- `report-uri /api/csp-report`：違反を API に報告させる。API は、違反した項目、読み込もうとしたもののオリジンか種類（`inline`・`eval`・`data` など）、ページとスクリプトのパスだけを、CloudWatch Logs（`ApiLogs`）に `{"cspViolation": …}` で残す。参加リンクのトークン（`/q/<トークン>`）とクエリは伏せる。報告は `application/csp-report` で届くので、「更新は JSON だけ」の確かめより前に受ける（状態は変えない）。
 
 ### 8.3 運用・その他
 

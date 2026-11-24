@@ -190,8 +190,15 @@ function handler(event) {
     // - nosniff: 写真などを、送った Content-Type 以外（HTML やスクリプト）として扱わせない
     // - X-Frame-Options / frame-ancestors: ほかのサイトの枠（iframe）に入れさせない（クリックジャッキング対策）
     // - Referrer-Policy: ほかのサイトへ URL を送らない（参加リンク /q/<トークン> の URL にトークンが入るため）
-    // - CSP: 画面の動きに関わらない項目だけを付ける（script-src などは画面の確かめと合わせて別に足す）
+    // - CSP: 画面の動きに関わらない項目だけを付ける
+    // - CSP（Report-Only）: 読み込み元を絞る CSP を、まず報告だけで試す（違反は /api/csp-report でログに残る）。
+    //   本番で違反が出ないことを確かめてから、Content-Security-Policy に移す（#227）
     const securityHeaders = new cloudfront.ResponseHeadersPolicy(this, "SecurityHeaders", {
+      customHeadersBehavior: {
+        customHeaders: [
+          { header: "Content-Security-Policy-Report-Only", value: reportOnlyCsp(this.region), override: true },
+        ],
+      },
       securityHeadersBehavior: {
         strictTransportSecurity: { accessControlMaxAge: Duration.days(365), includeSubdomains: false, override: true },
         contentTypeOptions: { override: true },
@@ -423,4 +430,27 @@ function handler(event) {
     new CfnOutput(this, "TableName", { value: table.tableName });
     new CfnOutput(this, "PhotoBucketName", { value: photoBucket.bucketName });
   }
+}
+
+/**
+ * 読み込み元を絞る CSP（いまは Report-Only で付ける）。
+ * - script-src 'unsafe-eval' と worker-src blob: は、HEIC の変換（heic2any）が blob: の URL から Worker を作り、その中で new Function を使うため
+ * - img-src data: blob: は、端末で縮小した写真のプレビューと QR の画像のため
+ * - connect-src の S3 は、写真・景品の画像の署名付き POST の送り先（バケット名は書かず、リージョンのドメインで許す）
+ */
+export function reportOnlyCsp(region: string): string {
+  return [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-eval'",
+    "worker-src 'self' blob:",
+    "style-src 'self'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    `connect-src 'self' https://*.s3.${region}.amazonaws.com https://s3.${region}.amazonaws.com`,
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "report-uri /api/csp-report",
+  ].join("; ");
 }
