@@ -15,6 +15,15 @@ export interface AdminSession {
 export const USER_SESSION_MAX_AGE = 30 * 24 * 60 * 60;
 export const ADMIN_SESSION_MAX_AGE = 12 * 60 * 60;
 
+/**
+ * 管理者の Cookie の署名鍵。セッションの鍵と管理者パスワードから作る。
+ * パスワードを変えると鍵も変わり、それまでに発行した管理者の Cookie は署名が合わずに無効になる
+ * （盗まれた Cookie も、パスワードを変えれば使えなくなる）。参加者の Cookie には影響しない
+ */
+export function adminSessionKey(sessionSecret: string, adminPassword: string): string {
+  return createHmac("sha256", sessionSecret).update(`admin-session:${adminPassword}`).digest("base64url");
+}
+
 /** `<base64url(JSON)>.<base64url(HMAC-SHA256)>` 形式に署名する */
 export function sign(payload: object, secret: string): string {
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
