@@ -15,6 +15,7 @@ import { ApiError, api, errorMessage } from "../api";
 import { useAutoRefresh } from "../hooks/useAutoRefresh";
 import { ReloadProvider } from "../hooks/useReload";
 import { LanguageSwitch, useLang, useT } from "../i18n";
+import { UserSwitch } from "./UserSwitch";
 
 /** 開催・確定にすぐ気づけるよう、表示中はこの間隔で開催中のゲームを確認する（文字だけの小さな通信） */
 const GAME_REFRESH_MS = 5_000;
@@ -169,6 +170,11 @@ export function ParticipantLayout() {
   return (
     <div className="participant">
       <main className="page">
+        {/* 上の段：参加者の切り替え（2 人以上覚えているとき。すべての画面）と、ホームでは言語の切り替え */}
+        <div className="top-row">
+          <UserSwitch />
+          {location.pathname === "/" && <LanguageSwitch />}
+        </div>
         {/* イベントを終了した後は、ポイントの集計が止まったことを知らせる（受付は続く） */}
         {state.rules.eventEndedAt && (
           <p className="event-ended" role="status">
