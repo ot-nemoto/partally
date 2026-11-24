@@ -5,7 +5,7 @@ import { useT } from "../i18n";
  * この端末でほかの人の分も使う方法の案内（スマホを持っていない子どもの分を、親の端末で操作するときなど）。
  * 切り替えは画面の上の名前のボタン（UserSwitch）で行う
  */
-export function AccountSwitcher() {
+export function AccountHint() {
   const t = useT();
   return (
     <details className="card account-hint">

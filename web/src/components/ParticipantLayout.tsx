@@ -53,10 +53,23 @@ type State =
 /** 参加者向け画面の共通レイアウト。/api/me で写真用 Cookie も更新される */
 export function ParticipantLayout() {
   const [state, setState] = useState<State>({ kind: "loading" });
+  /** 表示中の参加者。読み直したら別の人になっていた（端末で覚えているほかの人に切り替わった）ときに気づくため */
+  const shownUserId = useRef<string | undefined>(undefined);
 
+  /**
+   * 自分の情報を読み直す。今の参加者が使えなくなっていたら（紐づけ解除など）、サーバがこの端末で覚えている
+   * ほかの参加者に切り替えて返すので、そのときは表示中の情報をすべてその人のものにするため画面を開き直す
+   */
   const reloadUser = useCallback(() => {
     api<MeResponse>("GET", "/me")
-      .then((res) => setState({ kind: "user", user: res.user, rules: res.rules }))
+      .then((res) => {
+        if (shownUserId.current && shownUserId.current !== res.user.userId) {
+          window.location.reload();
+          return;
+        }
+        shownUserId.current = res.user.userId;
+        setState({ kind: "user", user: res.user, rules: res.rules });
+      })
       .catch((e) => {
         if (e instanceof ApiError && e.status === 401) setState({ kind: "guest" });
         else setState({ kind: "error", message: errorMessage(e) });
@@ -69,9 +82,13 @@ export function ParticipantLayout() {
   const refreshQuietly = useCallback(
     () =>
       api<MeResponse>("GET", "/me")
-        .then((res) =>
-          setState((prev) => (prev.kind === "user" ? { ...prev, user: res.user, rules: res.rules } : prev)),
-        )
+        .then((res) => {
+          if (shownUserId.current && shownUserId.current !== res.user.userId) {
+            window.location.reload();
+            return;
+          }
+          setState((prev) => (prev.kind === "user" ? { ...prev, user: res.user, rules: res.rules } : prev));
+        })
         .catch((e) => {
           if (e instanceof ApiError && e.status === 401) setState({ kind: "guest" });
         }),
@@ -108,10 +125,11 @@ export function ParticipantLayout() {
         }
       })
       .catch((e) => {
-        // ログインが切れたら案内の画面にする（確認も止まる）。通信エラーは次の確認に任せる
-        if (e instanceof ApiError && e.status === 401) setState({ kind: "guest" });
+        // ログインが切れたら、自分の情報を読み直す（この端末で覚えているほかの参加者がいれば、その人に切り替わる。
+        // いなければ案内の画面になり、確認も止まる）。通信エラーは次の確認に任せる
+        if (e instanceof ApiError && e.status === 401) reloadUser();
       });
-  }, []);
+  }, [reloadUser]);
   useEffect(() => {
     if (state.kind === "user") void refreshGame();
   }, [state.kind, refreshGame]);

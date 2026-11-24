@@ -1,6 +1,6 @@
 import type { AccountsResponse, UserResponse } from "@partally/shared";
-import { useEffect, useState } from "react";
-import { api, errorMessage } from "../api";
+import { useCallback, useEffect, useState } from "react";
+import { ApiError, api, errorMessage } from "../api";
 import { useT } from "../i18n";
 
 /**
@@ -12,11 +12,13 @@ export function UserSwitch() {
   const [data, setData] = useState<AccountsResponse>();
   const [switching, setSwitching] = useState(false);
 
-  useEffect(() => {
+  /** 一覧を読む（サーバは、紐づけを解除された人などを外して返す） */
+  const load = useCallback(() => {
     api<AccountsResponse>("GET", "/accounts")
       .then(setData)
       .catch(() => setData(undefined));
   }, []);
+  useEffect(load, [load]);
 
   if (!data || data.accounts.length < 2) return null;
 
@@ -29,7 +31,16 @@ export function UserSwitch() {
       window.location.assign(window.location.pathname);
     } catch (e) {
       setSwitching(false);
-      alert(errorMessage(e));
+      alert(
+        e instanceof ApiError && e.status === 404
+          ? t(
+              "この人は、この端末では使えなくなりました（幹事が紐づけを外したなど）。",
+              "This person can no longer be used on this phone (for example, the organizers unlinked them).",
+            )
+          : errorMessage(e),
+      );
+      // その人が使えなくなっていた（紐づけ解除など）ときに、ボタンを残さないよう一覧を読み直す
+      load();
     }
   }
 
