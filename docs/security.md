@@ -105,6 +105,7 @@ partally で行っているセキュリティ対策の一覧。何を、どう�
 | ログに出さないもの | アカウント ID、ロールの ID、本番の URL、バケット名・テーブル名、スタック ID。認証は自前の action（`.github/actions/aws-oidc`）で行い、受け取った値は伏せてから使う。`cdk deploy` の Outputs も表示しない。デプロイ先は、ジョブのまとめに出す CloudFormation コンソールのリンクから確かめる |
 | PR の CI | PR の CI（lint・型チェック・テスト・E2E）は秘密の値を使わない。デプロイは `develop` への push だけ |
 | ほかのリポジトリからの PR | バージョンを上げるワークフローは、同じリポジトリの PR でだけ動く |
+| 外部のアクション | GitHub 以外が作るアクションは、コミットの SHA で固定する（タグの付け替えで中身を差し替えられないように）。GitHub 公式（`actions/*`）は版の番号で指定する。テストで確かめる（[開発ガイド](development.md)） |
 | 依存の更新 | Dependabot が毎週、npm と GitHub Actions の更新の PR を作る。`npm audit` の指摘は、本番に含まれないビルド用の依存でも更新して解消する |
 | リポジトリに書かないもの | AWS のアカウント ID、ロール ARN、メールアドレス、パスワード、実際のドメイン（[CLAUDE.md](../CLAUDE.md)） |
 
@@ -123,5 +124,4 @@ partally で行っているセキュリティ対策の一覧。何を、どう�
 
 | Issue | 内容 |
 |---|---|
-| [#224](https://github.com/ot-nemoto/partally/issues/224) | 外部の GitHub Actions を、版の番号（タグ）で指定している |
 | [#227](https://github.com/ot-nemoto/partally/issues/227) | CSP に、スクリプト・画像などの読み込み元を絞る項目が無い |

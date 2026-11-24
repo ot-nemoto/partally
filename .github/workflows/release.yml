@@ -34,7 +34,8 @@ jobs:
 
       - name: Create GitHub Release
         if: steps.tag_check.outputs.exists == 'false'
-        uses: softprops/action-gh-release@v3
+        # GitHub 以外が作るアクションは、タグの付け替えで中身を差し替えられないようコミットの SHA で固定する（docs/development.md）
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: v${{ steps.version.outputs.version }}
           # デフォルトブランチ（develop 等）ではなく、実行契機の master コミットにタグを貼る
