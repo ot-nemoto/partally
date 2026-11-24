@@ -18,6 +18,11 @@ interface QueuedUpload {
   target?: UploadUrlResponse & { issuedAt: number };
   /** サーバに断られた回数（通信エラーは数えない） */
   failures: number;
+  /**
+   * 撮った参加者。1 台の端末で複数の参加者を切り替えて使うとき、送る前に切り替えても撮った人の写真として送る。
+   * 以前の版で入れた写真には無い（そのときの参加者として送る）
+   */
+  userId?: string;
 }
 
 export interface QueueState {
@@ -67,8 +72,8 @@ export function subscribeQueue(listener: (s: QueueState) => void): () => void {
   return () => listeners.delete(listener);
 }
 
-/** 写真を縮小して送信待ちに入れ、送信を始める */
-export async function enqueuePhoto(file: File): Promise<void> {
+/** 写真を縮小して送信待ちに入れ、送信を始める。userId は撮った参加者 */
+export async function enqueuePhoto(file: File, userId: string): Promise<void> {
   const { full, thumb } = await processPhoto(file);
   const item: QueuedUpload = {
     id: newId(),
@@ -76,6 +81,7 @@ export async function enqueuePhoto(file: File): Promise<void> {
     thumb: await thumb.arrayBuffer(),
     createdAt: Date.now(),
     failures: 0,
+    userId,
   };
   await withStore("readwrite", (store) => store.put(item));
   await refreshCount();
@@ -189,7 +195,7 @@ export function startQueue(): void {
 
 async function upload(item: QueuedUpload): Promise<void> {
   if (!item.target || Date.now() - item.target.issuedAt > TARGET_REUSE_MS) {
-    const target = await api<UploadUrlResponse>("POST", "/photos/upload-url");
+    const target = await api<UploadUrlResponse>("POST", "/photos/upload-url", { userId: item.userId });
     item.target = { ...target, issuedAt: Date.now() };
     // 送信の途中で失敗しても、再送で同じ photoId に送れるよう先に保存する
     await withStore("readwrite", (store) => store.put(item));

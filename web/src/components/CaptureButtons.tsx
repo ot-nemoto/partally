@@ -1,6 +1,7 @@
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { enqueuePhoto, flushQueue, type QueueState, subscribeQueue } from "../photos/queue";
+import { useParticipant } from "./ParticipantLayout";
 
 /** 撮影・写真選択のボタンと送信状況 */
 export function CaptureButtons() {
@@ -10,6 +11,7 @@ export function CaptureButtons() {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string>();
   const t = useT();
+  const { user } = useParticipant();
 
   useEffect(() => subscribeQueue(setQueue), []);
 
@@ -20,7 +22,7 @@ export function CaptureButtons() {
     setProcessing(true);
     setError(undefined);
     try {
-      for (const file of files) await enqueuePhoto(file);
+      for (const file of files) await enqueuePhoto(file, user.userId);
     } catch {
       setError(
         t(

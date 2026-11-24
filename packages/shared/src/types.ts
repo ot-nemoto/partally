@@ -56,6 +56,20 @@ export interface RegisterResponse {
   user: UserDto;
 }
 
+/** この端末で覚えている参加者（切り替えの一覧） */
+export interface DeviceAccountDto {
+  userId: string;
+  name: string;
+  epithet: string;
+}
+
+export interface AccountsResponse {
+  /** 今の参加者（ログインしていなければ無い） */
+  current?: string;
+  /** 新しくログインした順 */
+  accounts: DeviceAccountDto[];
+}
+
 export interface MeResponse {
   user: UserDto;
   rules: Rules;

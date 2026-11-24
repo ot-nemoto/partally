@@ -294,6 +294,11 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
   - 形式: `<base64url(JSON)>.<base64url(HMAC-SHA256)>`。JSON は `{ uid, tok, iat }`（ユーザ ID・QR トークン・発行時刻）
   - 署名鍵は `SESSION_SECRET`。署名が合わない Cookie は未ログインとして扱うため、中身を書き換えてのなりすましはできない
   - 属性: `HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=30日`。`iat` から 30 日を過ぎたものもサーバ側で拒否する
+- 1 台の端末で複数の参加者を使うため、ログインした参加者を `accounts` Cookie に覚える（[機能仕様書 U-9](spec.md#2-参加ログイン)）。
+  - JSON は `{ acc: [{ uid, tok }, …], iat }`（新しくログインした順、5 人まで）。`session` と同じ鍵で署名し、属性も同じ。
+  - ログイン・登録・切り替えのたびに、その人をいちばん前に置く。`accounts` を使う前からログインしていた人（今の `session`）も入れる。
+  - 使うときは、ユーザレコードの `status = active` と `token` が `tok` と一致するかを確かめる（紐づけを解除された人は使えず、一覧からも外す）。
+  - 覚えている人の QR コードでは、暗証番号を聞かずにログインする。写真のアップロード枠は、覚えている人を指定すれば、その人として発行する（送信待ちの写真を撮った人で送るため）。
 - API は毎リクエストでユーザレコードを読み、`status = active` かつ `token` が Cookie の `tok` と一致することを確認する。紐づけ解除・再紐づけされたユーザの古い Cookie は 401 となり、SPA は QR 読み込みを促す。
 - 署名鍵を変更すると、発行済みの Cookie はすべて無効になる（全員が再ログイン）。管理者の Cookie だけを無効にするときは、管理者パスワードを変える（[4.2](#42-管理者)）。
 - 更新系 API は `Content-Type: application/json` のみ受け付ける。クロスオリジンからの JSON 送信はプリフライトが必要になるため、`SameSite=Lax` と合わせて CSRF 対策とする。
@@ -451,7 +456,9 @@ sequenceDiagram
 |---|---|---|
 | POST | `/api/auth/qr` | トークンでログイン `{token, pin?}`。未紐づけなら `unbound`。その人としてログインしたままの端末でなければ、`pin` が無いと `pin_required`（`setup` が true なら暗証番号が無いので、送った `pin` を暗証番号にする）、違えば 401 `pin_invalid`、ロック中は 423 `pin_locked` |
 | POST | `/api/auth/register` | 未紐づけトークンに名前と暗証番号（数字 4 桁）を登録（二つ名自動付与） |
-| POST | `/api/auth/logout` | Cookie 削除 |
+| POST | `/api/auth/logout` | 今の参加者を端末から外す。ほかに覚えている参加者がいれば、その人に切り替えて `{user}` を返す。いなければ Cookie を消す |
+| GET | `/api/accounts` | この端末で覚えている参加者の一覧（`current`・`accounts[{userId, name, epithet}]`）。紐づけを解除された人などは外して覚え直す |
+| POST | `/api/accounts/switch` | `{userId}` の参加者に切り替える（この端末で覚えている人だけ。暗証番号は聞かない）。覚えていなければ 404 |
 | GET | `/api/me` | 自分の情報（表示名・アップロード数・ポイント・お気に入りの数・ゲームの点数と、点数が入ったもの `gameAwards`（ゲーム名・枠の名前かクイズで選んだ答えか数値予想の「N 位（予想 X）」か投票の「N 位（M 票）」「投票」か合言葉の「N 番目に正解」か抽選の「1 等に当選」・点数））とポイントのルール。CloudFront Cookie の再発行 |
 | GET | `/api/game/current` | 開催中のゲーム。`games` は開催中の全問（ラウンドなら出す順）、`game` はその 1 問目（前の版の画面用）、`round` は開催中のラウンドの `{roundId, name}`。それぞれ（形式・名前・説明・画像の署名付き URL と、クイズなら選択肢（画像の URL も）と自分の答え `myChoiceId`、数値予想なら自分の答え `myValue`、投票なら自分が選んだ人 `myTargetUserId`、合言葉なら自分が正解したか `myKeywordCorrect`、抽選なら自分が参加したか `myEntry`）。画像の URL は景品と同じく 1 時間ごとの区切りの期限で、同じ期限の URL はサーバの中で使い回す（5 秒ごとに呼ばれても署名を作り直さない）。無ければ `null`。何をしたら何点か（選択肢・枠・順位の範囲の点数、投票した人の点数）と、数値予想の正解の数・合言葉・誰がどの枠に入ったか・投票の票数は返さない。画面の表示中は 5 秒ごとと、別のアプリから戻ったときに呼ぶ（画面が見えていない間は呼ばない）。開催・終了が自動で反映される |
 | GET | `/api/ranking` | ランキング（推移なし）。設定 `rankingVisible` がオフなら 404。紐づけを解除した人は除き、順位を付け直す。名前を伏せるときは全員の名前・称号・表示名を `???` にし、ユーザ ID を順番の番号（`r1`…）に置き換え、推移の始まり（登録した時刻）も全員そろえる。ポイントを伏せるときは、最大値を 100 とした割合（小数第 1 位まで）だけを返す。応答に `hideNames`・`hidePoints` を含む |
@@ -461,7 +468,7 @@ sequenceDiagram
 | GET | `/api/game-results` | 終了したゲームの結果（終了した順）。ゲームごとに、正解 `correct`（クイズは点数がいちばん高い選択肢、数値予想は正解の数、合言葉は合言葉）、自分が答えたか `answered`・自分の答え `myAnswer`・クイズの正誤 `myCorrect`・自分の結果 `myResult`（順位・当選・入った枠）、入った人 `winners`（結果入力は枠ごと、数値予想・投票・合言葉・抽選は点数が入った順位ごと）。点数は返さない。イベントの終了の後に終了したゲームは `uncounted`。見せない設定のときは空 |
 | PUT | `/api/game/{gameId}/answer` | ゲームに答える。クイズは `{choiceId}`、数値予想は `{value}`（0〜100 の整数）、投票は `{targetUserId}`、合言葉は `{text}`（応答に正解か `correct` を含める。不正解は保存せず、正解した後は上書きしない）、抽選は `{entry: true}`。合言葉以外は 1 人 1 回だけで、既に答えていれば 409 `already_answered`（先の答えのまま）。開催中でなければ 409 `game_closed`、形式に合わない答え・結果入力のゲーム・自分や登録されていない人や紐づけを解除した人への投票は 400 |
 | GET | `/api/game/{gameId}/candidates` | 投票で選べる人 `{userId, displayName}` の一覧（自分と紐づけを解除した人を除き、名前の順）。ゲームの画面を開いたとき・アプリに戻ったときに呼ぶ（5 秒ごとの確認には含めない）。投票でなければ 400、開催中でなければ 409 `game_closed` |
-| POST | `/api/photos/upload-url` | アップロード用署名付き POST を発行。確認待ちが 30 枚以上なら 429 `too_many_pending`、10 分ごとの区切りの中で 30 回を超えると 429 `upload_rate_limited`（あと何分かと `Retry-After`。断ったものは数えない） |
+| POST | `/api/photos/upload-url` | アップロード用署名付き POST を発行。`{userId}` を付けると、この端末で覚えている別の参加者として発行する（覚えていなければ 403）。確認待ちが 30 枚以上なら 429 `too_many_pending`、10 分ごとの区切りの中で 30 回を超えると 429 `upload_rate_limited`（あと何分かと `Retry-After`。断ったものは数えない） |
 | GET | `/api/photos` | 公開済み写真一覧（アップロード者の表示名・お気に入り数・自分が選んでいるか付き） |
 | PUT | `/api/photos/{photoId}/favorite` | お気に入りに選ぶ（選択済みなら何もしない）。受付終了は 409 `favorites_disabled`、上限超過は 409 `favorite_limit`、自分の写真・未公開は 409 `invalid_state` |
 | DELETE | `/api/photos/{photoId}/favorite` | お気に入りを外す（未選択なら何もしない） |

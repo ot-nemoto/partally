@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { AccountSwitcher } from "../components/AccountSwitcher";
 import { CaptureButtons } from "../components/CaptureButtons";
 import { useParticipant } from "../components/ParticipantLayout";
 import { LanguageSwitch, useT } from "../i18n";
@@ -111,6 +112,7 @@ export function Home() {
           </p>
         )}
       </section>
+      <AccountSwitcher />
     </>
   );
 }
