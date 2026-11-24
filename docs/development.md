@@ -108,3 +108,9 @@ PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`
 | `unlock-admin-login.yml` | 手動実行 | 管理者のログインの制限の解除（[手順](setup.md#管理者のログインの制限の解除)） |
 
 依存パッケージと Actions の更新は、Dependabot が毎週 `develop` 宛てに PR を作ります。
+
+ワークフローで使うアクションは、次のように指定します（`infra/test/workflows.test.ts` で確かめています）。
+
+- GitHub 以外が作るアクション（`actions/*` 以外）は、コミットの SHA で固定し、後ろのコメントに元の版を書きます（例: `uses: softprops/action-gh-release@<40 桁の SHA> # v3.0.4`）。タグは付け替えられるので、作者のアカウントが乗っ取られると中身を差し替えられるためです。Dependabot は SHA とコメントをまとめて更新します。
+- GitHub 公式のアクション（`actions/*`）は、版の番号（`@v7` など）で指定します。
+- このリポジトリの中のアクション（`./.github/actions/*`）はそのまま使います。
