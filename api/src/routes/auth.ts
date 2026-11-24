@@ -21,8 +21,8 @@ const EPITHET_ATTEMPTS = 10;
 export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
   const {
     repo,
-    sessionSecret,
     adminPassword,
+    adminKey,
     secureCookies,
     now,
     rand,
@@ -149,7 +149,7 @@ export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
     await repo.releaseAdminLoginAttempt(window, source);
 
     const session: AdminSession = { adm: true, iat: nowSeconds() };
-    setCookie(c, ADMIN_COOKIE, sign(session, sessionSecret), {
+    setCookie(c, ADMIN_COOKIE, sign(session, adminKey), {
       httpOnly: true,
       secure: secureCookies,
       sameSite: "Strict",

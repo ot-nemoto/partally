@@ -292,7 +292,7 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
   - 署名鍵は `SESSION_SECRET`。署名が合わない Cookie は未ログインとして扱うため、中身を書き換えてのなりすましはできない
   - 属性: `HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=30日`。`iat` から 30 日を過ぎたものもサーバ側で拒否する
 - API は毎リクエストでユーザレコードを読み、`status = active` かつ `token` が Cookie の `tok` と一致することを確認する。紐づけ解除・再紐づけされたユーザの古い Cookie は 401 となり、SPA は QR 読み込みを促す。
-- 署名鍵を変更すると、発行済みの Cookie はすべて無効になる（全員が再ログイン）。
+- 署名鍵を変更すると、発行済みの Cookie はすべて無効になる（全員が再ログイン）。管理者の Cookie だけを無効にするときは、管理者パスワードを変える（[4.2](#42-管理者)）。
 - 更新系 API は `Content-Type: application/json` のみ受け付ける。クロスオリジンからの JSON 送信はプリフライトが必要になるため、`SameSite=Lax` と合わせて CSRF 対策とする。
 - 同時に **CloudFront 署名付き Cookie**（`CloudFront-Policy` / `CloudFront-Signature` / `CloudFront-Key-Pair-Id`、`Path=/photos/approved/`、有効期限 12 時間）を発行する。`GET /api/me` を呼ぶたびに再発行する（参加者画面は表示時に必ず呼ぶ）。
 - Cookie を失った場合（ブラウザ変更・アプリ内ブラウザ等）は QR を再度読み込み、暗証番号を入れればログインできる。QR コードだけを見た人はログインできない（暗証番号は 5 回間違えるとロック）。
@@ -302,7 +302,9 @@ SSM Parameter Store の標準パラメータは無料。Lambda のコールド�
 ### 4.2 管理者
 
 - `/admin` 画面でパスワードを入力 → `POST /api/admin/login` で `ADMIN_PASSWORD` と定数時間比較。
-- 成功時に `admin_session` Cookie（`{ adm: true, iat }` を `SESSION_SECRET` で HMAC 署名、`HttpOnly; Secure; SameSite=Strict; Path=/api/admin; Max-Age=12時間`）を発行。
+- 成功時に `admin_session` Cookie（`{ adm: true, iat }` を HMAC 署名、`HttpOnly; Secure; SameSite=Strict; Path=/api/admin; Max-Age=12時間`）を発行。
+  - 署名鍵は、`SESSION_SECRET` と `ADMIN_PASSWORD` から作った鍵（`HMAC(SESSION_SECRET, "admin-session:" + ADMIN_PASSWORD)`）。管理者パスワードを変えると鍵も変わり、それまでの管理者の Cookie は署名が合わずに未ログインとして扱う（盗まれた Cookie も、パスワードを変えれば使えなくなる）。参加者の Cookie には影響しない。
+  - ログアウトは手元の Cookie を消すだけで、サーバ側では取り消さない。Cookie が漏れたおそれがあるときは、管理者パスワードを変える。
 - パスワードの総当たりは、次の 2 つで防ぐ。
   - `POST /api/admin/login` だけを別のルートにして付けた低いスロットリング（5 rps / バースト 10）。ステージ全体の上限は、参加者の一斉の答えに合わせて 200 rps / バースト 400 と高いため。
   - 試行回数の制限（`api/src/admin-login-limit.ts`）。15 分ごとの区切りの中で、接続元ごとに 10 回、全体で 50 回まで試せる。上限に達したら、その区切りが終わるまで 429 `login_locked`（あと何分かと `Retry-After`）で断り、合っていても断る。

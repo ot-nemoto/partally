@@ -34,6 +34,7 @@ import {
 import {
   ADMIN_SESSION_MAX_AGE,
   type AdminSession,
+  adminSessionKey,
   sign,
   USER_SESSION_MAX_AGE,
   type UserSession,
@@ -89,6 +90,8 @@ export function createContext(deps: AppDeps) {
     newToken = () => randomBytes(16).toString("base64url"),
     settle = () => new Promise<void>((resolve) => setTimeout(resolve, SETTLE_MS)),
   } = deps;
+  /** 管理者の Cookie はパスワードから作った鍵で署名する（パスワードを変えると無効になる） */
+  const adminKey = adminSessionKey(sessionSecret, adminPassword);
   const nowSeconds = () => Math.floor(now().getTime() / 1000);
 
   const setUserSession = (c: Context, user: UserRecord & { token: string }) => {
@@ -245,12 +248,7 @@ export function createContext(deps: AppDeps) {
     if (c.req.path === `${ADMIN_COOKIE_PATH}/login` || c.req.path === `${ADMIN_COOKIE_PATH}/logout`) {
       return next();
     }
-    const session = verify<AdminSession>(
-      getCookie(c, ADMIN_COOKIE),
-      sessionSecret,
-      ADMIN_SESSION_MAX_AGE,
-      nowSeconds(),
-    );
+    const session = verify<AdminSession>(getCookie(c, ADMIN_COOKIE), adminKey, ADMIN_SESSION_MAX_AGE, nowSeconds());
     if (!session?.adm) return fail(c, 401, "unauthorized");
     await next();
   };
@@ -333,6 +331,7 @@ export function createContext(deps: AppDeps) {
     storage,
     sessionSecret,
     adminPassword,
+    adminKey,
     secureCookies,
     now,
     rand,
