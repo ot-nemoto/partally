@@ -1,12 +1,25 @@
 import { readFileSync } from "node:fs";
 import { PHOTO_UPLOAD_WINDOW_MS } from "@partally/shared";
 import { expect, type Page, test } from "@playwright/test";
-import { type AdminApi, adminApi, choosePhoto, issueToken, jpeg, participant, updateSettings } from "./helpers";
+import {
+  type AdminApi,
+  adminApi,
+  choosePhoto,
+  issueToken,
+  jpeg,
+  LOCAL_ONLY,
+  participant,
+  REMOTE_URL,
+  updateSettings,
+  useDefaultSettings,
+} from "./helpers";
 
 /**
  * P1: 主要な連携（docs/e2e-tests.md の 3 章）。
  * 準備のデータは API で作り、確かめたい流れだけを画面から操作する
  */
+useDefaultSettings();
+
 let admin: AdminApi;
 test.beforeAll(async () => {
   admin = await adminApi();
@@ -181,6 +194,8 @@ test.describe("写真のアップロードの上限", () => {
   }
 
   test("P1 確認待ちが上限に達すると写真は残って案内が出て、幹事が確認すると自動で送られる", async ({ browser }) => {
+    // 確認待ちを埋めるのに、ローカルの S3 の代わり /__dev/upload を使う
+    test.skip(!!REMOTE_URL, LOCAL_ONLY);
     const a = await participant(browser, admin, "上限 確認待ち");
     users.push(a.user.userId);
     const { page } = a;
