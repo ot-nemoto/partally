@@ -85,7 +85,7 @@ flowchart LR
 |---|---|---|
 | `api` | API Gateway | すべての API。Node.js 22 + [Hono](https://hono.dev/) で 1 関数内ルーティング（処理は領域ごとのファイルに分ける。構成は[開発ガイド](development.md#リポジトリ構成)） |
 | `photo-ingest` | S3 `ObjectCreated`（`uploads/*/full.jpg`） | アップロード完了の検証と写真レコード登録、アップロード数加算 |
-| `partally-reset` | GitHub Actions から手動で呼び出し | 本番データの初期化（Reset ワークフロー）と、管理者ログインの制限の解除（Unlock admin login ワークフロー）。決まった合言葉付きの呼び出しでなければ何もしない |
+| `partally-reset` | GitHub Actions から手動で呼び出し | 本番データの初期化（Reset ワークフロー）と、管理者ログインの制限の解除（Unlock admin login ワークフロー）。初期化は、決まった合言葉付きの呼び出しでなければ何もしない |
 | （カスタムリソース） | デプロイ時 | CloudFront 署名用の鍵ペアを生成し、秘密鍵を SSM に保存、公開鍵を CloudFront に登録 |
 | （カスタムリソース） | デプロイ時 | CloudFront から API へのリクエストに付ける秘密の値を生成し、SSM に保存、CloudFront のオリジンのカスタムヘッダに入れる |
 
