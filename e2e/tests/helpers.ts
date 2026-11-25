@@ -5,9 +5,24 @@ import {
   expect,
   type Page,
   request,
+  test,
 } from "@playwright/test";
+import { DEFAULT_SETTINGS } from "../../api/src/repository.js";
+import { REMOTE_URL } from "./target";
 
-export const BASE_URL = "http://localhost:5173";
+export { REMOTE_URL };
+export const BASE_URL = REMOTE_URL ?? "http://localhost:5173";
+/** ローカルでしか確かめられないテストを skip するときの理由 */
+export const LOCAL_ONLY = "ローカル開発環境でしか確かめられないため、E2E_BASE_URL を付けたときは流さない";
+
+/**
+ * 実行ごとに変わる名前。データの入った環境には、前に流したときのデータや同じ名前のデータが残っているので、
+ * 画面で名前を使って探すデータ（ゲーム・景品・スケジュール・参加者）には、これを付けて重ならないようにする
+ */
+const RUN_ID = Date.now().toString(36).slice(-5);
+export function unique(name: string): string {
+  return `${name} ${RUN_ID}`;
+}
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
 
 /** スマホの画面の大きさ（参加者） */
@@ -52,6 +67,31 @@ export async function issueToken(admin: AdminApi): Promise<string> {
 export async function updateSettings(admin: AdminApi, changes: Record<string, unknown>) {
   const { settings } = await admin.get("/admin/settings");
   await admin.put("/admin/settings", { ...settings, ...changes });
+}
+
+/**
+ * テストの前提の設定（既定値）にそろえる。spec の初めに 1 回呼ぶ。
+ * - 初めに今の設定を取っておき、既定値にそろえる
+ * - テストが updateSettings() で変えた設定は、テストのたびに既定値へ戻す（後のテストに持ち越さない）
+ * - 終わったら、取っておいた設定に戻す（データの入った環境の設定を変えたままにしない）
+ */
+export function useDefaultSettings() {
+  let api: AdminApi;
+  let original: Record<string, unknown> | undefined;
+  test.beforeAll(async () => {
+    api = await adminApi();
+    original = (await api.get("/admin/settings")).settings;
+    await api.put("/admin/settings", DEFAULT_SETTINGS);
+  });
+  // beforeAll のログインに失敗したときは何もしない（本当の原因のエラーを、ここのエラーで隠さない）
+  test.afterEach(async () => {
+    if (api) await api.put("/admin/settings", DEFAULT_SETTINGS);
+  });
+  test.afterAll(async () => {
+    if (!api) return;
+    if (original) await api.put("/admin/settings", original);
+    await api.dispose();
+  });
 }
 
 /** 参加者 1 人分のブラウザ（スマホの大きさ）。登録は API で行い、Cookie はこのブラウザに入る */
@@ -103,4 +143,12 @@ export async function jpeg(page: Page, color = "#c0392b"): Promise<Buffer> {
 export async function homePoints(page: Page): Promise<number> {
   await page.goto("/");
   return Number(await page.locator(".points-value").textContent());
+}
+
+/** ホームの「写真を選ぶ」で写真を選ぶ（file を省くと、テスト用の JPEG を選ぶ） */
+export async function choosePhoto(page: Page, file?: { name: string; mimeType: string; buffer: Buffer }) {
+  const chosen = file ?? { name: "photo.jpg", mimeType: "image/jpeg", buffer: await jpeg(page) };
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "写真を選ぶ" }).click();
+  await (await chooser).setFiles(chosen);
 }

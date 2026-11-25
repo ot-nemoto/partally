@@ -1,7 +1,8 @@
 import { useEffect } from "react";
+import { AccountHint } from "../components/AccountHint";
 import { CaptureButtons } from "../components/CaptureButtons";
 import { useParticipant } from "../components/ParticipantLayout";
-import { LanguageSwitch, useT } from "../i18n";
+import { useT } from "../i18n";
 import { subscribeQueue } from "../photos/queue";
 
 export function Home() {
@@ -25,9 +26,6 @@ export function Home() {
 
   return (
     <>
-      <div className="lang-row">
-        <LanguageSwitch />
-      </div>
       <section className="card profile">
         <p className="epithet">〈{user.epithet}〉</p>
         <p className="name">{user.name}</p>
@@ -111,6 +109,7 @@ export function Home() {
           </p>
         )}
       </section>
+      <AccountHint />
     </>
   );
 }

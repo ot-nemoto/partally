@@ -1,5 +1,6 @@
 import { randomBytes, randomInt } from "node:crypto";
 import {
+  DEVICE_ACCOUNTS_MAX,
   formatDisplayName,
   hasGameAnswers,
   type PhotoDto,
@@ -35,6 +36,7 @@ import {
   ADMIN_SESSION_MAX_AGE,
   type AdminSession,
   adminSessionKey,
+  type DeviceAccounts,
   sign,
   USER_SESSION_MAX_AGE,
   type UserSession,
@@ -64,6 +66,8 @@ export interface AppDeps {
 }
 
 export const USER_COOKIE = "session";
+/** この端末で覚えている参加者（切り替えの一覧。子どもの分を親の端末で操作するときなど） */
+export const ACCOUNTS_COOKIE = "accounts";
 export const ADMIN_COOKIE = "admin_session";
 /** API のパスの先頭（app.ts の basePath）。管理者の Cookie のパスもここから作る */
 export const API_BASE_PATH = "/api";
@@ -99,7 +103,39 @@ export function createContext(deps: AppDeps) {
   const adminKey = adminSessionKey(sessionSecret, adminPassword);
   const nowSeconds = () => Math.floor(now().getTime() / 1000);
 
-  const setUserSession = (c: Context, user: UserRecord & { token: string }) => {
+  /** この端末で覚えている参加者（署名と期限だけを確かめる。ユーザの状態は呼ぶ側で確かめる） */
+  const deviceAccountsOf = (c: Context): DeviceAccounts["acc"] => {
+    const accounts = verify<DeviceAccounts>(
+      getCookie(c, ACCOUNTS_COOKIE),
+      sessionSecret,
+      USER_SESSION_MAX_AGE,
+      nowSeconds(),
+    );
+    return Array.isArray(accounts?.acc) ? accounts.acc : [];
+  };
+
+  const setDeviceAccounts = (c: Context, acc: DeviceAccounts["acc"]) => {
+    if (acc.length === 0) {
+      deleteCookie(c, ACCOUNTS_COOKIE, { path: "/", secure: secureCookies });
+      return;
+    }
+    const accounts: DeviceAccounts = { acc: acc.slice(0, DEVICE_ACCOUNTS_MAX), iat: nowSeconds() };
+    setCookie(c, ACCOUNTS_COOKIE, sign(accounts, sessionSecret), {
+      httpOnly: true,
+      secure: secureCookies,
+      sameSite: "Lax",
+      path: "/",
+      maxAge: USER_SESSION_MAX_AGE,
+    });
+  };
+
+  /**
+   * この参加者でログインし、端末の参加者の一覧のいちばん前に置く（上限を超えたら古い人から外す）。
+   * 一覧を使う前からログインしていた人（今のセッション）も一覧に入れる。
+   * base を渡すと、リクエストの Cookie ではなくそれを元の一覧にする（ログアウトで今の人を外したとき）
+   */
+  const setUserSession = (c: Context, user: UserRecord & { token: string }, base?: DeviceAccounts["acc"]) => {
+    const previous = base ? undefined : userSessionOf(c);
     const session: UserSession = { uid: user.userId, tok: user.token, iat: nowSeconds() };
     setCookie(c, USER_COOKIE, sign(session, sessionSecret), {
       httpOnly: true,
@@ -108,7 +144,19 @@ export function createContext(deps: AppDeps) {
       path: "/",
       maxAge: USER_SESSION_MAX_AGE,
     });
+    const others = base ?? [...(previous ? [{ uid: previous.uid, tok: previous.tok }] : []), ...deviceAccountsOf(c)];
+    const acc = [{ uid: user.userId, tok: user.token }];
+    for (const a of others) if (!acc.some((x) => x.uid === a.uid)) acc.push(a);
+    setDeviceAccounts(c, acc);
     setPhotoCookies(c);
+  };
+
+  /** この端末で覚えている参加者のうち、今も参加中（紐づけが変わっていない）の人。覚えていなければ undefined */
+  const deviceUser = async (c: Context, userId: string): Promise<(UserRecord & { token: string }) | undefined> => {
+    const account = deviceAccountsOf(c).find((a) => a.uid === userId);
+    const user = account && (await repo.getUser(userId));
+    if (!account || user?.status !== "active" || user.token !== account.tok) return undefined;
+    return { ...user, token: user.token };
   };
 
   const setPhotoCookies = (c: Context) => {
@@ -345,6 +393,9 @@ export function createContext(deps: AppDeps) {
     settle,
     nowSeconds,
     setUserSession,
+    deviceAccountsOf,
+    setDeviceAccounts,
+    deviceUser,
     setPhotoCookies,
     toPhotoDto,
     imageUrlOf,

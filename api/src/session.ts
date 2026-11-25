@@ -7,6 +7,12 @@ export interface UserSession {
   iat: number;
 }
 
+/** この端末で覚えている参加者（新しくログインした順）。紐づけ解除・再紐づけを見分けるため tok も持つ */
+export interface DeviceAccounts {
+  acc: { uid: string; tok: string }[];
+  iat: number;
+}
+
 export interface AdminSession {
   adm: true;
   iat: number;

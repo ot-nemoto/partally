@@ -9,20 +9,20 @@ npm workspaces のモノレポです。
 | ディレクトリ | 内容 |
 |---|---|
 | `packages/shared` | API と画面で共有する型・入力検証（zod）・二つ名の単語リスト・景品の順位の計算 |
-| `api` | API（Hono / AWS Lambda）、写真の取り込み、本番データの初期化 |
+| `api` | API（Hono / AWS Lambda）、写真の取り込み、本番データの初期化と管理者ログインの制限の解除 |
 | `web` | 画面（Vite + React の静的 SPA）。参加者の画面と管理画面 |
-| `infra` | AWS CDK（DynamoDB / Lambda / API Gateway / S3 / CloudFront） |
+| `infra` | AWS CDK（DynamoDB / Lambda / API Gateway / S3 / CloudFront）。デプロイのときに動くカスタムリソースの Lambda（CloudFront 署名用の鍵ペア・CloudFront から API へ付ける秘密の値）は `infra/lambda` |
 | `e2e` | 画面を通した E2E テスト（Playwright） |
 | `docs` | 設計書・手順書・ガイド（一覧は [docs/README.md](README.md)） |
-| `.github` | CI・リリース・初期化のワークフロー、Issue・PR のテンプレート、Dependabot |
+| `.github` | CI・リリース・初期化・管理者ログインの制限の解除（Unlock admin login）のワークフロー、AWS へのログインをまとめたアクション（`actions/aws-oidc`）、Issue・PR のテンプレート、Dependabot |
 
 API（`api/src`）の主なファイル:
 
 | ファイル | 内容 |
 |---|---|
-| `app.ts` | `createApp()`。共通のミドルウェアと管理者の認証（`/admin/*`）を付けてから、`routes/` の処理を登録する |
+| `app.ts` | `createApp()`。CloudFront を通ったかの確かめ（`X-Origin-Verify`）、CSP の報告の受け口、共通のミドルウェアと管理者の認証（`/admin/*`）を付けてから、`routes/` の処理を登録する |
 | `routes/context.ts` | 処理の間で共有する依存と部品（Cookie、署名付き URL、点数の読み込み、`requireUser`・`requireAdmin` など） |
-| `routes/<領域>.ts` | API の処理（`auth`・`admin`・`ranking`・`photos`・`prizes`・`schedule`・`games`） |
+| `routes/<領域>.ts` | API の処理（`auth`・`admin`・`ranking`・`photos`・`prizes`・`schedule`・`games`・`csp-report`） |
 | `scoring.ts` | ゲームの点数・ポイント・ランキングの計算（保存せず、毎回データから数える） |
 | `dto.ts` / `http.ts` | 応答の形への変換 / エラーの応答と入力の検証 |
 | `repository.ts` ほか | 保存先（DynamoDB とメモリ）、写真の保存と取り込み、セッション |
@@ -73,13 +73,15 @@ npm run e2e       # 画面を通した E2E テスト（Playwright。API と画�
 PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`・`npm test`・`npm run build`）を手元で通します。画面に関わる変更では `npm run e2e` も通します（CI でも実行します）。
 
 - テストは `packages/shared`・`api` では `src/**/*.test.ts`、`infra` では `test/*.test.ts` にあります。API のテストはメモリ上のリポジトリ・ストレージで動かし、DynamoDB・S3・CloudFront を呼ぶ部分は `aws-sdk-client-mock` で確かめます。
-- API のテストは領域ごとに `api/src/app.<領域>.test.ts`（`app.auth`・`app.admin`・`app.photos`・`app.favorites`・`app.game`・`app.game-<形式>`・`app.prizes`・`app.schedule`・`app.ingest`）に、ランキングの計算は `scoring.test.ts` に分けています。共通の準備は `api/src/test-support.ts` の `useApiTest()` を使います（テストごとにメモリ上のリポジトリとアプリを作り直し、`register()` で参加者の登録、`adminClient()` で管理者のログインまで済ませたクライアントを返します）。
+- API のテストは領域ごとに `api/src/app.<領域>.test.ts`（`app.auth`・`app.accounts`・`app.admin`・`app.admin-login`・`app.admin-session`・`app.photos`・`app.upload-limit`・`app.favorites`・`app.game`・`app.game-<形式>`・`app.round`・`app.prizes`・`app.schedule`・`app.event`・`app.ingest`・`app.origin-verify`・`app.csp-report`）に、ランキングの計算は `scoring.test.ts` に分けています。部品ごとのテスト（`session`・`url-signer`・`photo-storage`・`dynamo-repository`・`cached-value`・`reset`）もあります。共通の準備は `api/src/test-support.ts` の `useApiTest()` を使います（テストごとにメモリ上のリポジトリとアプリを作り直し、`register()` で参加者の登録、`adminClient()` で管理者のログインまで済ませたクライアントを返します）。
 - 画面（`web`）の単体テストは少ししかありません。画面の計算のうち、テストしたいもの（景品の順位の数え方など）は `packages/shared` に置いてテストします。
 - 画面を通した流れは、`e2e/tests` の E2E テスト（Playwright）で確かめます。一覧と分担は [E2E テスト一覧](e2e-tests.md) にあります。
-  - `npm run e2e` は、メモリ上の API（`api/src/dev.ts`）と画面（Vite）を起動してから実行します。手元で起動済みなら、それを使います。本番 AWS には流しません。
+  - `npm run e2e` は、メモリ上の API（`api/src/dev.ts`）と画面（Vite）、本番と同じビルドの画面（`vite preview`。CSP を効かせるテストで使います）を起動してから実行します。手元で起動済みなら、それを使います。
+  - データの入った検証用の環境へ向けて流すときは、`E2E_BASE_URL` と `ADMIN_PASSWORD` を付けます（例：`E2E_BASE_URL=<環境の URL> ADMIN_PASSWORD=<管理者パスワード> npm run e2e`）。テストが作ったデータが残るので、流した後は初期化する前提です。注意は [E2E テスト一覧](e2e-tests.md#データの入った環境へ向けて流す) にあります。
   - API は 1 つでデータはテストの間で共有されるので、1 つずつ順に実行します。各テストは自分で作ったデータだけを見て、開催中のゲームやイベントの終了を残さないようにします。
   - 準備のデータ（QR の発行・参加者の登録・ゲームの作成）は `e2e/tests/helpers.ts` の `adminApi()`・`participant()` で API から作り、確かめたい流れだけを画面から操作します。確認ダイアログは `acceptConfirm()` で「OK」を押します。
   - 手元で初めて実行するときは、`npx playwright install chromium`（`e2e` で）でブラウザを入れます。
+  - ブラウザを入れられない環境（クラウドの開発環境で、別の版のブラウザが入っているときなど）では、入っている Chromium の場所を `PLAYWRIGHT_CHROMIUM_PATH` に入れて実行します（例：`PLAYWRIGHT_CHROMIUM_PATH=/path/to/chrome npm run e2e`）。版が合わないブラウザだけがあるときは、`Executable doesn't exist` で全部失敗するので、これを使います。
 
 ## コードの約束事
 
@@ -97,6 +99,7 @@ PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`
 
 - 開発のメインブランチは `develop`、リリース済みの版は `master` に置きます。`develop`・`master` へ直接 push しません。
 - 作業は Issue から始め、ブランチで作業して `develop` 宛ての PR を作ります（詳しくは [CLAUDE.md](../CLAUDE.md)）。
+- Issue には、種類のラベル（`bug`・`enhancement`・`documentation`）を必ず 1 つ付けます。テンプレートで作ると、「種類」で選んだラベルが自動で付きます。リリースの版はこのラベルで決まります。
 
 | ワークフロー | いつ動くか | 何をするか |
 |---|---|---|
@@ -104,6 +107,7 @@ PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`
 | `auto-pr-to-master.yml` | 毎朝 | `develop` → `master` の PR を作り、Issue のラベルから `bump:patch` / `bump:minor` を付ける |
 | `bump-version.yml` | 上の PR のラベル | バージョンを上げる（Issue に `enhancement` があれば minor、なければ patch） |
 | `release.yml` | `master` へのマージ | タグと GitHub Release を作る |
+| `issue-kind-label.yml` | Issue の作成・編集 | 「作業依頼」テンプレートの「種類」の答えから、種類のラベルを付ける（種類を変えたら付け直す。本文に「種類」が無ければ何もしない） |
 | `reset.yml` | 手動実行 | 本番データの初期化（[手順](setup.md#本番データの初期化)） |
 | `unlock-admin-login.yml` | 手動実行 | 管理者のログインの制限の解除（[手順](setup.md#管理者のログインの制限の解除)） |
 
