@@ -9,20 +9,20 @@ npm workspaces のモノレポです。
 | ディレクトリ | 内容 |
 |---|---|
 | `packages/shared` | API と画面で共有する型・入力検証（zod）・二つ名の単語リスト・景品の順位の計算 |
-| `api` | API（Hono / AWS Lambda）、写真の取り込み、本番データの初期化 |
+| `api` | API（Hono / AWS Lambda）、写真の取り込み、本番データの初期化と管理者ログインの制限の解除 |
 | `web` | 画面（Vite + React の静的 SPA）。参加者の画面と管理画面 |
-| `infra` | AWS CDK（DynamoDB / Lambda / API Gateway / S3 / CloudFront） |
+| `infra` | AWS CDK（DynamoDB / Lambda / API Gateway / S3 / CloudFront）。デプロイのときに動くカスタムリソースの Lambda（CloudFront 署名用の鍵ペア・CloudFront から API へ付ける秘密の値）は `infra/lambda` |
 | `e2e` | 画面を通した E2E テスト（Playwright） |
 | `docs` | 設計書・手順書・ガイド（一覧は [docs/README.md](README.md)） |
-| `.github` | CI・リリース・初期化のワークフロー、Issue・PR のテンプレート、Dependabot |
+| `.github` | CI・リリース・初期化・管理者ログインの制限の解除（Unlock admin login）のワークフロー、AWS へのログインをまとめたアクション（`actions/aws-oidc`）、Issue・PR のテンプレート、Dependabot |
 
 API（`api/src`）の主なファイル:
 
 | ファイル | 内容 |
 |---|---|
-| `app.ts` | `createApp()`。共通のミドルウェアと管理者の認証（`/admin/*`）を付けてから、`routes/` の処理を登録する |
+| `app.ts` | `createApp()`。CloudFront を通ったかの確かめ（`X-Origin-Verify`）、CSP の報告の受け口、共通のミドルウェアと管理者の認証（`/admin/*`）を付けてから、`routes/` の処理を登録する |
 | `routes/context.ts` | 処理の間で共有する依存と部品（Cookie、署名付き URL、点数の読み込み、`requireUser`・`requireAdmin` など） |
-| `routes/<領域>.ts` | API の処理（`auth`・`admin`・`ranking`・`photos`・`prizes`・`schedule`・`games`） |
+| `routes/<領域>.ts` | API の処理（`auth`・`admin`・`ranking`・`photos`・`prizes`・`schedule`・`games`・`csp-report`） |
 | `scoring.ts` | ゲームの点数・ポイント・ランキングの計算（保存せず、毎回データから数える） |
 | `dto.ts` / `http.ts` | 応答の形への変換 / エラーの応答と入力の検証 |
 | `repository.ts` ほか | 保存先（DynamoDB とメモリ）、写真の保存と取り込み、セッション |
@@ -73,7 +73,7 @@ npm run e2e       # 画面を通した E2E テスト（Playwright。API と画�
 PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`・`npm test`・`npm run build`）を手元で通します。画面に関わる変更では `npm run e2e` も通します（CI でも実行します）。
 
 - テストは `packages/shared`・`api` では `src/**/*.test.ts`、`infra` では `test/*.test.ts` にあります。API のテストはメモリ上のリポジトリ・ストレージで動かし、DynamoDB・S3・CloudFront を呼ぶ部分は `aws-sdk-client-mock` で確かめます。
-- API のテストは領域ごとに `api/src/app.<領域>.test.ts`（`app.auth`・`app.admin`・`app.photos`・`app.favorites`・`app.game`・`app.game-<形式>`・`app.prizes`・`app.schedule`・`app.ingest`）に、ランキングの計算は `scoring.test.ts` に分けています。共通の準備は `api/src/test-support.ts` の `useApiTest()` を使います（テストごとにメモリ上のリポジトリとアプリを作り直し、`register()` で参加者の登録、`adminClient()` で管理者のログインまで済ませたクライアントを返します）。
+- API のテストは領域ごとに `api/src/app.<領域>.test.ts`（`app.auth`・`app.accounts`・`app.admin`・`app.admin-login`・`app.admin-session`・`app.photos`・`app.upload-limit`・`app.favorites`・`app.game`・`app.game-<形式>`・`app.round`・`app.prizes`・`app.schedule`・`app.event`・`app.ingest`・`app.origin-verify`・`app.csp-report`）に、ランキングの計算は `scoring.test.ts` に分けています。部品ごとのテスト（`session`・`url-signer`・`photo-storage`・`dynamo-repository`・`cached-value`・`reset`）もあります。共通の準備は `api/src/test-support.ts` の `useApiTest()` を使います（テストごとにメモリ上のリポジトリとアプリを作り直し、`register()` で参加者の登録、`adminClient()` で管理者のログインまで済ませたクライアントを返します）。
 - 画面（`web`）の単体テストは少ししかありません。画面の計算のうち、テストしたいもの（景品の順位の数え方など）は `packages/shared` に置いてテストします。
 - 画面を通した流れは、`e2e/tests` の E2E テスト（Playwright）で確かめます。一覧と分担は [E2E テスト一覧](e2e-tests.md) にあります。
   - `npm run e2e` は、メモリ上の API（`api/src/dev.ts`）と画面（Vite）を起動してから実行します。手元で起動済みなら、それを使います。本番 AWS には流しません。
