@@ -8,6 +8,7 @@ import {
   issueToken,
   jpeg,
   myPhotos,
+  PREVIEW_URL,
   participant,
   postPhoto,
   updateSettings,
@@ -132,7 +133,9 @@ test.describe("写真の投稿と公開", () => {
   });
 
   test("P1 オフラインで投稿すると送信待ちがホームに出て、オンラインに戻ると自動で送られる", async ({ browser }) => {
-    const a = await participant(browser, admin, "オフライン 投稿");
+    // 開発用のサーバの画面は、オフラインにすると接続が切れたのを見て開き直す（オフラインなので開けなくなる）ので、
+    // 本番と同じビルドの画面で確かめる
+    const a = await participant(browser, admin, "オフライン 投稿", "1234", { baseURL: PREVIEW_URL });
     const { page, context } = a;
     const uploadCount = async () =>
       (await admin.get("/admin/users")).users.find((u: { userId: string }) => u.userId === a.user.userId).uploadCount;

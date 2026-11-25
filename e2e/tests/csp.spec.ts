@@ -8,7 +8,7 @@ import {
   issueToken,
   jpeg,
   PHONE,
-  REMOTE_URL,
+  PREVIEW_URL,
   useDefaultSettings,
 } from "./helpers";
 
@@ -18,7 +18,6 @@ import {
  * CSP に引っかかる変更に気づくため）。開発用のサーバはインラインのスクリプトを入れるので、本番と同じビルドの画面
  * （vite preview、playwright.config.ts）を開く。E2E_BASE_URL を付けたときは、その環境の画面を開く（本番と同じビルド）
  */
-const PREVIEW_URL = REMOTE_URL ?? "http://localhost:4173";
 const POLICY = reportOnlyCsp("ap-northeast-1");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
 

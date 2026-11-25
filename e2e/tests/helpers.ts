@@ -12,6 +12,12 @@ import { REMOTE_URL } from "./target";
 
 export { REMOTE_URL };
 export const BASE_URL = REMOTE_URL ?? "http://localhost:5173";
+/**
+ * 本番と同じビルドの画面（vite preview、playwright.config.ts）。開発用のサーバ（Vite）の画面は、インラインのスクリプトを
+ * 入れ、オフラインにすると開発用のサーバとの接続が切れて画面を開き直すので、それでは確かめられないときに開く。
+ * E2E_BASE_URL を付けたときは、その環境の画面（本番と同じビルド）
+ */
+export const PREVIEW_URL = REMOTE_URL ?? "http://localhost:4173";
 /** ローカルでしか確かめられないテストを skip するときの理由 */
 export const LOCAL_ONLY = "ローカル開発環境でしか確かめられないため、E2E_BASE_URL を付けたときは流さない";
 
@@ -112,10 +118,24 @@ export function todayAt(minute: number, second = 0): Date {
   return d;
 }
 
-/** 参加者 1 人分のブラウザ（スマホの大きさ）。登録は API で行い、Cookie はこのブラウザに入る */
-export async function participant(browser: Browser, admin: AdminApi, name: string, pin = "1234") {
+/**
+ * 参加者 1 人分のブラウザ（スマホの大きさ）。登録は API で行い、Cookie はこのブラウザに入る。
+ * baseURL を省くと、開発用のサーバの画面を開く
+ */
+export async function participant(
+  browser: Browser,
+  admin: AdminApi,
+  name: string,
+  pin = "1234",
+  options: { baseURL?: string } = {},
+) {
   const token = await issueToken(admin);
-  const context = await browser.newContext({ viewport: PHONE, locale: "ja-JP" });
+  // baseURL に undefined を渡すと設定の baseURL まで消えるので、指定したときだけ渡す
+  const context = await browser.newContext({
+    viewport: PHONE,
+    locale: "ja-JP",
+    ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+  });
   const page = await context.newPage();
   const res = await page.request.post("/api/auth/register", { data: { token, name, pin } });
   expect(res.ok()).toBe(true);
