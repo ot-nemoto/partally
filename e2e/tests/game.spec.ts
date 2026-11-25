@@ -13,7 +13,8 @@ import {
 } from "./helpers";
 
 /**
- * ゲームの共通の流れ・ラウンド・管理画面の操作（docs/e2e-tests.md の 3 章「ゲーム共通・形式別・ラウンド」と 4 章。#269）。
+ * ゲームの共通の流れ・ラウンド・管理画面の操作（#269）と、形式別（数値予想・投票・合言葉・抽選・画像付きのクイズ・結果入力の人選び。#270）。
+ * docs/e2e-tests.md の 3 章「ゲーム共通・形式別・ラウンド」と 4 章。
  * 準備のデータは API で作り、確かめたい流れだけを画面から操作する
  */
 useDefaultSettings();
@@ -42,7 +43,15 @@ test.afterEach(async ({ browser }) => {
   }
 });
 
-type Game = { gameId: string; name: string; status: string; confirmedAt?: string; storedAnswerCount: number };
+type Game = {
+  gameId: string;
+  name: string;
+  status: string;
+  confirmedAt?: string;
+  storedAnswerCount: number;
+  /** 抽選を終了したときに決めた順番 */
+  drawOrder?: string[];
+};
 
 /** クイズを下書きで作る（選択肢は「北海道」10 点・「沖縄」0 点）。名前は保存された名前（NFKC でそろう）を返す */
 async function createQuiz(name: string, points = 10): Promise<Game> {
@@ -69,6 +78,13 @@ async function createResult(name: string, userIds: string[] = []): Promise<Game>
 
 const getGame = async (gameId: string): Promise<Game> =>
   (await admin.get("/admin/games")).games.find((g: Game) => g.gameId === gameId);
+
+/** 管理画面の一覧からゲームを読む（無ければ、TypeError ではなくアサーションで失敗させる） */
+async function mustGetGame(gameId: string): Promise<Game> {
+  const game = await getGame(gameId);
+  expect(game, `ゲーム ${gameId} が一覧に無い`).toBeDefined();
+  return game;
+}
 
 /** 管理画面のゲームのカード（名前で探す） */
 const gameCard = (page: Page, name: string) =>
@@ -591,10 +607,17 @@ test.describe("形式別", () => {
     await expect(a.page.locator(".game-done-stamp")).toBeVisible();
     await answer(c.page, game.gameId, { targetUserId: b.user.userId });
 
-    // 参加者には票数（「2 票」など）が見えない
+    // 参加者には、票数も、ほかの人の投票先も見えない。画面に出ないことに加え、参加者に返る内容にも含まれない
     await a.page.reload();
     await expect(a.page.locator(".game-vote-mine")).toContainText(b.user.name);
     await expect(a.page.locator("main")).not.toContainText(/\d+\s*票/);
+    await expect(a.page.locator("main")).not.toContainText(c.user.name);
+    await expect(a.page.locator(".game-voters")).toHaveCount(0);
+    const [current] = (await (await a.page.request.get("/api/game/current")).json()).games;
+    expect(current.myTargetUserId).toBe(b.user.userId);
+    expect(JSON.stringify(current)).not.toContain(c.user.userId);
+    expect(Object.keys(current)).not.toEqual(expect.arrayContaining(["votes"]));
+    expect(Object.keys(current)).not.toEqual(expect.arrayContaining(["answers"]));
 
     // 幹事には、順位・票数・点数と、投票した人が見える
     const { page: adm } = await adminPage(browser);
@@ -695,9 +718,7 @@ test.describe("形式別", () => {
     await card.getByRole("button", { name: "終了" }).click();
     await acceptConfirm(adm);
     await expect(card.locator(".status")).toHaveText("終了");
-    const order: string[] = (await admin.get("/admin/games")).games.find(
-      (g: Game) => g.gameId === game.gameId,
-    ).drawOrder;
+    const order = (await mustGetGame(game.gameId)).drawOrder ?? [];
     expect([...order].sort()).toEqual([a.user.userId, b.user.userId].sort());
 
     // 幹事には、当選した人が順番どおりに出て、抽選に入らなかった人も出る
@@ -722,7 +743,7 @@ test.describe("形式別", () => {
     await expect(adm.locator("dialog.confirm-dialog[open]")).toContainText("引き直しになります");
     await acceptConfirm(adm);
     await expect(card.locator(".status")).toHaveText("下書き");
-    expect((await admin.get("/admin/games")).games.find((g: Game) => g.gameId === game.gameId).drawOrder).toBeFalsy();
+    expect((await mustGetGame(game.gameId)).drawOrder).toBeFalsy();
   });
 
   test("P2 画像付きのクイズ（問題と選択肢）では、選択肢が画像付きの大きいボタン（2 列）になる", async ({ browser }) => {
