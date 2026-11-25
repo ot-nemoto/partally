@@ -32,5 +32,13 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
     },
+    // 本番と同じビルドの画面（CSP を効かせるテスト csp.spec.ts で使う。開発用のサーバはインラインのスクリプトを入れるため）
+    {
+      command: "npm run build -w web && npm run preview -w web -- --port 4173 --strictPort",
+      cwd: "..",
+      url: "http://localhost:4173",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
   ],
 });

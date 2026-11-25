@@ -24,6 +24,9 @@ import {
   aws_ssm as ssm,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
+import { reportOnlyCsp } from "./csp.js";
+
+export { reportOnlyCsp };
 
 export interface PartallyStackProps extends StackProps {
   /** 管理者パスワードを保存した SSM SecureString の名前（デプロイの CI が GitHub の Secret から書き込む） */
@@ -430,27 +433,4 @@ function handler(event) {
     new CfnOutput(this, "TableName", { value: table.tableName });
     new CfnOutput(this, "PhotoBucketName", { value: photoBucket.bucketName });
   }
-}
-
-/**
- * 読み込み元を絞る CSP（いまは Report-Only で付ける）。
- * - script-src 'unsafe-eval' と worker-src blob: は、HEIC の変換（heic2any）が blob: の URL から Worker を作り、その中で new Function を使うため
- * - img-src data: blob: は、端末で縮小した写真のプレビューと QR の画像のため
- * - connect-src の S3 は、写真・景品の画像の署名付き POST の送り先（バケット名は書かず、リージョンのドメインで許す）
- */
-export function reportOnlyCsp(region: string): string {
-  return [
-    "default-src 'self'",
-    "script-src 'self' 'unsafe-eval'",
-    "worker-src 'self' blob:",
-    "style-src 'self'",
-    "img-src 'self' data: blob:",
-    "font-src 'self'",
-    `connect-src 'self' https://*.s3.${region}.amazonaws.com https://s3.${region}.amazonaws.com`,
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    "frame-ancestors 'none'",
-    "report-uri /api/csp-report",
-  ].join("; ");
 }

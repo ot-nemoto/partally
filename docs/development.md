@@ -76,7 +76,7 @@ PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`
 - API のテストは領域ごとに `api/src/app.<領域>.test.ts`（`app.auth`・`app.accounts`・`app.admin`・`app.admin-login`・`app.admin-session`・`app.photos`・`app.upload-limit`・`app.favorites`・`app.game`・`app.game-<形式>`・`app.round`・`app.prizes`・`app.schedule`・`app.event`・`app.ingest`・`app.origin-verify`・`app.csp-report`）に、ランキングの計算は `scoring.test.ts` に分けています。部品ごとのテスト（`session`・`url-signer`・`photo-storage`・`dynamo-repository`・`cached-value`・`reset`）もあります。共通の準備は `api/src/test-support.ts` の `useApiTest()` を使います（テストごとにメモリ上のリポジトリとアプリを作り直し、`register()` で参加者の登録、`adminClient()` で管理者のログインまで済ませたクライアントを返します）。
 - 画面（`web`）の単体テストは少ししかありません。画面の計算のうち、テストしたいもの（景品の順位の数え方など）は `packages/shared` に置いてテストします。
 - 画面を通した流れは、`e2e/tests` の E2E テスト（Playwright）で確かめます。一覧と分担は [E2E テスト一覧](e2e-tests.md) にあります。
-  - `npm run e2e` は、メモリ上の API（`api/src/dev.ts`）と画面（Vite）を起動してから実行します。手元で起動済みなら、それを使います。本番 AWS には流しません。
+  - `npm run e2e` は、メモリ上の API（`api/src/dev.ts`）と画面（Vite）、本番と同じビルドの画面（`vite preview`。CSP を効かせるテストで使います）を起動してから実行します。手元で起動済みなら、それを使います。本番 AWS には流しません。
   - API は 1 つでデータはテストの間で共有されるので、1 つずつ順に実行します。各テストは自分で作ったデータだけを見て、開催中のゲームやイベントの終了を残さないようにします。
   - 準備のデータ（QR の発行・参加者の登録・ゲームの作成）は `e2e/tests/helpers.ts` の `adminApi()`・`participant()` で API から作り、確かめたい流れだけを画面から操作します。確認ダイアログは `acceptConfirm()` で「OK」を押します。
   - 手元で初めて実行するときは、`npx playwright install chromium`（`e2e` で）でブラウザを入れます。
