@@ -4,11 +4,13 @@ import {
   acceptConfirm,
   adminApi,
   adminPage,
+  deleteScheduleItems,
   homePoints,
   issueToken,
   jpeg,
   PHONE,
   participant,
+  todayAt,
   unique,
   updateSettings,
   useDefaultSettings,
@@ -290,30 +292,55 @@ test("P0-10 画像付きの景品を順位に割り当てて公開すると、�
   await expect(a.page.locator(".ranking-table")).toContainText(prizeName);
 });
 
-test("P0-11 スケジュールを公開すると、今の項目に「いま」が付き、押すと詳細が出る", async ({ browser }) => {
+test("P0-11 タイムラインで作った項目を公開すると、今の項目に「いま」、次の項目に「つぎ」が付き、押すと詳細が出る", async ({
+  browser,
+}) => {
   const a = await participant(browser, admin, "予定 九郎");
   const title = unique("E2E の乾杯");
-  const now = await a.page.evaluate(() => {
-    const d = new Date();
-    return d.getHours() * 60 + d.getMinutes();
-  });
-  const start = Math.max(0, Math.min(now - 10, 24 * 60 - 60));
-  await updateSettings(admin, { scheduleVisible: true, scheduleDate: "" });
-  await admin.post("/admin/schedule", {
-    title,
-    detail: "幹事の挨拶のあと、全員で乾杯します。",
-    startMinute: start,
-    durationMinutes: 60,
-    column: 0,
-  });
-  // 参加者に見せるのはスケジュールだけ（設定はほかを既定値の「見せない」にそろえている）なので、切り替えのタブは出ない
-  await a.page.goto("/standings");
-  await expect(a.page.getByRole("tablist")).toHaveCount(0);
-  const block = a.page.locator(".schedule-block", { hasText: title });
-  await expect(block).toBeVisible();
-  await expect(block).toContainText("いま");
-  await block.click();
-  await expect(a.page.locator("dialog[open]")).toContainText("幹事の挨拶のあと、全員で乾杯します。");
+  const nextTitle = unique("E2E の歓談");
+  // 参加者の時刻は 12:00 にする（流した時刻で「いま」「つぎ」が変わらないように）
+  await a.page.clock.setFixedTime(todayAt(12 * 60));
+  const { page: adm } = await adminPage(browser);
+  try {
+    // 管理画面のタイムラインの「項目を追加」で、11:50 から 1 時間の項目を作る
+    await adm.goto("/admin/schedule");
+    await adm.getByRole("button", { name: "項目を追加", exact: true }).click();
+    const dialog = adm.locator("dialog[open]");
+    await dialog.getByLabel("タイトル", { exact: true }).fill(title);
+    await dialog.getByLabel("開始", { exact: true }).fill("11:50");
+    await dialog.getByRole("button", { name: "1 時間", exact: true }).click();
+    await dialog.getByLabel("詳細（任意）").fill("幹事の挨拶のあと、全員で乾杯します。");
+    await dialog.getByRole("button", { name: "保存" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(adm.locator(".schedule-grid .schedule-block", { hasText: title })).toHaveAccessibleName(
+      new RegExp(`^11:50〜12:50 ${title}`),
+    );
+    // 次の項目（12:01 から）は準備として API で作る。12:01 に始まる項目はほかにあっても同じく「つぎ」なので、
+    // データの入った環境でもこの項目に「つぎ」が付く
+    await admin.post("/admin/schedule", {
+      title: nextTitle,
+      detail: "",
+      startMinute: 12 * 60 + 1,
+      durationMinutes: 30,
+      // 右端の、ほかの項目の無い列に置く
+      column: 49,
+    });
+    await updateSettings(admin, { scheduleVisible: true, scheduleDate: "" });
+
+    // 参加者に見せるのはスケジュールだけ（設定はほかを既定値の「見せない」にそろえている）なので、切り替えのタブは出ない
+    await a.page.goto("/standings");
+    await expect(a.page.getByRole("tablist")).toHaveCount(0);
+    const block = a.page.locator(".schedule-block", { hasText: title });
+    await expect(block.locator(".schedule-badge")).toHaveText("いま");
+    await expect(a.page.locator(".schedule-block", { hasText: nextTitle }).locator(".schedule-badge")).toHaveText(
+      "つぎ",
+    );
+    await block.click();
+    await expect(a.page.locator("dialog[open]")).toContainText("幹事の挨拶のあと、全員で乾杯します。");
+  } finally {
+    // 同じ時刻に流すたびに列が増えないよう、作った項目を消す
+    await deleteScheduleItems(admin, [title, nextTitle]);
+  }
 });
 
 test("P0-12 イベントを終了すると参加者に知らせ、終了後の点数は数えず、取り消すと数える", async ({ browser }) => {

@@ -94,6 +94,24 @@ export function useDefaultSettings() {
   });
 }
 
+/**
+ * スケジュールの項目を、タイトルで探して消す（テストが作った項目だけ）。スケジュールは 1 つの時間軸を共有し、
+ * 残すと同じ時刻に流すたびに列が増え（上限 50 列）、後のテストの「いま」「つぎ」も変わるので、テストの終わりに片付ける
+ */
+export async function deleteScheduleItems(admin: AdminApi, titles: string[]) {
+  const { items } = await admin.get("/admin/schedule");
+  for (const item of items as { itemId: string; title: string }[]) {
+    if (titles.includes(item.title)) await admin.del(`/admin/schedule/${item.itemId}`);
+  }
+}
+
+/** 今日のその時刻（0:00 からの分と秒）。参加者の画面の時計（page.clock）に使う */
+export function todayAt(minute: number, second = 0): Date {
+  const d = new Date();
+  d.setHours(Math.floor(minute / 60), minute % 60, second, 0);
+  return d;
+}
+
 /** 参加者 1 人分のブラウザ（スマホの大きさ）。登録は API で行い、Cookie はこのブラウザに入る */
 export async function participant(browser: Browser, admin: AdminApi, name: string, pin = "1234") {
   const token = await issueToken(admin);
