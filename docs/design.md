@@ -579,16 +579,16 @@ sequenceDiagram
 
 | 種類 | `data.json` の中身 | 取り込み |
 |---|---|---|
-| `games` | `[{format, name, description, image?, choices: [{text, points, image?}], slots: [{name, points}], ranks, correctNumber?, voterPoints, keyword?, round?: {name, position, index}}]`（作成順。`round` は入っていたラウンドの名前・ラウンドの並び・中の順。状態・答え・抽選の順番・枠に選んだ人は入れない） | 下書きとして追加だけ（`POST /api/admin/games`。ラウンドに入っていたゲームは、作った後に `POST /api/admin/rounds` でラウンドを作り直す。置き換えは、終了したゲームのポイントが消えるので無い）。100 件まで |
-| `prizes` | `[{name, quantity, positions, image?}]`（作成順。`image` は ZIP の中のパス） | 追加か置き換え（`POST`・`DELETE /api/admin/prizes`）。100 件まで |
-| `schedule` | `{date?, items: [{title, detail, startMinute, durationMinutes, column?, hidden?}]}`（`hidden` は見せない項目だけ `true`）（開始時刻の早い順） | 追加か置き換え（`POST`・`DELETE /api/admin/schedule`）。項目は今の列の右に、ファイルの列の並びのまま（列の小さい順に）作る。日付は選んだときだけ設定に入れる。200 件まで |
+| `games` | `[{format, name, description, image?, choices: [{text, points, image?}], slots: [{name, points}], ranks, correctNumber?, voterPoints, keyword?, round?: {name, position, index}}]`（作成順。`round` は入っていたラウンドの名前・ラウンドの並び・中の順。状態・答え・抽選の順番・枠に選んだ人は入れない） | 下書きとして追加だけ（`POST /api/admin/games`。ラウンドに入っていたゲームは、作った後に `POST /api/admin/rounds` でラウンドを作り直す。置き換えは、終了したゲームのポイントが消えるので無い） |
+| `prizes` | `[{name, quantity, positions, image?}]`（作成順。`image` は ZIP の中のパス） | 追加か置き換え（`POST`・`DELETE /api/admin/prizes`） |
+| `schedule` | `{date?, items: [{title, detail, startMinute, durationMinutes, column?, hidden?}]}`（`hidden` は見せない項目だけ `true`）（開始時刻の早い順） | 追加か置き換え（`POST`・`DELETE /api/admin/schedule`）。項目は今の列の右に、ファイルの列の並びのまま（列の小さい順に）作る。日付は選んだときだけ設定に入れる |
 | `settings` | 設定（`scheduleDate` を除く） | 今の設定に重ねて `PUT /api/admin/settings`（イベントの日付は今のまま） |
 
 - 以前の形式（景品の ZIP `prizes.json`（`partally-prizes`）、ゲームの ZIP `games.json`（`partally-games`）、スケジュールの JSON（`partally-schedule`））も読む。それぞれの中身は `data.json` の同じ種類と同じ形。
 - ZIP のライブラリ fflate は、Data の画面で使うときだけ読み込む。ZIP の読み書き（大きさの確かめ、一覧の JSON の探し方）は `packages/shared/src/archive.ts`、種類ごとの書き方・確かめ方は `prize-archive.ts`・`game-archive.ts`・`schedule-file.ts` にある。
 - 画像は今の配信 URL から取る（JPEG は圧縮し直さない）。取り込むときは、作成と同じ流れ（画像を端末で縮小・JPEG にしてから `image-upload` → 署名付き POST → `POST /api/admin/prizes`・`POST /api/admin/games`）で 1 件ずつ作る。
 - 取り込みはゲーム → 景品 → スケジュール → 設定の順。置き換えのときは、その種類をすべて取り込めてから今のものを削除する（ほかの画面で先に消されていたもの（404）は消えているとみなして続ける）。途中で止まったときは、どこで止まったかを出す。
-- 大きさは、ファイルを読む前（50MB）と、展開するとき（1 ファイル 20MB・合計 200MB）に確かめる。一覧の JSON は ZIP のいちばん上か 1 つ下のフォルダから探し、macOS の付属ファイルは読まない。各件は作成と同じ決まり（`prizeRequestSchema`・`gameRequestSchema`・`scheduleItemRequestSchema`・`updateSettingsRequestSchema`）で確かめ、1 件でも合わなければ何も取り込まない。
+- 大きさは、ファイルを読む前（50MB）と、展開するとき（1 ファイル 20MB・合計 200MB）に確かめる。件数には上限を設けない（アプリでは件数を限っていないので、書き出したものをそのまま取り込めるように。取り込みは 1 件ずつ API を呼ぶので、件数が多いと時間がかかるだけ。#279）。一覧の JSON は ZIP のいちばん上か 1 つ下のフォルダから探し、macOS の付属ファイルは読まない。各件は作成と同じ決まり（`prizeRequestSchema`・`gameRequestSchema`・`scheduleItemRequestSchema`・`updateSettingsRequestSchema`）で確かめ、1 件でも合わなければ何も取り込まない。
 - 画面は `web/src/pages/admin/AdminData.tsx` と `web/src/pages/admin/data/`（種類ごとの書き出し・取り込み・中身の一覧と、取り込みの画面）。
 
 ---

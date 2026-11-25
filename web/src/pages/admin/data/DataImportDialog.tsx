@@ -1,6 +1,6 @@
 import type { PrizeDto, ScheduleItemDto } from "@partally/shared";
 import type { DataArchive } from "@partally/shared/data-archive";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { ApiError, api, errorMessage } from "../../../api";
 import { confirmDialog } from "../../../components/ConfirmDialog";
 import { Modal } from "../../../components/Modal";
@@ -48,6 +48,19 @@ export function DataImportDialog(props: {
   const [running, setRunning] = useState(false);
   const [finished, setFinished] = useState(false);
   const locked = running || finished;
+
+  // 取り込みは画面から 1 件ずつ送るので、途中でタブを閉じたり読み込み直したりすると、途中まで作った状態で止まり、
+  // どこまで終わったかも出ない。件数が多いと長くかかるので、取り込んでいる間は離れる前にブラウザに確かめさせる
+  useEffect(() => {
+    if (!running) return;
+    const confirmLeave = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      // preventDefault() だけでは確かめない、古いブラウザ向け
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", confirmLeave);
+    return () => window.removeEventListener("beforeunload", confirmLeave);
+  }, [running]);
   const nothing = !Object.values(include).some(Boolean);
 
   async function run() {

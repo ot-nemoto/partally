@@ -1,11 +1,6 @@
 import { strToU8, unzipSync, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import {
-  buildPrizeArchive,
-  PRIZE_ARCHIVE_MAX_FILE_BYTES,
-  PRIZE_ARCHIVE_MAX_PRIZES,
-  readPrizeArchive,
-} from "./prize-archive.js";
+import { buildPrizeArchive, PRIZE_ARCHIVE_MAX_FILE_BYTES, readPrizeArchive } from "./prize-archive.js";
 
 const jpeg = (n: number) => new Uint8Array([0xff, 0xd8, n, 0xff, 0xd9]);
 const manifest = (prizes: unknown[], extra: Record<string, unknown> = {}) =>
@@ -60,12 +55,6 @@ describe("景品の ZIP", () => {
     );
     expect(errorOf({ "prizes.json": manifest([], { version: 2 }) })).toContain("対応していない版");
     expect(errorOf({ "prizes.json": manifest([]) })).toContain("1 つも入っていません");
-    const many = Array.from({ length: PRIZE_ARCHIVE_MAX_PRIZES + 1 }, () => ({
-      name: "a",
-      quantity: 1,
-      positions: [],
-    }));
-    expect(errorOf({ "prizes.json": manifest(many) })).toContain("多すぎます");
     expect(errorOf({ "prizes.json": manifest([{ name: "", quantity: 1, positions: [] }]) })).toContain("1 件目: name");
     // 数量より多い順位
     expect(errorOf({ "prizes.json": manifest([{ name: "a", quantity: 1, positions: [1, 2] }]) })).toContain(

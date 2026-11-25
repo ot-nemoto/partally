@@ -10,8 +10,6 @@ import { scheduleItemRequestSchema, updateSettingsRequestSchema } from "./schema
 /** format。別のアプリの JSON や、景品・ゲームの一覧を取り違えて取り込まないための印 */
 export const SCHEDULE_FILE_FORMAT = "partally-schedule";
 export const SCHEDULE_FILE_VERSION = 1;
-/** 1 回で取り込める項目の数 */
-export const SCHEDULE_FILE_MAX_ITEMS = 200;
 /** 取り込めるファイルの大きさ */
 export const SCHEDULE_FILE_MAX_BYTES = 1024 * 1024;
 
@@ -89,9 +87,6 @@ export function scheduleManifest(schedule: ScheduleFile): { date?: string; items
 export function parseSchedule(raw: unknown): ScheduleFileResult {
   if (!isRecord(raw) || !Array.isArray(raw.items)) return fail("スケジュールの項目の一覧（items）がありません。");
   if (raw.items.length === 0) return fail("項目が 1 つも入っていません。");
-  if (raw.items.length > SCHEDULE_FILE_MAX_ITEMS) {
-    return fail(`項目が多すぎます（1 回に ${SCHEDULE_FILE_MAX_ITEMS} 件まで）。`);
-  }
   let date: string | undefined;
   if (raw.date !== undefined && raw.date !== null && raw.date !== "") {
     const parsed = updateSettingsRequestSchema.shape.scheduleDate.safeParse(raw.date);

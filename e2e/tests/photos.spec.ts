@@ -139,8 +139,16 @@ test.describe("写真の投稿と公開", () => {
     const { page, context } = a;
     const uploadCount = async () =>
       (await admin.get("/admin/users")).users.find((u: { userId: string }) => u.userId === a.user.userId).uploadCount;
+    // 画面は、開いたとき（参加者の画面の枠）と、ホームを開いたときの 2 回、自分の情報を読む。ホームの読み直しの
+    // 途中でオフラインにすると通信エラーになり、画面全体がエラーの表示に変わるので、2 回とも読み終わってから
+    // オフラインにする
+    let meLoaded = 0;
+    page.on("requestfinished", (r) => {
+      if (new URL(r.url()).pathname === "/api/me") meLoaded++;
+    });
     await page.goto("/");
     await expect(page.getByRole("button", { name: "写真を選ぶ" })).toBeVisible();
+    await expect.poll(() => meLoaded).toBeGreaterThanOrEqual(2);
     await context.setOffline(true);
     await choosePhoto(page);
     await expect(page.getByText("送信待ち：1 枚")).toBeVisible({ timeout: 20_000 });

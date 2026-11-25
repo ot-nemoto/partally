@@ -89,6 +89,34 @@ describe("まとめた ZIP（Data タブ）", () => {
     expect(readDataArchive(zip)).toEqual({ ok: true, data: { schedule: all.schedule, settings } });
   });
 
+  it("件数に上限は無く、多い環境で書き出したものもそのまま読める（以前の 100 件・200 件の上限を超える数で確かめる）", () => {
+    const many: DataArchive = {
+      games: Array.from({ length: 150 }, (_, i) =>
+        game({ format: "result", name: `ゲーム ${i + 1}`, slots: [{ name: "優勝", points: 10 }] }),
+      ),
+      prizes: Array.from({ length: 150 }, (_, i) => ({ name: `景品 ${i + 1}`, quantity: 1, positions: [] })),
+      // 読むと始まる時刻・列の順に並ぶので、その順で作る（7 列に 30 分ずつ）
+      schedule: {
+        date: "2026-12-24",
+        items: Array.from({ length: 250 }, (_, i) => ({
+          title: `項目 ${i + 1}`,
+          detail: "",
+          startMinute: Math.floor(i / 7) * 30,
+          durationMinutes: 30,
+          column: i % 7,
+        })),
+      },
+    };
+    expect(readDataArchive(buildDataArchive(many, "t"))).toEqual({ ok: true, data: many });
+    // 以前の景品・ゲームの ZIP と、スケジュールの JSON も同じ
+    expect(readDataArchive(buildGameArchive(many.games!, "t"))).toEqual({ ok: true, data: { games: many.games } });
+    expect(readDataArchive(buildPrizeArchive(many.prizes!, "t"))).toEqual({ ok: true, data: { prizes: many.prizes } });
+    expect(readDataArchive(strToU8(buildScheduleFile(many.schedule!, "t")))).toEqual({
+      ok: true,
+      data: { schedule: many.schedule },
+    });
+  });
+
   it("以前の景品・ゲームの ZIP と、スケジュールの JSON も読める", () => {
     expect(readDataArchive(buildPrizeArchive(all.prizes!, "t"))).toEqual({ ok: true, data: { prizes: all.prizes } });
     expect(readDataArchive(buildGameArchive(all.games!, "t"))).toEqual({ ok: true, data: { games: all.games } });
