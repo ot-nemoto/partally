@@ -141,6 +141,9 @@ test.describe("写真の投稿と公開", () => {
       (await admin.get("/admin/users")).users.find((u: { userId: string }) => u.userId === a.user.userId).uploadCount;
     await page.goto("/");
     await expect(page.getByRole("button", { name: "写真を選ぶ" })).toBeVisible();
+    // ホームは開いたときに自分の情報を読み直す。その途中でオフラインにすると、読み直しが通信エラーになって
+    // 画面全体がエラーの表示に変わるので、読み終わってからオフラインにする
+    await page.waitForLoadState("networkidle");
     await context.setOffline(true);
     await choosePhoto(page);
     await expect(page.getByText("送信待ち：1 枚")).toBeVisible({ timeout: 20_000 });
