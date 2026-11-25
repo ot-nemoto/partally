@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { type Browser, type BrowserContext, expect, type Page, test } from "@playwright/test";
 import { reportOnlyCsp } from "../../infra/lib/csp.js";
-import { type AdminApi, adminApi, issueToken, jpeg, PHONE } from "./helpers";
+import { type AdminApi, adminApi, choosePhoto, issueToken, jpeg, PHONE } from "./helpers";
 
 /**
  * 読み込み元を絞る CSP（本番では Report-Only で付けている reportOnlyCsp()）を、CloudFront の代わりに画面の応答へ
@@ -72,12 +72,6 @@ async function visitAll(page: Page, violations: () => Promise<string[]>, paths: 
   }
 }
 
-async function chooseFile(page: Page, file: { name: string; mimeType: string; buffer: Buffer }) {
-  const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "写真を選ぶ" }).click();
-  await (await chooser).setFiles(file);
-}
-
 /** 画面の画像が読み込めている（CSP で止められると naturalWidth が 0 のまま）。画面の外で遅れて読む画像は含めない */
 async function expectImagesLoaded(page: Page, selector: string) {
   const images = page.locator(selector);
@@ -108,10 +102,10 @@ test("CSP 参加者：登録・写真（JPEG と HEIC）の投稿・ギャラリ
   await expect(page.locator(".profile .name")).toHaveText("CSP 確認");
 
   const uploadCount = async () => (await (await page.request.get("/api/me")).json()).user.uploadCount;
-  await chooseFile(page, { name: "photo.jpg", mimeType: "image/jpeg", buffer: await jpeg(page) });
+  await choosePhoto(page, { name: "photo.jpg", mimeType: "image/jpeg", buffer: await jpeg(page) });
   await expect.poll(uploadCount, { timeout: 20_000 }).toBe(1);
   // HEIC を読めない Chromium では、heic2any（blob: の Worker と new Function）で JPEG に変換してから送る
-  await chooseFile(page, {
+  await choosePhoto(page, {
     name: "IMG_0001.HEIC",
     mimeType: "image/heic",
     buffer: readFileSync(new URL("../fixtures/sample.heic", import.meta.url)),
