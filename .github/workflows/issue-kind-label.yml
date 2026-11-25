@@ -1,0 +1,47 @@
+name: Issue Kind Label
+
+# 「作業依頼」テンプレートの「種類」の答えから、Issue に種類のラベル（bug・enhancement・documentation）を付ける。
+# フォームは答えからラベルを付けられないので、ここで付ける（リリースの版は enhancement ラベルで決まる。auto-pr-to-master.yml）。
+# 本文を直して種類を変えたときは、ほかの種類のラベルを外して付け直す。
+# 本文に「種類」が無い Issue（API などで作ったもの）は、ラベルに触らない（作るときにラベルを付ける。CLAUDE.md）
+on:
+  issues:
+    types:
+      - opened
+      - edited
+
+permissions: {}
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Label the issue from its kind
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.issue.number }}
+          # 本文は env で渡す（run の中に式で埋め込むと、本文がスクリプトとして解釈されるおそれがある）
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          # フォームの本文では、「### 種類」の次の空でない行に「bug：…」の形で答えが入る
+          KIND=$(printf '%s\n' "$BODY" | tr -d '\r' \
+            | awk '/^### 種類[[:space:]]*$/{f=1;next} f&&NF{print;exit}' \
+            | sed -E 's/[：:].*//' | tr -d '[:space:]')
+          case "$KIND" in
+            bug|enhancement|documentation) ;;
+            *)
+              echo "本文に種類が無いか読めないので、ラベルに触らない（'$KIND'）"
+              exit 0
+              ;;
+          esac
+          for LABEL in bug enhancement documentation; do
+            if [ "$LABEL" != "$KIND" ]; then
+              # 付いていないラベルを外そうとすると失敗するので、失敗は無視する
+              gh issue edit "$NUMBER" -R "$REPO" --remove-label "$LABEL" >/dev/null 2>&1 || true
+            fi
+          done
+          gh issue edit "$NUMBER" -R "$REPO" --add-label "$KIND"
+          echo "種類のラベル: $KIND"

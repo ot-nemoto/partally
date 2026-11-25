@@ -5,7 +5,7 @@ body:
     id: kind
     attributes:
       label: 種類
-      description: 作ったら、選んだ種類のラベルを Issue に付ける（フォームは答えからラベルを付けられない）。enhancement のときだけリリースが minor になる
+      description: 選んだ種類のラベルを、作った後に issue-kind-label.yml が Issue に付ける。enhancement のときだけリリースが minor になる
       options:
         - "bug：不具合の修正（テスト・CI の不具合の修正を含む）"
         - "enhancement：機能の追加・変更"
