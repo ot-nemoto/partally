@@ -6,6 +6,9 @@
     "e2e": "playwright test",
     "typecheck": "tsc -p ."
   },
+  "dependencies": {
+    "@partally/shared": "*"
+  },
   "devDependencies": {
     "@playwright/test": "1.65.1"
   }

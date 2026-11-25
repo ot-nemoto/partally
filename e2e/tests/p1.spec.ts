@@ -1,3 +1,4 @@
+import { PHOTO_UPLOAD_WINDOW_MS } from "@partally/shared";
 import { expect, type Page, test } from "@playwright/test";
 import { type AdminApi, adminApi, issueToken, jpeg, participant, updateSettings } from "./helpers";
 
@@ -125,24 +126,35 @@ test.describe("1 台の端末で複数の参加者", () => {
 });
 
 test.describe("写真のアップロードの上限", () => {
-  let moderation: string;
+  let moderation: string | undefined;
+  /** この節で作った参加者（後で確認待ちの写真を片付ける） */
+  const users: string[] = [];
   test.beforeAll(async () => {
     moderation = (await admin.get("/admin/settings")).settings.moderation;
     // 上限まで確認待ちを埋めるので、投稿を検閲待ちにする
     await updateSettings(admin, { moderation: "pre" });
   });
   test.afterAll(async () => {
-    await updateSettings(admin, { moderation });
+    // 確認待ちを残すと、API を使い回したときにほかのテスト（確認待ちが 0 になるのを待つもの）が通らないので、却下して片付ける
+    for (;;) {
+      const { photos } = await admin.get("/admin/photos?status=pending");
+      const left = photos.filter((p: { uploaderId: string }) => users.includes(p.uploaderId));
+      if (left.length === 0) break;
+      for (const p of left) await admin.post(`/admin/photos/${p.photoId}/reject`);
+    }
+    if (moderation) await updateSettings(admin, { moderation });
   });
 
   /**
    * 確認待ちの写真を n 枚、画面を通さずに置く（ローカルの S3 の代わり /__dev/upload は署名を確かめないので、
    * 枠を取らずに置ける。区切りの上限に数えないため）
    */
-  async function fillPending(page: Page, userId: string, n: number) {
+  async function fillPending(page: Page, userId: string, n: number): Promise<string[]> {
     const body = await jpeg(page);
+    const photoIds: string[] = [];
     for (let i = 0; i < n; i++) {
       const photoId = `e2e${Date.now()}${i}`;
+      photoIds.push(photoId);
       for (const kind of ["thumb", "full"]) {
         const res = await page.request.post("/__dev/upload", {
           multipart: {
@@ -154,11 +166,16 @@ test.describe("写真のアップロードの上限", () => {
         expect(res.ok()).toBe(true);
       }
     }
+    return photoIds;
   }
 
   const uploadCount = async (page: Page) => (await (await page.request.get("/api/me")).json()).user.uploadCount;
-  /** 送り直しの時計を進め、送り先の発行の応答を待つ */
+  /**
+   * 送り直しの時計を進め、送り先の発行の応答を待つ。前の送信を終えて次の送り直しの時計を掛けてから進めるよう、
+   * 「今すぐ再送」が出る（送信が終わり、案内を出した）まで待つ
+   */
   async function retryAfterWaiting(page: Page) {
+    await expect(page.getByRole("button", { name: "今すぐ再送" })).toBeVisible();
     const response = page.waitForResponse("**/api/photos/upload-url");
     await page.clock.fastForward(60_000);
     return (await response).status();
@@ -166,8 +183,9 @@ test.describe("写真のアップロードの上限", () => {
 
   test("P1 確認待ちが上限に達すると写真は残って案内が出て、幹事が確認すると自動で送られる", async ({ browser }) => {
     const a = await participant(browser, admin, "上限 確認待ち");
+    users.push(a.user.userId);
     const { page } = a;
-    await fillPending(page, a.user.userId, 30);
+    const filled = await fillPending(page, a.user.userId, 30);
     expect(await uploadCount(page)).toBe(30);
 
     // 送り直しの間隔（60 秒）を待たずに確かめるため、画面の時計を差し替える
@@ -188,9 +206,7 @@ test.describe("写真のアップロードの上限", () => {
     expect(await uploadCount(page)).toBe(30);
 
     // 幹事が 1 枚承認すると、次の送り直しで送られる
-    const { photos } = await admin.get("/admin/photos?status=pending");
-    const mine = photos.find((p: { uploaderId: string }) => p.uploaderId === a.user.userId);
-    await admin.post(`/admin/photos/${mine.photoId}/approve`);
+    await admin.post(`/admin/photos/${filled[0]}/approve`);
     expect(await retryAfterWaiting(page)).toBe(200);
     await expect.poll(() => uploadCount(page), { timeout: 20_000 }).toBe(31);
     await expect(page.getByText(/送信待ち|送信中/)).toHaveCount(0);
@@ -198,7 +214,14 @@ test.describe("写真のアップロードの上限", () => {
   });
 
   test("P1 短い間に送りすぎると写真は残って案内が出る", async ({ browser }) => {
+    // 区切り（10 分。時刻で区切る）が途中で変わると枠が空くので、区切りの終わりが近ければ次の区切りまで待つ
+    const left = PHOTO_UPLOAD_WINDOW_MS - (Date.now() % PHOTO_UPLOAD_WINDOW_MS);
+    if (left < 30_000) {
+      test.setTimeout(60_000 + left);
+      await new Promise((resolve) => setTimeout(resolve, left + 1_000));
+    }
     const a = await participant(browser, admin, "上限 回数");
+    users.push(a.user.userId);
     const { page } = a;
     // 区切り（10 分）の枠を使い切る（写真は送らない）
     for (let i = 0; i < 30; i++) {
