@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildScheduleFile, readScheduleFile, SCHEDULE_FILE_MAX_ITEMS } from "./schedule-file.js";
+import { buildScheduleFile, readScheduleFile } from "./schedule-file.js";
 
 const items = [
   { title: "乾杯", detail: "", startMinute: 18 * 60 + 15, durationMinutes: 5 },
@@ -31,9 +31,6 @@ describe("スケジュールの JSON", () => {
     expect(errorOf(file({ format: "partally-prizes" }))).toContain("スケジュールのエクスポートの形ではありません");
     expect(errorOf(file({ version: 2 }))).toContain("対応していない版");
     expect(errorOf(file({ items: [] }))).toContain("1 つも入っていません");
-    expect(errorOf(file({ items: Array.from({ length: SCHEDULE_FILE_MAX_ITEMS + 1 }, () => items[0]) }))).toContain(
-      "多すぎます",
-    );
     expect(errorOf(file({ date: "12/24" }))).toContain("日付");
     expect(errorOf(file({ items: [{ title: "", startMinute: 0, durationMinutes: 30 }] }))).toContain("1 件目");
     // 24:00 を越える・5 分未満

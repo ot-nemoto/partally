@@ -1,6 +1,6 @@
 import { strToU8, unzipSync, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { buildGameArchive, GAME_ARCHIVE_MAX_GAMES, type GameArchiveItem, readGameArchive } from "./game-archive.js";
+import { buildGameArchive, type GameArchiveItem, readGameArchive } from "./game-archive.js";
 import { buildPrizeArchive } from "./prize-archive.js";
 
 const jpeg = (n: number) => new Uint8Array([0xff, 0xd8, n, 0xff, 0xd9]);
@@ -139,8 +139,6 @@ describe("ゲームの ZIP", () => {
     );
     expect(errorOf({ "games.json": manifest([], { version: 2 }) })).toContain("対応していない版");
     expect(errorOf({ "games.json": manifest([]) })).toContain("1 つも入っていません");
-    const many = Array.from({ length: GAME_ARCHIVE_MAX_GAMES + 1 }, () => ({ format: "result", name: "x" }));
-    expect(errorOf({ "games.json": manifest(many) })).toContain("多すぎます");
     // クイズの選択肢が 1 つ、知らない形式、合言葉が無い、範囲が重なる
     expect(
       errorOf({ "games.json": manifest([{ format: "quiz", name: "Q", choices: [{ text: "a", points: 1 }] }]) }),

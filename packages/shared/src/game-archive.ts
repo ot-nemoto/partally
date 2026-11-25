@@ -21,8 +21,6 @@ import type { GameFormat } from "./types.js";
 export const GAME_ARCHIVE_FORMAT = "partally-games";
 export const GAME_ARCHIVE_VERSION = 1;
 export const GAME_ARCHIVE_MANIFEST = "games.json";
-/** 1 回で取り込めるゲームの数 */
-export const GAME_ARCHIVE_MAX_GAMES = 100;
 
 export interface GameArchiveChoice {
   text: string;
@@ -127,9 +125,6 @@ export function parseGameArchive(manifest: unknown, file: (path: string) => Uint
  */
 export function parseGames(list: unknown[], file: (path: string) => Uint8Array | undefined): GameArchiveResult {
   if (list.length === 0) return fail("ゲームが 1 つも入っていません。");
-  if (list.length > GAME_ARCHIVE_MAX_GAMES) {
-    return fail(`ゲームが多すぎます（1 回に ${GAME_ARCHIVE_MAX_GAMES} 件まで）。`);
-  }
   const games: GameArchiveItem[] = [];
   for (const [i, raw] of list.entries()) {
     const label = `${i + 1} 件目`;
