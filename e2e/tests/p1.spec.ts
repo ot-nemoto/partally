@@ -80,10 +80,12 @@ test.describe("1 台の端末で複数の参加者", () => {
     await (await chooser).setFiles({ name: "photo.jpg", mimeType: "image/jpeg", buffer: await jpeg(page) });
     await expect(page.getByText("送信待ち：1 枚")).toBeVisible({ timeout: 20_000 });
 
-    // 子に切り替えると画面を開き直し、そのときに送信待ちの写真を送る
-    await page.unroute(blocked);
+    // 子に切り替えてから（切り替えより前に送られないよう、断らせたまま）、送信待ちの写真を送る
     await switchButton(page, "送信 子").click();
     await expect(page.locator(".profile .name")).toHaveText("送信 子");
+    expect(await uploadCountOf(parent.user.userId)).toBe(0);
+    await page.unroute(blocked);
+    await page.getByRole("button", { name: "今すぐ再送" }).click();
     await expect.poll(() => uploadCountOf(parent.user.userId), { timeout: 20_000 }).toBe(1);
     expect(await uploadCountOf(child.user.userId)).toBe(0);
     await expect(page.getByText(/送信待ち|送信中/)).toHaveCount(0);
