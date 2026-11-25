@@ -59,8 +59,9 @@ export function ParticipantLayout() {
   /**
    * 自分の情報を読み直す。今の参加者が使えなくなっていたら（紐づけ解除など）、サーバがこの端末で覚えている
    * ほかの参加者に切り替えて返すので、そのときは表示中の情報をすべてその人のものにするため画面を開き直す。
-   * 通信やサーバのエラーで画面全体をエラーの表示にするのは、まだ何も表示していない（初めて読む）ときだけ。表示した後の
-   * 読み直し（ホームを開いたときなど）で電波が切れても、撮影のボタンや送信待ちの写真が消えないよう、表示はそのままにする
+   * 通信やサーバのエラーで画面全体をエラーの表示にするのは、参加者の画面を表示していないとき（初めて読むときなど）だけ。
+   * 表示している間の読み直し（ホームを開いたときなど）で電波が切れても、撮影のボタンや送信待ちの写真が消えないよう、
+   * 表示はそのままにする
    */
   const reloadUser = useCallback(() => {
     api<MeResponse>("GET", "/me")
@@ -74,7 +75,7 @@ export function ParticipantLayout() {
       })
       .catch((e) => {
         if (e instanceof ApiError && e.status === 401) setState({ kind: "guest" });
-        else if (!shownUserId.current) setState({ kind: "error", message: errorMessage(e) });
+        else setState((prev) => (prev.kind === "user" ? prev : { kind: "error", message: errorMessage(e) }));
       });
   }, []);
 

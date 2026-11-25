@@ -143,19 +143,23 @@ test.describe("写真の投稿と公開", () => {
     // ホームを開いた直後に切れたときと同じく、2 回目（ホームの読み直し）の途中でオフラインにし、その読み直しを
     // 通信エラーにする。表示した後の読み直しが失敗しても、画面はエラーの表示に変わらない（#283）
     let meRequests = 0;
-    let offline = false;
-    let reloadFailed = false;
+    let goOffline = () => {};
+    const wentOffline = new Promise<void>((resolve) => {
+      goOffline = resolve;
+    });
     await page.route("**/api/me", async (route) => {
       if (++meRequests !== 2) return route.continue();
-      await expect.poll(() => offline).toBe(true);
+      await wentOffline;
       await route.abort("internetdisconnected");
-      reloadFailed = true;
     });
+    const reloadFailed = page.waitForEvent("requestfailed", (r) => new URL(r.url()).pathname === "/api/me");
     await page.goto("/");
     await expect(page.getByRole("button", { name: "写真を選ぶ" })).toBeVisible();
     await context.setOffline(true);
-    offline = true;
-    await expect.poll(() => reloadFailed).toBe(true);
+    goOffline();
+    await reloadFailed;
+    // 画面が読み直しの失敗を受け取るまで少し待ってから、エラーの表示に変わっていないことを確かめる
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
     await expect(page.getByText("通信に失敗しました")).toHaveCount(0);
     await expect(page.locator(".profile .name")).toHaveText("オフライン 投稿");
     await choosePhoto(page);
