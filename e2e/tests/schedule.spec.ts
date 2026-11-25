@@ -112,24 +112,35 @@ test.describe("管理画面のタイムライン", () => {
     const grid = adm.locator(".schedule-grid");
     await expect(grid).toBeVisible();
 
-    // 時間軸は、いちばん早い項目の 1 時間以上前から始まる（そこは空いている）。押した所の時刻・列に作る
+    // 押した所の時刻・列に作る。時間軸は、ふつうはいちばん早い項目の 1 時間以上前から始まるが、0:00 より前には
+    // 広がらないので、左端の列の上から、項目の無い所（押すと時間軸そのものに当たる所）を探して押す
     const startOf = async () => {
       const [h, m] = ((await adm.locator(".schedule-hour").first().textContent()) ?? "").split(":").map(Number);
       return h! * 60 + m!;
     };
     const rangeStart = await startOf();
+    await grid.evaluate((el) => el.scrollIntoView({ block: "start" }));
     const box = await grid.boundingBox();
-    // 1 分 = 2px。上から 10px は、時間軸の始まりから 5 分
-    await adm.mouse.click(box!.x + 5, box!.y + 10);
+    const dy = await grid.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      for (let y = 10; rect.top + y < window.innerHeight && y < rect.height; y += 10) {
+        if (document.elementFromPoint(rect.left + 5, rect.top + y) === el) return y;
+      }
+      return undefined;
+    });
+    expect(dy, "左端の列の、画面に見えている所に空きが無い").toBeDefined();
+    await adm.mouse.click(box!.x + 5, box!.y + dy!);
+    // 1 分 = 2px。押した時刻を 5 分刻みに切り捨てた時刻に作る
+    const minute = Math.floor((rangeStart + dy! / 2) / 5) * 5;
     const dialog = adm.locator("dialog[open]");
     await expect(dialog.getByRole("heading", { name: "項目を追加" })).toBeVisible();
-    await expect(dialog.getByLabel("開始", { exact: true })).toHaveValue(timeValue(rangeStart + 5));
+    await expect(dialog.getByLabel("開始", { exact: true })).toHaveValue(timeValue(minute));
     await dialog.getByLabel("タイトル", { exact: true }).fill(first);
     await dialog.getByRole("button", { name: "保存" }).click();
     await expect(dialog).toHaveCount(0);
     await expect(adminBlock(adm, first)).toBeVisible();
     const created = await mustGetItem(first);
-    expect([created.startMinute, created.durationMinutes]).toEqual([rangeStart + 5, 30]);
+    expect([created.startMinute, created.durationMinutes]).toEqual([minute, 30]);
 
     // 「項目を追加」は、いちばん遅く終わる項目の後ろ（24:00 を越えるなら 23:30）に作る
     const items = (await admin.get("/admin/schedule")).items as Item[];
@@ -180,10 +191,10 @@ test.describe("管理画面のタイムライン", () => {
   });
 
   test("P1 上下のドラッグで開始時刻、下の端で長さ、左右で列が変わる", async ({ browser }) => {
-    // 動かす項目（右端の列に 1 つだけ）と、左右で移す先の列の項目。時刻はほかの項目と重なりにくい早朝にする
+    // 動かす項目と、左右で移す先の列の項目（どちらも右端の、ほかの項目の無い列に置く）。時刻は早朝にする
     const moving = title("E2E ドラッグ");
     const anchor = title("E2E 移す先");
-    await createItem({ title: anchor, startMinute: 5 * 60 + 30, column: 0 });
+    await createItem({ title: anchor, startMinute: 5 * 60 + 30 });
     await createItem({ title: moving, startMinute: 3 * 60, durationMinutes: 60 });
     const { page: adm } = await adminPage(browser);
     await adm.goto("/admin/schedule");

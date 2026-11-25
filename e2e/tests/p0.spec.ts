@@ -322,6 +322,8 @@ test("P0-11 タイムラインで作った項目を公開すると、今の項�
       detail: "",
       startMinute: 12 * 60 + 1,
       durationMinutes: 30,
+      // 右端の、ほかの項目の無い列に置く
+      column: 49,
     });
     await updateSettings(admin, { scheduleVisible: true, scheduleDate: "" });
 
