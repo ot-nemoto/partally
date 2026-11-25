@@ -55,6 +55,12 @@ test("P0-1 QR から名前と暗証番号で登録すると、二つ名が授け
   await expect(page.locator(".profile .epithet")).toHaveText(title);
   await expect(page.locator(".profile .name")).toHaveText("登録 太郎");
   await expect(page.locator(".points-value")).toHaveText("0");
+  // ポイントのルール（何をすると何ポイントか。設定は既定値にそろえている）
+  const rules = page.locator("p.muted.small", { hasText: "写真 1 枚公開で" });
+  await expect(rules).toContainText("写真 1 枚公開で 1 ポイント");
+  await expect(rules).toContainText("お気に入りに 1 回選ばれると 1 ポイント");
+  await expect(rules).toContainText("お気に入りを 1 枚選ぶと 10 ポイント");
+  await expect(rules).toContainText("ゲーム（クイズを含む）は結果が決まると、選んだ答えや入った枠の点数が入ります");
 });
 
 test("P0-2 同じ端末でもう一度 QR を読み込むと、暗証番号を聞かれずにホームへ入れる", async ({ browser }) => {
