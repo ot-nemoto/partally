@@ -333,7 +333,8 @@ test.describe("幹事", () => {
 
   test("P2 参加者のログインは 30 日、幹事のログインは 12 時間で切れる（Cookie の期限）", async ({ browser }) => {
     const a = await participant(browser, admin, "期限 見る");
-    const now = Date.now() / 1000;
+    // 期限は Cookie を受け取った時刻からなので、受け取った後の時刻を基準にする
+    let now = Date.now() / 1000;
     const cookie = async (context: import("@playwright/test").BrowserContext, name: string) => {
       const found = (await context.cookies()).find((c) => c.name === name);
       expect(found, name).toBeDefined();
@@ -344,6 +345,7 @@ test.describe("幹事", () => {
     expect(session.expires - now).toBeGreaterThan(30 * 24 * 3600 - 120);
     expect(session.expires - now).toBeLessThanOrEqual(30 * 24 * 3600 + 5);
     const { context } = await adminPage(browser);
+    now = Date.now() / 1000;
     const adminSession = await cookie(context, "admin_session");
     expect(adminSession.httpOnly).toBe(true);
     expect(adminSession.sameSite).toBe("Strict");
