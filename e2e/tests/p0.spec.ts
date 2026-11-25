@@ -9,13 +9,17 @@ import {
   jpeg,
   PHONE,
   participant,
+  unique,
   updateSettings,
+  useDefaultSettings,
 } from "./helpers";
 
 /**
  * P0: イベント当日に壊れると進行が止まる流れ（docs/e2e-tests.md の 2 章）。
  * 準備のデータは API で作り、確かめたい流れだけを画面から操作する
  */
+useDefaultSettings();
+
 let admin: AdminApi;
 test.beforeAll(async () => {
   admin = await adminApi();
@@ -90,7 +94,7 @@ test("P0-4 幹事がログインして QR を発行し、通し番号付きで�
 
 test("P0-5 写真を投稿して幹事が承認すると、ほかの参加者に見え、投稿者にポイントが入る", async ({ browser }) => {
   await updateSettings(admin, { moderation: "pre" });
-  const a = await participant(browser, admin, "写真 一郎");
+  const a = await participant(browser, admin, unique("写真 一郎"));
   const b = await participant(browser, admin, "閲覧 二郎");
   const before = (await (await a.page.request.get("/api/me")).json()).user.points;
 
@@ -107,8 +111,11 @@ test("P0-5 写真を投稿して幹事が承認すると、ほかの参加者に
 
   const { page: adm } = await adminPage(browser);
   await adm.goto("/admin/photos");
-  await adm.getByRole("button", { name: "承認" }).first().click();
-  await expect.poll(async () => (await admin.get("/admin/photos?status=pending")).photos?.length ?? 0).toBe(0);
+  // ほかの人の確認待ちの写真もあり得るので、この参加者の写真を承認する
+  await adm.locator(".admin-photo", { hasText: a.user.name }).getByRole("button", { name: "承認" }).click();
+  await expect
+    .poll(async () => (await (await a.page.request.get("/api/photos/mine")).json()).photos[0]?.status)
+    .toBe("approved");
 
   await b.page.goto("/gallery");
   await expect(b.page.locator("img").first()).toBeVisible();
@@ -119,21 +126,23 @@ test("P0-6 クイズを開始すると参加者にお知らせが出て、決定
   const a = await participant(browser, admin, "クイズ 三郎");
   const { game } = await admin.post("/admin/games", {
     format: "quiz",
-    name: "幹事の出身地は？",
+    name: unique("幹事の出身地は？"),
     choices: [
       { text: "北海道", points: 10 },
       { text: "沖縄", points: 0 },
     ],
   });
+  // 名前は保存するときに NFKC でそろう（「？」は「?」になる）ので、保存された名前で探す
+  const quizName: string = game.name;
   await a.page.goto("/");
   const { page: adm } = await adminPage(browser);
   await adm.goto("/admin/games");
-  const card = adm.locator("article.game-card", { hasText: "幹事の出身地" });
+  const card = adm.locator("article.game-card", { hasText: quizName });
   await card.locator("header").getByRole("button", { name: "開始" }).click();
 
   // 参加者の画面は 5 秒ごとに確かめるので、読み込み直さなくてもお知らせが出る
   const banner = a.page.locator(".quiz-banner");
-  await expect(banner).toContainText("幹事の出身地", { timeout: 15_000 });
+  await expect(banner).toContainText(quizName, { timeout: 15_000 });
   await banner.click();
   await a.page.getByRole("button", { name: "北海道", exact: true }).click();
   await a.page.getByRole("button", { name: "決定" }).click();
@@ -154,21 +163,22 @@ test("P0-6 クイズを開始すると参加者にお知らせが出て、決定
 
 test("P0-7 結果入力のゲームを開始・終了すると、選んだ人のホームに「優勝 +30」が出る", async ({ browser }) => {
   const a = await participant(browser, admin, "優勝 四郎");
+  const gameName = unique("じゃんけん大会");
   await admin.post("/admin/games", {
     format: "result",
-    name: "じゃんけん大会",
+    name: gameName,
     slots: [{ name: "優勝", points: 30, userIds: [a.user.userId] }],
   });
   const { page: adm } = await adminPage(browser);
   await adm.goto("/admin/games");
-  const card = adm.locator("article.game-card", { hasText: "じゃんけん大会" });
+  const card = adm.locator("article.game-card", { hasText: gameName });
   await card.locator("header").getByRole("button", { name: "開始" }).click();
   await expect(card.locator("header").getByRole("button", { name: "終了" })).toBeVisible();
   await card.locator("header").getByRole("button", { name: "終了" }).click();
   await acceptConfirm(adm);
   await expect(card.locator(".status")).toHaveText("終了");
   await a.page.goto("/");
-  await expect(a.page.locator(".game-awards")).toContainText("じゃんけん大会");
+  await expect(a.page.locator(".game-awards")).toContainText(gameName);
   await expect(a.page.locator(".game-awards")).toContainText("優勝");
   await expect(a.page.locator(".game-awards")).toContainText("+30");
 });
@@ -198,7 +208,7 @@ test("P0-8 お気に入りを付けると双方のポイントが増え、外す
 });
 
 test("P0-9 ランキングを公開すると参加者に出て、幹事の推移の再生の最後が今の並びになる", async ({ browser }) => {
-  const a = await participant(browser, admin, "首位 七郎");
+  const a = await participant(browser, admin, unique("首位 七郎"));
   await admin
     .post("/admin/games", {
       format: "result",
@@ -213,14 +223,17 @@ test("P0-9 ランキングを公開すると参加者に出て、幹事の推移
   const { ranking } = await admin.get("/admin/ranking");
 
   await a.page.goto("/standings");
-  await expect(a.page.locator(".ranking-table")).toContainText("首位 七郎");
+  await expect(a.page.locator(".ranking-table")).toContainText(a.user.name);
 
   const { page: adm } = await adminPage(browser);
   await adm.goto("/admin/ranking");
   await adm.getByRole("button", { name: "▶ 推移を再生" }).click();
   // 再生は約 20 秒。終わると「表に戻る」が出て、今のランキングの 1 位が 1 位に並ぶ
   await expect(adm.getByRole("button", { name: "表に戻る" })).toBeVisible({ timeout: 40_000 });
-  const top = adm.locator(".race-row", { hasText: ranking[0].name });
+  // 同じ名前の人がいても 1 人に決まるよう、二つ名付きの表示名で探す
+  const top = adm
+    .locator(".race-row")
+    .filter({ has: adm.locator(`.race-name[title=${JSON.stringify(ranking[0].displayName)}]`) });
   await expect(top.locator(".race-rank")).toHaveText("1");
   await adm.getByRole("button", { name: "表に戻る" }).click();
   await expect(adm.locator(".ranking-table")).toContainText(ranking[0].name);
@@ -228,11 +241,12 @@ test("P0-9 ランキングを公開すると参加者に出て、幹事の推移
 
 test("P0-10 画像付きの景品を順位に割り当てて公開すると、参加者の画面とランキングの行に出る", async ({ browser }) => {
   const a = await participant(browser, admin, "景品 八郎");
+  const prizeName = unique("E2E のテレビ");
   const { page: adm } = await adminPage(browser);
   await adm.goto("/admin/prizes");
   await adm.getByRole("button", { name: "景品を登録" }).click();
   const dialog = adm.locator("dialog[open]");
-  await dialog.getByLabel("名前").fill("E2E のテレビ");
+  await dialog.getByLabel("名前").fill(prizeName);
   await dialog.getByRole("textbox", { name: /^数量/ }).fill("8");
   await dialog.getByPlaceholder("例: 1, 3, 5-10").fill("1, 3, 5-10");
   await dialog
@@ -240,20 +254,21 @@ test("P0-10 画像付きの景品を順位に割り当てて公開すると、�
     .setInputFiles({ name: "prize.jpg", mimeType: "image/jpeg", buffer: await jpeg(adm, "#27ae60") });
   await dialog.getByRole("button", { name: "保存" }).click();
   await expect(dialog).toHaveCount(0, { timeout: 20_000 });
-  await expect(adm.locator("main")).toContainText("E2E のテレビ");
+  await expect(adm.locator("main")).toContainText(prizeName);
 
   await updateSettings(admin, { prizesVisible: true, rankingVisible: true });
   await a.page.goto("/standings");
   await a.page.getByRole("tab", { name: "景品" }).click();
-  const item = a.page.locator(".prize-list-item", { hasText: "E2E のテレビ" });
+  const item = a.page.locator(".prize-list-item", { hasText: prizeName });
   await expect(item).toBeVisible();
   await expect(item.locator("img")).toBeVisible();
   await a.page.getByRole("tab", { name: "ランキング" }).click();
-  await expect(a.page.locator(".ranking-table")).toContainText("E2E のテレビ");
+  await expect(a.page.locator(".ranking-table")).toContainText(prizeName);
 });
 
 test("P0-11 スケジュールを公開すると、今の項目に「いま」が付き、押すと詳細が出る", async ({ browser }) => {
   const a = await participant(browser, admin, "予定 九郎");
+  const title = unique("E2E の乾杯");
   const now = await a.page.evaluate(() => {
     const d = new Date();
     return d.getHours() * 60 + d.getMinutes();
@@ -261,15 +276,16 @@ test("P0-11 スケジュールを公開すると、今の項目に「いま」�
   const start = Math.max(0, Math.min(now - 10, 24 * 60 - 60));
   await updateSettings(admin, { scheduleVisible: true, scheduleDate: "" });
   await admin.post("/admin/schedule", {
-    title: "E2E の乾杯",
+    title,
     detail: "幹事の挨拶のあと、全員で乾杯します。",
     startMinute: start,
     durationMinutes: 60,
     column: 0,
   });
+  // 参加者に見せるのはスケジュールだけ（設定はほかを既定値の「見せない」にそろえている）なので、切り替えのタブは出ない
   await a.page.goto("/standings");
-  await a.page.getByRole("tab", { name: "スケジュール" }).click();
-  const block = a.page.locator(".schedule-block", { hasText: "E2E の乾杯" }).first();
+  await expect(a.page.getByRole("tablist")).toHaveCount(0);
+  const block = a.page.locator(".schedule-block", { hasText: title });
   await expect(block).toBeVisible();
   await expect(block).toContainText("いま");
   await block.click();

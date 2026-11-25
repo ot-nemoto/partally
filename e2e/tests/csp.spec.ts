@@ -1,17 +1,28 @@
 import { readFileSync } from "node:fs";
 import { type Browser, type BrowserContext, expect, type Page, test } from "@playwright/test";
 import { reportOnlyCsp } from "../../infra/lib/csp.js";
-import { type AdminApi, adminApi, choosePhoto, issueToken, jpeg, PHONE } from "./helpers";
+import {
+  type AdminApi,
+  adminApi,
+  choosePhoto,
+  issueToken,
+  jpeg,
+  PHONE,
+  REMOTE_URL,
+  useDefaultSettings,
+} from "./helpers";
 
 /**
  * 読み込み元を絞る CSP（本番では Report-Only で付けている reportOnlyCsp()）を、CloudFront の代わりに画面の応答へ
  * Content-Security-Policy として付けて、主な流れが違反なく動くことを確かめる（#227 で強制に切り替える前の確認と、
  * CSP に引っかかる変更に気づくため）。開発用のサーバはインラインのスクリプトを入れるので、本番と同じビルドの画面
- * （vite preview、playwright.config.ts）を開く
+ * （vite preview、playwright.config.ts）を開く。E2E_BASE_URL を付けたときは、その環境の画面を開く（本番と同じビルド）
  */
-const PREVIEW_URL = "http://localhost:4173";
+const PREVIEW_URL = REMOTE_URL ?? "http://localhost:4173";
 const POLICY = reportOnlyCsp("ap-northeast-1");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
+
+useDefaultSettings();
 
 let admin: AdminApi;
 test.beforeAll(async () => {
@@ -116,9 +127,8 @@ test("CSP 参加者：登録・写真（JPEG と HEIC）の投稿・ギャラリ
 
   // 承認して、ギャラリーで自分の写真の画像（/photos の URL）が出ることを確かめる。
   // ほかのテストの写真も並ぶ（画面の外のものは遅れて読む）ので、自分の写真だけを見る
-  const userId = (await (await page.request.get("/api/me")).json()).user.userId;
-  const { photos } = await admin.get("/admin/photos?status=pending");
-  const mine: { photoId: string }[] = photos.filter((p: { uploaderId: string }) => p.uploaderId === userId);
+  const { photos } = await (await page.request.get("/api/photos/mine")).json();
+  const mine: { photoId: string }[] = photos.filter((p: { status: string }) => p.status === "pending");
   expect(mine).toHaveLength(2);
   for (const p of mine) await admin.post(`/admin/photos/${p.photoId}/approve`);
   await page.goto("/gallery");

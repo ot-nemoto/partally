@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { ADMIN_LOGIN_WINDOW_MS } from "../../api/src/admin-login-limit.js";
-import { type AdminApi, adminApi } from "./helpers";
+import { type AdminApi, adminApi, LOCAL_ONLY, REMOTE_URL } from "./helpers";
 
 /**
  * P2: あると安心（docs/e2e-tests.md の 4 章）。
@@ -11,6 +11,10 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
 test("P2 管理者ログインを続けて間違えると、正しいパスワードでも断られ、待つ時間と解除の方法が出る", async ({
   browser,
 }) => {
+  // 接続元のヘッダ（cloudfront-viewer-address）を偽って、このテストだけの接続元にする。CloudFront を通すとヘッダは閲覧者の
+  // IP で付け直されるので、流した回線の管理者ログインが 15 分断られる
+  test.skip(!!REMOTE_URL, LOCAL_ONLY);
+
   // 区切りが途中で変わると数え直しになるので、区切りの終わりが近ければ次の区切りまで待つ
   const left = ADMIN_LOGIN_WINDOW_MS - (Date.now() % ADMIN_LOGIN_WINDOW_MS);
   if (left < 30_000) {
