@@ -143,18 +143,25 @@ test.describe("写真の投稿と公開", () => {
     // ホームを開いた直後に切れたときと同じく、2 回目（ホームの読み直し）の途中でオフラインにし、その読み直しを
     // 通信エラーにする。表示した後の読み直しが失敗しても、画面はエラーの表示に変わらない（#283）
     let meRequests = 0;
+    let reloadStarted = () => {};
+    const reloading = new Promise<void>((resolve) => {
+      reloadStarted = resolve;
+    });
     let goOffline = () => {};
     const wentOffline = new Promise<void>((resolve) => {
       goOffline = resolve;
     });
     await page.route("**/api/me", async (route) => {
       if (++meRequests !== 2) return route.continue();
+      reloadStarted();
       await wentOffline;
       await route.abort("internetdisconnected");
     });
     const reloadFailed = page.waitForEvent("requestfailed", (r) => new URL(r.url()).pathname === "/api/me");
     await page.goto("/");
     await expect(page.getByRole("button", { name: "写真を選ぶ" })).toBeVisible();
+    // ホームの読み直しが届いて止まっている間にオフラインにする
+    await reloading;
     await context.setOffline(true);
     goOffline();
     await reloadFailed;
@@ -165,6 +172,9 @@ test.describe("写真の投稿と公開", () => {
     await choosePhoto(page);
     await expect(page.getByText("送信待ち：1 枚")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("送信に失敗しました。自動的に再送します。")).toBeVisible();
+    // 時間がたっても、エラーの表示には変わっていない
+    await expect(page.getByText("通信に失敗しました")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "写真を選ぶ" })).toBeVisible();
 
     // オフラインのまま「今すぐ再送」を押しても、写真は捨てずに送信待ちに残る（通信のエラーは失敗に数えない）
     await page.getByRole("button", { name: "今すぐ再送" }).click();

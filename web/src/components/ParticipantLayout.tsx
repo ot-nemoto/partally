@@ -55,6 +55,9 @@ export function ParticipantLayout() {
   const [state, setState] = useState<State>({ kind: "loading" });
   /** 表示中の参加者。読み直したら別の人になっていた（端末で覚えているほかの人に切り替わった）ときに気づくため */
   const shownUserId = useRef<string | undefined>(undefined);
+  /** 参加者の画面を表示しているか（描画のたびに今の状態に合わせる） */
+  const loggedIn = useRef(false);
+  loggedIn.current = state.kind === "user";
 
   /**
    * 自分の情報を読み直す。今の参加者が使えなくなっていたら（紐づけ解除など）、サーバがこの端末で覚えている
@@ -63,26 +66,7 @@ export function ParticipantLayout() {
    * 表示している間の読み直し（ホームを開いたときなど）で電波が切れても、撮影のボタンや送信待ちの写真が消えないよう、
    * 表示はそのままにする
    */
-  const reloadUser = useCallback(() => {
-    api<MeResponse>("GET", "/me")
-      .then((res) => {
-        if (shownUserId.current && shownUserId.current !== res.user.userId) {
-          window.location.reload();
-          return;
-        }
-        shownUserId.current = res.user.userId;
-        setState({ kind: "user", user: res.user, rules: res.rules });
-      })
-      .catch((e) => {
-        if (e instanceof ApiError && e.status === 401) setState({ kind: "guest" });
-        else setState((prev) => (prev.kind === "user" ? prev : { kind: "error", message: errorMessage(e) }));
-      });
-  }, []);
-
-  useEffect(reloadUser, [reloadUser]);
-
-  // 「更新」での取り直しは、通信エラーでは画面を切り替えない（ログアウト状態になったときだけ反映する）
-  const refreshQuietly = useCallback(
+  const loadMe = useCallback(
     () =>
       api<MeResponse>("GET", "/me")
         .then((res) => {
@@ -90,13 +74,26 @@ export function ParticipantLayout() {
             window.location.reload();
             return;
           }
-          setState((prev) => (prev.kind === "user" ? { ...prev, user: res.user, rules: res.rules } : prev));
+          shownUserId.current = res.user.userId;
+          setState({ kind: "user", user: res.user, rules: res.rules });
         })
         .catch((e) => {
-          if (e instanceof ApiError && e.status === 401) setState({ kind: "guest" });
+          if (e instanceof ApiError && e.status === 401) {
+            setState({ kind: "guest" });
+            return;
+          }
+          if (!loggedIn.current) {
+            setState({ kind: "error", message: errorMessage(e) });
+            return;
+          }
+          // 表示を保つために捨てたエラーも、不具合に気づけるようコンソールには残す
+          console.warn("自分の情報を読み直せなかったので、今の表示のままにします", e);
         }),
     [],
   );
+  const reloadUser = useCallback(() => void loadMe(), [loadMe]);
+
+  useEffect(reloadUser, [reloadUser]);
 
   const setUser = useCallback(
     (user: UserDto) => setState((prev) => (prev.kind === "user" ? { ...prev, user } : prev)),
@@ -104,8 +101,6 @@ export function ParticipantLayout() {
   );
 
   const [current, setCurrent] = useState<Pick<CurrentGameResponse, "games" | "round">>();
-  const loggedIn = useRef(false);
-  loggedIn.current = state.kind === "user";
   // 答えと確認のたびに増やす。確認の途中で答えたり、後から送った確認が先に返ったりしたら、
   // 古い応答で上書きしない（遅い通信で確定前の応答が後から届き、お知らせが戻るのを防ぐ）
   const gameVersion = useRef(0);
@@ -144,9 +139,9 @@ export function ParticipantLayout() {
   const reload = useCallback(async () => {
     setReloading(true);
     setReloadCount((n) => n + 1);
-    await Promise.all([refreshQuietly(), refreshGame()]);
+    await Promise.all([loadMe(), refreshGame()]);
     setReloading(false);
-  }, [refreshQuietly, refreshGame]);
+  }, [loadMe, refreshGame]);
   const location = useLocation();
   const t = useT();
   const lang = useLang();
