@@ -99,6 +99,7 @@ PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`
 
 - 開発のメインブランチは `develop`、リリース済みの版は `master` に置きます。`develop`・`master` へ直接 push しません。
 - 作業は Issue から始め、ブランチで作業して `develop` 宛ての PR を作ります（詳しくは [CLAUDE.md](../CLAUDE.md)）。
+- Issue には、種類のラベル（`bug`・`enhancement`・`documentation`）を必ず 1 つ付けます。テンプレートで作ると、「種類」で選んだラベルが自動で付きます。リリースの版はこのラベルで決まります。
 
 | ワークフロー | いつ動くか | 何をするか |
 |---|---|---|
@@ -106,6 +107,7 @@ PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`
 | `auto-pr-to-master.yml` | 毎朝 | `develop` → `master` の PR を作り、Issue のラベルから `bump:patch` / `bump:minor` を付ける |
 | `bump-version.yml` | 上の PR のラベル | バージョンを上げる（Issue に `enhancement` があれば minor、なければ patch） |
 | `release.yml` | `master` へのマージ | タグと GitHub Release を作る |
+| `issue-kind-label.yml` | Issue の作成・編集 | 「作業依頼」テンプレートの「種類」の答えから、種類のラベルを付ける（種類を変えたら付け直す。本文に「種類」が無ければ何もしない） |
 | `reset.yml` | 手動実行 | 本番データの初期化（[手順](setup.md#本番データの初期化)） |
 | `unlock-admin-login.yml` | 手動実行 | 管理者のログインの制限の解除（[手順](setup.md#管理者のログインの制限の解除)） |
 
