@@ -151,6 +151,18 @@ describe("API", () => {
       const unknown = "b".repeat(22);
       expect((await request("POST", "/api/auth/qr", { token: unknown })).body.error).toBe("invalid_token");
 
+      // 形の違うトークン（途中で切れた QR など）も、入力の誤りではなく無効な QR コードとして返す
+      for (const malformed of ["e2e-broken", "b".repeat(23), `${"b".repeat(21)}!`, ""]) {
+        for (const [path, body] of [
+          ["/api/auth/qr", { token: malformed }],
+          ["/api/auth/register", { token: malformed, name: "田中", pin: "1234" }],
+        ] as const) {
+          const res = await request("POST", path, body);
+          expect(res.status, `${path} ${malformed}`).toBe(404);
+          expect(res.body.error).toBe("invalid_token");
+        }
+      }
+
       const token = await t.issueToken();
       await request("POST", "/api/auth/register", { token, name: "田中", pin: "1234" });
       const again = await request("POST", "/api/auth/register", { token, name: "鈴木", pin: "1234" });
@@ -160,7 +172,9 @@ describe("API", () => {
 
     it("形式不正な入力は 400、JSON 以外は 415", async () => {
       const request = createClient(t.app);
-      expect((await request("POST", "/api/auth/qr", { token: "short" })).status).toBe(400);
+      // トークンが文字列でないものは、画面からは送らないので入力の誤り
+      expect((await request("POST", "/api/auth/qr", { token: 123 })).status).toBe(400);
+      expect((await request("POST", "/api/auth/qr", {})).status).toBe(400);
       const token = await t.issueToken();
       expect((await request("POST", "/api/auth/register", { token, name: "　", pin: "1234" })).status).toBe(400);
 
