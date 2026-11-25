@@ -1,0 +1,24 @@
+/**
+ * 読み込み元を絞る CSP（いまは Report-Only で付ける）。
+ * E2E（e2e/tests/csp.spec.ts）でも、この値を効かせて画面を動かす。そのため CDK に頼らないファイルに置く。
+ * - script-src 'unsafe-eval' と worker-src blob: は、HEIC の変換（heic2any）が blob: の URL から Worker を作り、その中で new Function を使うため。
+ *   なお 'unsafe-eval' を外すと、入力の検証（zod）が eval を使えるかを試すところでも違反が報告される（使えなければ使わずに動くので、画面は壊れない）
+ * - img-src data: blob: は、端末で縮小した写真のプレビューと QR の画像のため
+ * - connect-src の S3 は、写真・景品の画像の署名付き POST の送り先（バケット名は書かず、リージョンのドメインで許す）
+ */
+export function reportOnlyCsp(region: string): string {
+  return [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-eval'",
+    "worker-src 'self' blob:",
+    "style-src 'self'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    `connect-src 'self' https://*.s3.${region}.amazonaws.com https://s3.${region}.amazonaws.com`,
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "report-uri /api/csp-report",
+  ].join("; ");
+}

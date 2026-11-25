@@ -2,7 +2,7 @@
 
 partally に必要な E2E（ブラウザを通した）テストの一覧と、実環境で試した結果をまとめる。機能のルールは [機能仕様書](spec.md)、開発の手順は [開発ガイド](development.md) を参照。
 
-E2E は `e2e/tests` に Playwright で実装している（#193）。今は P0 の 12 本を `e2e/tests/p0.spec.ts` に、P1 のうち実装したもの（「実装済み」と書いたもの）を `e2e/tests/p1.spec.ts` に置き、`npm run e2e` で実行する。CI（`.github/workflows/ci.yml`）の `e2e` ジョブでも実行し、通らないと本番へデプロイしない。P1 の残りと P2 は未実装。
+E2E は `e2e/tests` に Playwright で実装している（#193）。今は P0 の 12 本を `e2e/tests/p0.spec.ts` に、P1 のうち実装したもの（「実装済み」と書いたもの）を `e2e/tests/p1.spec.ts` に、CSP を効かせた確認（5 章）を `e2e/tests/csp.spec.ts` に置き、`npm run e2e` で実行する。CI（`.github/workflows/ci.yml`）の `e2e` ジョブでも実行し、通らないと本番へデプロイしない。P1 の残りと P2 は未実装。
 
 ## 1. 前提：既存テストとの分担
 
@@ -109,7 +109,14 @@ E2E の対象は、API テストでは検証できない次のものに限る。
 - 以前の URL（`/quiz` → `/game`、`/favorites` → `/gallery`、`/admin/quizzes` → `/admin/games`）が移転する
 - QR の印刷ページを印刷（PDF化）しても、QR と通し番号と日英の案内が欠けない
 
-## 5. E2E でやらないもの
+## 5. CSP を効かせた主な流れ（`e2e/tests/csp.spec.ts` で実装済み）
+
+本番では読み込み元を絞る CSP（`infra/lib/csp.ts` の `reportOnlyCsp()`）を Report-Only で付けている（#227）。同じ値を CloudFront の代わりに画面の応答へ `Content-Security-Policy` として付けて（強制にして）、次の流れで違反が出ず、動くことを確かめる。開発用のサーバ（Vite）はインラインのスクリプトを入れるので、本番と同じビルドの画面（`vite preview`）を開く。
+
+- 参加者：QR からの登録、写真の投稿（JPEG と HEIC。HEIC は heic2any で JPEG に変換してから送る）、ギャラリー（`/photos` の画像）、ホーム・自分の写真・ゲーム・イベント情報
+- 管理画面：ログイン、各画面、データの書き出し（ZIP）、QR の印刷ページ（`data:` の画像）
+
+## 6. E2E でやらないもの
 
 - ポイント計算・順位付け・同順位の処理の組み合わせ → `api/src/scoring.test.ts`
 - 順位の範囲の重なりや逆転などの入力の検証、形式ごとの終了の条件 → API の統合テストと `packages/shared`
@@ -117,26 +124,26 @@ E2E の対象は、API テストでは検証できない次のものに限る。
 - データ移行の ZIP の中身の形式の検証 → `packages/shared` の archive のテスト
 - DynamoDB・S3・署名の実装 → `dynamo-repository`・`photo-storage`・`url-signer` のテスト
 - 本番 AWS 固有の部分はローカルでは再現しないため、デプロイの後やリハーサルの手動確認に残す。次のものがある
-  - CloudFront の署名付き Cookie・URL と、応答のヘッダ（セキュリティのヘッダ・CSP）
+  - CloudFront の署名付き Cookie・URL と、応答のヘッダ（セキュリティのヘッダ・CSP）が実際に付くこと（CSP の値で画面が動くことは 5 章で確かめる）
   - `X-Origin-Verify`（API Gateway の URL を直接開くと 403 になる）
   - S3 への署名付き POST、S3 のイベントによる取り込みと JPEG の確かめ（流れ自体は API の ingest・upload-limit のテストで担保する）
   - 管理者ログインの接続元ごとの数え方（`CloudFront-Viewer-Address`。数え方の決まりは API の admin-login のテストで担保する）
   - SSM の値（管理者パスワードなど）の読み直し（読み直しの決まりは `cached-value` のテストで担保する）
 - 管理者パスワードを変えたときに、前のパスワードでのログインが切れること → `app.admin-session.test.ts`
 
-## 6. 実装の作り
+## 7. 実装の作り
 
-2026-11-19 の試行（7章）から得た決め事と、それに沿った今の作り。
+2026-11-19 の試行（8章）から得た決め事と、それに沿った今の作り。
 
 - 道具は Playwright（`e2e` ワークスペース、`@playwright/test`）。幹事と参加者A・Bを別々の BrowserContext で同時操作でき、モバイル幅・オフライン・ダウンロードの検証が1つで足りるため。参加者はスマホの大きさ（390×844）、幹事は PC の大きさで開く
-- ローカル開発環境（メモリ内の API `api/src/dev.ts` と web の Vite）に対して実行し、本番 AWS には流さない。`playwright.config.ts` の `webServer` で両方を起動する（手元で起動済みなら使い回す）
+- ローカル開発環境（メモリ内の API `api/src/dev.ts` と web の Vite）に対して実行し、本番 AWS には流さない。`playwright.config.ts` の `webServer` で両方と、CSP の確認に使う本番と同じビルドの画面（`vite preview`、ポート 4173）を起動する（API と Vite は、手元で起動済みなら使い回す。`vite preview` は古いビルドで確かめないよう、毎回ビルドし直して起動する）
 - API は1つで、データはテストの間で共有する。そのためテストは1つずつ順に実行し（`workers: 1`）、各テストは自分で作ったデータだけを見る。開催中のゲーム・ラウンドは、テストのたびに `afterEach` で止めて次のテストに持ち越さない
 - 準備（QR の発行・参加者の登録・ゲームの作成・設定の変更）は API を直接呼んで作り、検証したい流れだけを画面から操作する。`e2e/tests/helpers.ts` の `adminApi()`（幹事の API）・`participant()`（登録済みの参加者のブラウザ）・`adminPage()`（ログイン済みの幹事のブラウザ）・`updateSettings()` を使う
 - 確認ダイアログは、画面内の確認ダイアログ（`web/src/components/ConfirmDialog.tsx` の `confirmDialog()`）で出す（#194 で `window.confirm()` から置き換えた）。テストでは `acceptConfirm()` で「OK」を押し、確認を承認して進む流れとして確かめる
-- 写真・景品の画像は、実ファイルのアップロードで検証する。画像は `jpeg()` でブラウザの canvas から作る（HEIC の変換の検証は未実装で、別途ファイルを用意する）
+- 写真・景品の画像は、実ファイルのアップロードで検証する。画像は `jpeg()` でブラウザの canvas から作る。HEIC は `e2e/fixtures/sample.heic` を使う（`e2e/fixtures/make-heic.py` で ffmpeg から作ったもの。外から見本を持ち込まない）
 - CI では `e2e` ジョブで Chromium を入れて実行し、失敗したら HTML のレポートを成果物として残す
 
-## 7. 実環境での試行結果（2026-11-19）
+## 8. 実環境での試行結果（2026-11-19）
 
 検証用の本番相当の環境（検証後にリセット予定、当時の登録 88 名・既存の検証データあり）で、P0 を中心にブラウザ操作で試した結果。ブラウザの自動操作で実施し、自動操作では進めなかった操作は幹事本人の手動操作で切り分けた。
 

@@ -79,7 +79,7 @@ partally で行っているセキュリティ対策の一覧。何を、どう�
 - 画面は HTTP を HTTPS に転送し、API・写真は HTTPS だけを受け付ける。
 - API は CloudFront を通ったリクエストだけを受ける。CloudFront が秘密の値を `X-Origin-Verify` ヘッダで付け、API はこれが合わないリクエスト（API Gateway の元の URL に直接送られたもの）を 403 で断る。応答のヘッダや、接続元（管理者のログインの試行回数を数えるのに使う）を迂回・偽装させないため。
 - CloudFront で、すべての応答にセキュリティ用のヘッダを付ける（HSTS、`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: same-origin`、CSP の一部）。
-- 読み込み元を絞る CSP（スクリプト・スタイル・フォントは自分のサイトだけ、など）を Report-Only で付け、違反を `/api/csp-report` で CloudWatch Logs に残す（参加リンクのトークンは伏せる）。ログで違反が出ないことを確かめてから効かせる（#227）。
+- 読み込み元を絞る CSP（スクリプト・スタイル・フォントは自分のサイトだけ、など）を Report-Only で付け、違反を `/api/csp-report` で CloudWatch Logs に残す（参加リンクのトークンは伏せる）。ログで違反が出ないことを確かめてから効かせる（#227）。同じ値を効かせた状態で主な流れが動くことは、E2E（`e2e/tests/csp.spec.ts`）で確かめている。
 - 参加リンク（`/q/<トークン>`）の URL にはトークンが入るので、`Referrer-Policy` でほかのサイトへ URL を送らない。
 
 詳しくは [設計書 8.2](design.md#82-応答のヘッダセキュリティ)。
