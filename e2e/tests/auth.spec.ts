@@ -71,9 +71,9 @@ test.describe("参加・認証", () => {
     await expect(page.locator(".error")).toHaveText("この QR コードは無効です。運営に声をかけてください。");
     await expect(page.getByRole("button", { name: "登録する" })).toHaveCount(0);
     await expect(pinField(page)).toHaveCount(0);
-    // 形の違うトークン（途中で切れた URL など）でも、登録に進めない
+    // 形の違うトークン（途中で切れた URL など）でも、同じ案内が出て登録に進めない
     await page.goto("/q/e2e-broken");
-    await expect(page.locator(".error")).toBeVisible();
+    await expect(page.locator(".error")).toHaveText("この QR コードは無効です。運営に声をかけてください。");
     await expect(page.getByRole("button", { name: "登録する" })).toHaveCount(0);
     await expect(pinField(page)).toHaveCount(0);
   });
