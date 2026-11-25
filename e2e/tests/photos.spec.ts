@@ -139,17 +139,25 @@ test.describe("写真の投稿と公開", () => {
     const { page, context } = a;
     const uploadCount = async () =>
       (await admin.get("/admin/users")).users.find((u: { userId: string }) => u.userId === a.user.userId).uploadCount;
-    // 画面は、開いたとき（参加者の画面の枠）と、ホームを開いたときの 2 回、自分の情報を読む。ホームの読み直しの
-    // 途中でオフラインにすると通信エラーになり、画面全体がエラーの表示に変わるので、2 回とも読み終わってから
-    // オフラインにする
-    let meLoaded = 0;
-    page.on("requestfinished", (r) => {
-      if (new URL(r.url()).pathname === "/api/me") meLoaded++;
+    // 画面は、開いたとき（参加者の画面の枠）と、ホームを開いたときの 2 回、自分の情報を読む。電波の悪い会場で
+    // ホームを開いた直後に切れたときと同じく、2 回目（ホームの読み直し）の途中でオフラインにし、その読み直しを
+    // 通信エラーにする。表示した後の読み直しが失敗しても、画面はエラーの表示に変わらない（#283）
+    let meRequests = 0;
+    let offline = false;
+    let reloadFailed = false;
+    await page.route("**/api/me", async (route) => {
+      if (++meRequests !== 2) return route.continue();
+      await expect.poll(() => offline).toBe(true);
+      await route.abort("internetdisconnected");
+      reloadFailed = true;
     });
     await page.goto("/");
     await expect(page.getByRole("button", { name: "写真を選ぶ" })).toBeVisible();
-    await expect.poll(() => meLoaded).toBeGreaterThanOrEqual(2);
     await context.setOffline(true);
+    offline = true;
+    await expect.poll(() => reloadFailed).toBe(true);
+    await expect(page.getByText("通信に失敗しました")).toHaveCount(0);
+    await expect(page.locator(".profile .name")).toHaveText("オフライン 投稿");
     await choosePhoto(page);
     await expect(page.getByText("送信待ち：1 枚")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("送信に失敗しました。自動的に再送します。")).toBeVisible();
