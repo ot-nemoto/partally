@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { PHOTO_UPLOAD_WINDOW_MS } from "@partally/shared";
 import { expect, type Page, test } from "@playwright/test";
 import { type AdminApi, adminApi, issueToken, jpeg, participant, updateSettings } from "./helpers";
@@ -242,5 +243,56 @@ test.describe("写真のアップロードの上限", () => {
     await expect(page.getByText("送信待ち：1 枚")).toBeVisible();
     await expect(page.getByText(/送信できなかった写真/)).toHaveCount(0);
     expect(await uploadCount(page)).toBe(0);
+  });
+});
+
+test.describe("HEIC の写真", () => {
+  /** ffmpeg から作った HEIC（320×240。e2e/fixtures/make-heic.py） */
+  const heic = () => readFileSync(new URL("../fixtures/sample.heic", import.meta.url));
+
+  async function choose(page: Page, file: { name: string; mimeType: string; buffer: Buffer }) {
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "写真を選ぶ" }).click();
+    await (await chooser).setFiles(file);
+  }
+
+  test("P1 HEIC の写真を選ぶと、JPEG に変換されて送られ、ギャラリーに出る", async ({ browser }) => {
+    const a = await participant(browser, admin, "HEIC 投稿");
+    const { page } = a;
+    await page.goto("/");
+    // HEIC を読めない Chromium では、heic2any で JPEG に変換してから縮小して送る
+    await choose(page, { name: "IMG_0001.HEIC", mimeType: "image/heic", buffer: heic() });
+    await expect
+      .poll(async () => (await (await page.request.get("/api/me")).json()).user.uploadCount, { timeout: 30_000 })
+      .toBe(1);
+    await expect(page.locator(".error")).toHaveCount(0);
+
+    // ギャラリーで元の大きさのまま表示されることを確かめる（変換に失敗すると取り込まれない）。
+    // 公開の方法はほかのテストの設定のままなので、確認待ちなら承認する
+    const [photo] = (await (await page.request.get("/api/photos/mine")).json()).photos;
+    if (photo.status === "pending") await admin.post(`/admin/photos/${photo.photoId}/approve`);
+    await page.goto("/gallery");
+    const image = page.locator(`main img[src*="${photo.photoId}"]`);
+    await expect(image).toBeVisible();
+    await expect
+      .poll(() => image.evaluate((e) => [(e as HTMLImageElement).naturalWidth, (e as HTMLImageElement).naturalHeight]))
+      .toEqual([320, 240]);
+  });
+
+  test("P1 読めない HEIC は送らずに案内が出る", async ({ browser }) => {
+    const a = await participant(browser, admin, "HEIC 破損");
+    const { page } = a;
+    const requested: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("/api/photos/upload-url")) requested.push(r.url());
+    });
+    await page.goto("/");
+    await choose(page, { name: "IMG_0002.HEIC", mimeType: "image/heic", buffer: Buffer.from("not a heic file") });
+    await expect(page.getByText("この写真は読み込めませんでした。別の写真でお試しください。")).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByText(/送信待ち|送信中/)).toHaveCount(0);
+    expect(requested).toEqual([]);
+    expect((await (await page.request.get("/api/me")).json()).user.uploadCount).toBe(0);
   });
 });
