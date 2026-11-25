@@ -20,12 +20,18 @@ let admin: AdminApi;
 test.beforeAll(async () => {
   admin = await adminApi();
 });
+// beforeAll のログインに失敗したときは何もしない（本当の原因のエラーを、ここのエラーで隠さない）
 test.afterAll(async () => {
-  await admin.dispose();
+  await admin?.dispose();
 });
 
-/** 開催中のゲーム・ラウンドを残さない（ほかのテストが開始できるように） */
-test.afterEach(async () => {
+/**
+ * テストのたびに、開いたブラウザを閉じ（参加者の画面は 5 秒ごとに確かめるので、後のテストの間に送り続けないように）、
+ * 開催中のゲーム・ラウンドを止める（ほかのテストが開始できるように）
+ */
+test.afterEach(async ({ browser }) => {
+  for (const context of browser.contexts()) await context.close();
+  if (!admin) return;
   for (const r of (await admin.get("/admin/rounds")).rounds) {
     if (r.status === "open") await admin.post(`/admin/rounds/${r.roundId}/stop`);
   }
@@ -70,6 +76,9 @@ const gameCard = (page: Page, name: string) =>
 const roundCard = (page: Page, name: string) =>
   page.locator("article.round-card").filter({ has: page.getByRole("heading", { name, exact: true }) });
 
+/** API が 409 で断ったこと（エラーの文は「POST /admin/... → 409 {...}」。パスや本文の「409」には当てない） */
+const CONFLICT = /→ 409 /;
+
 /** 参加者として答える（画面を通さない準備用） */
 async function answer(page: Page, gameId: string, body: Record<string, unknown>) {
   const res = await page.request.put(`/api/game/${gameId}/answer`, { data: body });
@@ -94,14 +103,21 @@ test.describe("ゲーム共通", () => {
     await expect(card).toContainText("開催中のゲームを終了するか中断すると、開始できます。");
     await expect(roundCard(adm, round.name).getByRole("button", { name: "開始" })).toBeDisabled();
     // 画面を通さずに送っても断られる
-    await expect(admin.post(`/admin/games/${other.gameId}/open`)).rejects.toThrow(/409/);
-    await expect(admin.post(`/admin/rounds/${round.roundId}/open`)).rejects.toThrow(/409/);
+    await expect(admin.post(`/admin/games/${other.gameId}/open`)).rejects.toThrow(CONFLICT);
+    await expect(admin.post(`/admin/rounds/${round.roundId}/open`)).rejects.toThrow(CONFLICT);
 
     // 開催中のゲームを中断すると、開始できるようになる
     await gameCard(adm, live.name).getByRole("button", { name: "中断" }).click();
     await acceptConfirm(adm);
     await expect(card.getByRole("button", { name: "開始" })).toBeEnabled();
     await expect(roundCard(adm, round.name).getByRole("button", { name: "開始" })).toBeEnabled();
+
+    // ラウンドが開催中のときも、ほかのゲームは開始できない
+    await admin.post(`/admin/rounds/${round.roundId}/open`);
+    await adm.reload();
+    await expect(card.getByRole("button", { name: "開始" })).toBeDisabled();
+    await expect(card).toContainText("開催中のゲームを終了するか中断すると、開始できます。");
+    await expect(admin.post(`/admin/games/${other.gameId}/open`)).rejects.toThrow(CONFLICT);
   });
 
   test("P1 中断しても答えは残り、開始し直しても答え直せない", async ({ browser }) => {
@@ -198,7 +214,7 @@ test.describe("ラウンド", () => {
     const q1Card = gameCard(adm, q1.name);
     await expect(q1Card.locator(".game-round-chip")).toContainText(round.name);
     await expect(q1Card.getByRole("button", { name: "開始" })).toHaveCount(0);
-    await expect(admin.post(`/admin/games/${q1.gameId}/open`)).rejects.toThrow(/409/);
+    await expect(admin.post(`/admin/games/${q1.gameId}/open`)).rejects.toThrow(CONFLICT);
 
     await a.page.goto("/");
     const rCard = roundCard(adm, round.name);
@@ -207,7 +223,7 @@ test.describe("ラウンド", () => {
     await expect(rCard.locator(".status")).toHaveText("開催中");
     // ラウンドに入っているゲームは、1 問だけでは終了もできない
     await expect(q1Card.getByRole("button", { name: "終了" })).toHaveCount(0);
-    await expect(admin.post(`/admin/games/${q1.gameId}/confirm`)).rejects.toThrow(/409/);
+    await expect(admin.post(`/admin/games/${q1.gameId}/confirm`)).rejects.toThrow(CONFLICT);
 
     const banner = a.page.locator(".quiz-banner");
     await expect(banner).toContainText("問題が出ています", { timeout: 15_000 });
@@ -354,6 +370,8 @@ test.describe("ゲームの編集・プレビュー・一覧", () => {
     await card.getByRole("button", { name: "プレビュー" }).click();
     const preview = adm.locator("dialog.game-preview-dialog[open]");
     await expect(preview.locator(".quiz-banner")).toContainText("問題が出ています");
+    // 中身が出てから、出ないものを確かめる
+    await expect(preview.getByRole("button", { name: "北海道", exact: true })).toBeVisible();
     // 点数（「25 点」など）は出さない
     await expect(preview).not.toContainText("点");
     await preview.getByRole("button", { name: "沖縄", exact: true }).click();
@@ -387,8 +405,9 @@ test.describe("ゲームの編集・プレビュー・一覧", () => {
     });
     await adm.reload();
     await gameCard(adm, kw.name).getByRole("button", { name: "プレビュー" }).click();
-    await expect(preview).not.toContainText(keyword);
     const input = preview.getByRole("textbox");
+    await expect(input).toBeVisible();
+    await expect(preview).not.toContainText(keyword);
     await input.fill("ちがうことば");
     await preview.getByRole("button", { name: "送る" }).click();
     await expect(preview.locator(".game-keyword-result.wrong")).toBeVisible();
@@ -408,7 +427,9 @@ test.describe("ゲームの編集・プレビュー・一覧", () => {
 
     // 新しいゲームが上。番号は作った順（一覧が出てから読む）
     await expect(gameCard(adm, older.name)).toBeVisible();
+    await expect(gameCard(adm, newer.name)).toBeVisible();
     const names = await adm.locator("article.game-card h2.game-name").allTextContents();
+    expect(names.indexOf(newer.name)).toBeGreaterThanOrEqual(0);
     expect(names.indexOf(newer.name)).toBeLessThan(names.indexOf(older.name));
     const numberOf = async (name: string) =>
       Number((await gameCard(adm, name).locator("header").textContent())?.match(/第 (\d+) ゲーム/)?.[1]);
@@ -419,7 +440,7 @@ test.describe("ゲームの編集・プレビュー・一覧", () => {
     await adm.reload();
     await expect(gameCard(adm, newer.name).getByRole("button", { name: "削除" })).toHaveCount(0);
     await expect(gameCard(adm, newer.name).getByRole("button", { name: "中断" })).toBeVisible();
-    await expect(admin.del(`/admin/games/${newer.gameId}`)).rejects.toThrow(/409/);
+    await expect(admin.del(`/admin/games/${newer.gameId}`)).rejects.toThrow(CONFLICT);
     await admin.post(`/admin/games/${newer.gameId}/stop`);
 
     // 下書きは削除できる
