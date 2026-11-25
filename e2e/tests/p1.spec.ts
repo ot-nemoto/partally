@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { type AdminApi, adminApi, issueToken, jpeg, participant } from "./helpers";
+import { type AdminApi, adminApi, issueToken, jpeg, participant, updateSettings } from "./helpers";
 
 /**
  * P1: 主要な連携（docs/e2e-tests.md の 3 章）。
@@ -121,5 +121,103 @@ test.describe("1 台の端末で複数の参加者", () => {
     await admin.post(`/admin/users/${third.user.userId}/unbind`);
     await expect(page.locator(".profile .name")).toHaveText("解除 一", { timeout: 20_000 });
     await expect(switchButtons(page)).toHaveCount(0);
+  });
+});
+
+test.describe("写真のアップロードの上限", () => {
+  let moderation: string;
+  test.beforeAll(async () => {
+    moderation = (await admin.get("/admin/settings")).settings.moderation;
+    // 上限まで確認待ちを埋めるので、投稿を検閲待ちにする
+    await updateSettings(admin, { moderation: "pre" });
+  });
+  test.afterAll(async () => {
+    await updateSettings(admin, { moderation });
+  });
+
+  /**
+   * 確認待ちの写真を n 枚、画面を通さずに置く（ローカルの S3 の代わり /__dev/upload は署名を確かめないので、
+   * 枠を取らずに置ける。区切りの上限に数えないため）
+   */
+  async function fillPending(page: Page, userId: string, n: number) {
+    const body = await jpeg(page);
+    for (let i = 0; i < n; i++) {
+      const photoId = `e2e${Date.now()}${i}`;
+      for (const kind of ["thumb", "full"]) {
+        const res = await page.request.post("/__dev/upload", {
+          multipart: {
+            key: `uploads/${photoId}/${kind}.jpg`,
+            "x-amz-meta-uploader": userId,
+            file: { name: `${kind}.jpg`, mimeType: "image/jpeg", buffer: body },
+          },
+        });
+        expect(res.ok()).toBe(true);
+      }
+    }
+  }
+
+  const uploadCount = async (page: Page) => (await (await page.request.get("/api/me")).json()).user.uploadCount;
+  /** 送り直しの時計を進め、送り先の発行の応答を待つ */
+  async function retryAfterWaiting(page: Page) {
+    const response = page.waitForResponse("**/api/photos/upload-url");
+    await page.clock.fastForward(60_000);
+    return (await response).status();
+  }
+
+  test("P1 確認待ちが上限に達すると写真は残って案内が出て、幹事が確認すると自動で送られる", async ({ browser }) => {
+    const a = await participant(browser, admin, "上限 確認待ち");
+    const { page } = a;
+    await fillPending(page, a.user.userId, 30);
+    expect(await uploadCount(page)).toBe(30);
+
+    // 送り直しの間隔（60 秒）を待たずに確かめるため、画面の時計を差し替える
+    await page.clock.install();
+    await page.goto("/");
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "写真を選ぶ" }).click();
+    await (await chooser).setFiles({ name: "photo.jpg", mimeType: "image/jpeg", buffer: await jpeg(page) });
+    await expect(page.getByText("確認待ちの写真が多いため、幹事が確認するまで送信を待っています")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.getByText("送信待ち：1 枚")).toBeVisible();
+
+    // 自動で送り直しても断られる間は、送信の失敗に数えない（5 回を超えても捨てない）
+    for (let i = 0; i < 6; i++) expect(await retryAfterWaiting(page)).toBe(429);
+    await expect(page.getByText("送信待ち：1 枚")).toBeVisible();
+    await expect(page.getByText(/送信できなかった写真/)).toHaveCount(0);
+    expect(await uploadCount(page)).toBe(30);
+
+    // 幹事が 1 枚承認すると、次の送り直しで送られる
+    const { photos } = await admin.get("/admin/photos?status=pending");
+    const mine = photos.find((p: { uploaderId: string }) => p.uploaderId === a.user.userId);
+    await admin.post(`/admin/photos/${mine.photoId}/approve`);
+    expect(await retryAfterWaiting(page)).toBe(200);
+    await expect.poll(() => uploadCount(page), { timeout: 20_000 }).toBe(31);
+    await expect(page.getByText(/送信待ち|送信中/)).toHaveCount(0);
+    await expect(page.getByText("確認待ちの写真が多いため")).toHaveCount(0);
+  });
+
+  test("P1 短い間に送りすぎると写真は残って案内が出る", async ({ browser }) => {
+    const a = await participant(browser, admin, "上限 回数");
+    const { page } = a;
+    // 区切り（10 分）の枠を使い切る（写真は送らない）
+    for (let i = 0; i < 30; i++) {
+      const res = await page.request.post("/api/photos/upload-url", { data: {} });
+      expect(res.ok()).toBe(true);
+    }
+
+    await page.clock.install();
+    await page.goto("/");
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "写真を選ぶ" }).click();
+    await (await chooser).setFiles({ name: "photo.jpg", mimeType: "image/jpeg", buffer: await jpeg(page) });
+    await expect(page.getByText("短い間にたくさん送ったため、少し待ってから自動的に送ります")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.getByText("送信待ち：1 枚")).toBeVisible();
+    for (let i = 0; i < 6; i++) expect(await retryAfterWaiting(page)).toBe(429);
+    await expect(page.getByText("送信待ち：1 枚")).toBeVisible();
+    await expect(page.getByText(/送信できなかった写真/)).toHaveCount(0);
+    expect(await uploadCount(page)).toBe(0);
   });
 });
