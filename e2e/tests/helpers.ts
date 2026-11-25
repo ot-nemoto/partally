@@ -8,12 +8,9 @@ import {
   test,
 } from "@playwright/test";
 import { DEFAULT_SETTINGS } from "../../api/src/repository.js";
+import { REMOTE_URL } from "./target";
 
-/**
- * テストを流す先。E2E_BASE_URL を付けると、データの入った環境（検証用の本番相当の環境など）へ向けて流す。
- * 付けなければローカル開発環境（playwright.config.ts の webServer が起動する API と web）
- */
-export const REMOTE_URL = process.env.E2E_BASE_URL?.replace(/\/+$/, "") || undefined;
+export { REMOTE_URL };
 export const BASE_URL = REMOTE_URL ?? "http://localhost:5173";
 /** ローカルでしか確かめられないテストを skip するときの理由 */
 export const LOCAL_ONLY = "ローカル開発環境でしか確かめられないため、E2E_BASE_URL を付けたときは流さない";
@@ -86,10 +83,12 @@ export function useDefaultSettings() {
     original = (await api.get("/admin/settings")).settings;
     await api.put("/admin/settings", DEFAULT_SETTINGS);
   });
+  // beforeAll のログインに失敗したときは何もしない（本当の原因のエラーを、ここのエラーで隠さない）
   test.afterEach(async () => {
-    await api.put("/admin/settings", DEFAULT_SETTINGS);
+    if (api) await api.put("/admin/settings", DEFAULT_SETTINGS);
   });
   test.afterAll(async () => {
+    if (!api) return;
     if (original) await api.put("/admin/settings", original);
     await api.dispose();
   });

@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import { REMOTE_URL as remoteUrl } from "./tests/target";
 
 /**
  * E2E テスト（docs/e2e-tests.md の一覧）。ふだんはローカル開発環境（メモリ内の API と web）に対して実行する。
@@ -6,8 +7,6 @@ import { defineConfig } from "@playwright/test";
  * （流し方と注意は docs/e2e-tests.md）。
  * API は 1 つで、データはテストの間で共有されるので、1 つずつ順に実行する（各テストは自分で作ったデータだけを見る）
  */
-const remoteUrl = process.env.E2E_BASE_URL?.replace(/\/+$/, "") || undefined;
-
 export default defineConfig({
   testDir: "./tests",
   fullyParallel: false,

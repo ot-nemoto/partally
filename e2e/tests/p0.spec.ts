@@ -113,12 +113,12 @@ test("P0-5 写真を投稿して幹事が承認すると、ほかの参加者に
   await adm.goto("/admin/photos");
   // ほかの人の確認待ちの写真もあり得るので、この参加者の写真を承認する
   await adm.locator(".admin-photo", { hasText: a.user.name }).getByRole("button", { name: "承認" }).click();
-  await expect
-    .poll(async () => (await (await a.page.request.get("/api/photos/mine")).json()).photos[0]?.status)
-    .toBe("approved");
+  const myPhoto = async () => (await (await a.page.request.get("/api/photos/mine")).json()).photos[0];
+  await expect.poll(async () => (await myPhoto())?.status).toBe("approved");
 
+  // ほかの人の写真もギャラリーに並ぶので、この参加者の写真が見えることを確かめる
   await b.page.goto("/gallery");
-  await expect(b.page.locator("img").first()).toBeVisible();
+  await expect(b.page.locator(`main img[src*="${(await myPhoto()).photoId}"]`)).toBeVisible();
   await expect.poll(async () => homePoints(a.page)).toBeGreaterThan(before);
 });
 
@@ -195,14 +195,16 @@ test("P0-8 お気に入りを付けると双方のポイントが増え、外す
   await expect.poll(async () => (await me(a)).approvedCount, { timeout: 20_000 }).toBe(1);
 
   const [aBefore, bBefore] = [(await me(a)).points, (await me(b)).points];
+  // ほかの人の写真もギャラリーに並ぶので、a の写真のタイルで押す
+  const [photo] = (await (await a.page.request.get("/api/photos/mine")).json()).photos;
   await b.page.goto("/gallery");
-  const add = b.page.getByRole("button", { name: "お気に入りに選ぶ" }).first();
-  await add.click();
-  await expect(b.page.getByRole("button", { name: "お気に入りを外す" }).first()).toBeVisible();
+  const tile = b.page.locator(".photo-tile", { has: b.page.locator(`img[src*="${photo.photoId}"]`) });
+  await tile.getByRole("button", { name: "お気に入りに選ぶ" }).click();
+  await expect(tile.getByRole("button", { name: "お気に入りを外す" })).toBeVisible();
   await expect.poll(async () => (await me(a)).points).toBeGreaterThan(aBefore);
   await expect.poll(async () => (await me(b)).points).toBeGreaterThan(bBefore);
 
-  await b.page.getByRole("button", { name: "お気に入りを外す" }).first().click();
+  await tile.getByRole("button", { name: "お気に入りを外す" }).click();
   await expect.poll(async () => (await me(a)).points).toBe(aBefore);
   await expect.poll(async () => (await me(b)).points).toBe(bBefore);
 });
@@ -230,10 +232,8 @@ test("P0-9 ランキングを公開すると参加者に出て、幹事の推移
   await adm.getByRole("button", { name: "▶ 推移を再生" }).click();
   // 再生は約 20 秒。終わると「表に戻る」が出て、今のランキングの 1 位が 1 位に並ぶ
   await expect(adm.getByRole("button", { name: "表に戻る" })).toBeVisible({ timeout: 40_000 });
-  // 同じ名前の人がいても 1 人に決まるよう、二つ名付きの表示名で探す
-  const top = adm
-    .locator(".race-row")
-    .filter({ has: adm.locator(`.race-name[title=${JSON.stringify(ranking[0].displayName)}]`) });
+  // 同じ名前の人がいても 1 人に決まるよう、二つ名付きの表示名（二つ名は全員で重ならない）で探す
+  const top = adm.locator(".race-row").filter({ has: adm.getByTitle(ranking[0].displayName, { exact: true }) });
   await expect(top.locator(".race-rank")).toHaveText("1");
   await adm.getByRole("button", { name: "表に戻る" }).click();
   await expect(adm.locator(".ranking-table")).toContainText(ranking[0].name);
@@ -293,6 +293,9 @@ test("P0-11 スケジュールを公開すると、今の項目に「いま」�
 });
 
 test("P0-12 イベントを終了すると参加者に知らせ、終了後の点数は数えず、取り消すと数える", async ({ browser }) => {
+  // 終了済みの環境で流すと、最後の取り消しで、その環境の終了まで消してしまう
+  const { endedAt } = await admin.get("/admin/event");
+  test.skip(!!endedAt, "イベントが既に終了している環境では、終了の記録を消さないよう流さない");
   const a = await participant(browser, admin, "終了 十郎");
   const finish = async (name: string, points: number) => {
     const { game } = await admin.post("/admin/games", {
