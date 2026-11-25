@@ -456,8 +456,8 @@ sequenceDiagram
 
 | メソッド | パス | 説明 |
 |---|---|---|
-| POST | `/api/auth/qr` | トークンでログイン `{token, pin?}`。未紐づけなら `unbound`。その人としてログインしたままの端末でも、この端末で覚えている人（`accounts` Cookie、[4.1](#41-参加者)）でもなければ、`pin` が無いと `pin_required`（`setup` が true なら暗証番号が無いので、送った `pin` を暗証番号にする）、違えば 401 `pin_invalid`、ロック中は 423 `pin_locked` |
-| POST | `/api/auth/register` | 未紐づけトークンに名前と暗証番号（数字 4 桁）を登録（二つ名自動付与） |
+| POST | `/api/auth/qr` | トークンでログイン `{token, pin?}`。未紐づけなら `unbound`。その人としてログインしたままの端末でも、この端末で覚えている人（`accounts` Cookie、[4.1](#41-参加者)）でもなければ、`pin` が無いと `pin_required`（`setup` が true なら暗証番号が無いので、送った `pin` を暗証番号にする）、違えば 401 `pin_invalid`、ロック中は 423 `pin_locked`。発行していないトークンと、文字列で形の違うトークンは 404 `invalid_token` |
+| POST | `/api/auth/register` | 未紐づけトークンに名前と暗証番号（数字 4 桁）を登録（二つ名自動付与）。発行していないトークンと、文字列で形の違うトークンは 404 `invalid_token`、紐づけ済みは 409 `token_already_bound` |
 | POST | `/api/auth/logout` | 今の参加者を端末から外す。ほかに覚えている参加者がいれば、その人に切り替えて `{user}` を返す。いなければ Cookie を消す |
 | GET | `/api/accounts` | この端末で覚えている参加者の一覧（`current`・`accounts[{userId, name, epithet}]`）。紐づけを解除された人などは外して覚え直す |
 | POST | `/api/accounts/switch` | `{userId}` の参加者に切り替える（この端末で覚えている人だけ。暗証番号は聞かない）。覚えていなければ 404 |
