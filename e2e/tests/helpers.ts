@@ -104,3 +104,11 @@ export async function homePoints(page: Page): Promise<number> {
   await page.goto("/");
   return Number(await page.locator(".points-value").textContent());
 }
+
+/** ホームの「写真を選ぶ」で写真を選ぶ（file を省くと、テスト用の JPEG を選ぶ） */
+export async function choosePhoto(page: Page, file?: { name: string; mimeType: string; buffer: Buffer }) {
+  const chosen = file ?? { name: "photo.jpg", mimeType: "image/jpeg", buffer: await jpeg(page) };
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "写真を選ぶ" }).click();
+  await (await chooser).setFiles(chosen);
+}
