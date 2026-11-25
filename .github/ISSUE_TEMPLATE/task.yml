@@ -1,6 +1,17 @@
 name: 作業依頼
-description: 機能追加・修正などの作業。概要・作業内容・確認内容を必ず書く
+description: 機能追加・修正などの作業。種類を選び、概要・作業内容・確認内容を必ず書く
 body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 種類
+      description: 作ったら、選んだ種類のラベルを Issue に付ける（フォームは答えからラベルを付けられない）。enhancement のときだけリリースが minor になる
+      options:
+        - "bug：不具合の修正（テスト・CI の不具合の修正を含む）"
+        - "enhancement：機能の追加・変更"
+        - "documentation：資料だけの変更"
+    validations:
+      required: true
   - type: textarea
     id: summary
     attributes:
