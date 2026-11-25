@@ -141,20 +141,53 @@ export async function acceptConfirm(page: Page) {
   await expect(dialog).toHaveCount(0);
 }
 
-/** テスト用の JPEG（ブラウザの canvas で作る。写真・景品の画像のアップロードに使う） */
-export async function jpeg(page: Page, color = "#c0392b"): Promise<Buffer> {
-  const dataUrl = await page.evaluate((fill) => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 320;
-    canvas.height = 240;
-    const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = fill;
-    ctx.fillRect(0, 0, 320, 240);
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(40, 40, 120, 80);
-    return canvas.toDataURL("image/jpeg", 0.9);
-  }, color);
+/**
+ * テスト用の JPEG（ブラウザの canvas で作る。写真・景品の画像のアップロードに使う）。
+ * 大きさを省くと 320×240
+ */
+export async function jpeg(page: Page, color = "#c0392b", size = { width: 320, height: 240 }): Promise<Buffer> {
+  const dataUrl = await page.evaluate(
+    ({ fill, width, height }) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = fill;
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(width / 8, height / 6, width / 3, height / 3);
+      return canvas.toDataURL("image/jpeg", 0.9);
+    },
+    { fill: color, ...size },
+  );
   return Buffer.from(dataUrl.split(",")[1]!, "base64");
+}
+
+/** 参加者の写真の一覧（自分の写真。新しい順） */
+export async function myPhotos(page: Page): Promise<{ photoId: string; status: string; createdAt: string }[]> {
+  return (await (await page.request.get("/api/photos/mine")).json()).photos;
+}
+
+/**
+ * 写真を、画面を通さずに API で送る（準備の写真）。送り先の発行から、サムネイル・本体の送信までを画面と同じ順に行い、
+ * サーバが取り込むまで待って photoId を返す。送り先の発行は短い間の上限（10 分に 30 回）に数える
+ */
+export async function postPhoto(page: Page, color = "#27ae60"): Promise<string> {
+  const res = await page.request.post("/api/photos/upload-url", { data: {} });
+  expect(res.ok()).toBe(true);
+  const target = await res.json();
+  const body = await jpeg(page, color);
+  for (const kind of ["thumb", "full"] as const) {
+    const { url, fields } = target[kind] as { url: string; fields: Record<string, string> };
+    const sent = await page.request.post(url, {
+      multipart: { ...fields, file: { name: "photo.jpg", mimeType: "image/jpeg", buffer: body } },
+    });
+    expect(sent.ok()).toBe(true);
+  }
+  await expect
+    .poll(async () => (await myPhotos(page)).some((p) => p.photoId === target.photoId), { timeout: 30_000 })
+    .toBe(true);
+  return target.photoId;
 }
 
 /** 参加者のホームに出ているポイント（数字） */
