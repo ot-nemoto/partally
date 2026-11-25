@@ -80,6 +80,7 @@ PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`
   - API は 1 つでデータはテストの間で共有されるので、1 つずつ順に実行します。各テストは自分で作ったデータだけを見て、開催中のゲームやイベントの終了を残さないようにします。
   - 準備のデータ（QR の発行・参加者の登録・ゲームの作成）は `e2e/tests/helpers.ts` の `adminApi()`・`participant()` で API から作り、確かめたい流れだけを画面から操作します。確認ダイアログは `acceptConfirm()` で「OK」を押します。
   - 手元で初めて実行するときは、`npx playwright install chromium`（`e2e` で）でブラウザを入れます。
+  - ブラウザを入れられない環境（クラウドの開発環境で、別の版のブラウザが入っているときなど）では、入っている Chromium の場所を `PLAYWRIGHT_CHROMIUM_PATH` に入れて実行します（例：`PLAYWRIGHT_CHROMIUM_PATH=/path/to/chrome npm run e2e`）。版が合わないブラウザだけがあるときは、`Executable doesn't exist` で全部失敗するので、これを使います。
 
 ## コードの約束事
 
