@@ -165,7 +165,10 @@ export async function jpeg(page: Page, color = "#c0392b", size = { width: 320, h
 
 /** 参加者の写真の一覧（自分の写真。新しい順） */
 export async function myPhotos(page: Page): Promise<{ photoId: string; status: string; createdAt: string }[]> {
-  return (await (await page.request.get("/api/photos/mine")).json()).photos;
+  const res = await page.request.get("/api/photos/mine");
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok()) throw new Error(`GET /api/photos/mine → ${res.status()} ${JSON.stringify(body)}`);
+  return body.photos;
 }
 
 /**

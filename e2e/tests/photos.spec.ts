@@ -44,6 +44,15 @@ const favorite = (page: Page, photoId: string, method: "PUT" | "DELETE" = "PUT")
 /** みんなの写真の、その写真のタイル */
 const galleryTile = (page: Page, photoId: string) =>
   page.locator("main .photo-tile", { has: page.locator(`img[src*="${photoId}"]`) });
+/** みんなの写真を開き、一覧を読み込み終えるまで待つ（見出しは一覧より先に出るので、写真が無いことを確かめる前に待つ） */
+async function openGallery(page: Page) {
+  const loaded = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/photos" && r.ok());
+  await page.goto("/gallery");
+  await loaded;
+  // 応答を受けた後の描画まで待つ（写真が 1 枚も無ければ、その案内が出る）
+  const tiles = page.locator("main .photo-grid .photo-tile");
+  await expect(tiles.or(page.getByText("まだ写真がありません。")).first()).toBeVisible();
+}
 /** 幹事の写真の画面の、その写真のカード */
 const adminCard = (page: Page, photoId: string) =>
   page.locator(".admin-photo", { has: page.locator(`img[src*="${photoId}"]`) });
@@ -204,8 +213,7 @@ test.describe("写真の投稿と公開", () => {
 
     // ほかの参加者には、ギャラリーにも API の一覧にも出ない（投稿者のギャラリーにも、公開されるまで出ない）
     for (const page of [b.page, a.page]) {
-      await page.goto("/gallery");
-      await expect(page.locator("main h1")).toHaveText("みんなの写真");
+      await openGallery(page);
       await expect(galleryTile(page, photoId)).toHaveCount(0);
     }
     const listed = (await (await b.page.request.get("/api/photos")).json()).photos;
@@ -252,7 +260,7 @@ test.describe("写真の投稿と公開", () => {
     const bAfter = await me(b.page);
     expect(bAfter.favoritesGiven).toBe(0);
     expect(bAfter.points).toBe(b0.points);
-    await b.page.goto("/gallery");
+    await openGallery(b.page);
     await expect(galleryTile(b.page, removed)).toHaveCount(0);
   });
 
@@ -424,7 +432,8 @@ test("P2 送信を 5 回断られた写真は捨てて撮り直しを案内し�
     await expect(discarded).toHaveCount(0);
     const before = refusals;
     await page.clock.fastForward(30_000);
-    await expect.poll(() => refusals).toBe(before + 1);
+    // 時計は実時間でも進むので、早送りの前に送り直しが走ることもある（1 回以上増えればよい）
+    await expect.poll(() => refusals).toBeGreaterThan(before);
   }
   await expect(discarded).toBeVisible();
   await expect(page.getByText(/送信待ち|送信中/)).toHaveCount(0);
