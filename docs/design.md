@@ -85,6 +85,7 @@ flowchart LR
 |---|---|---|
 | `api` | API Gateway | すべての API。Node.js 22 + [Hono](https://hono.dev/) で 1 関数内ルーティング（処理は領域ごとのファイルに分ける。構成は[開発ガイド](development.md#リポジトリ構成)） |
 | `photo-ingest` | S3 `ObjectCreated`（`uploads/*/full.jpg`） | アップロード完了の検証と写真レコード登録、アップロード数加算 |
+| `partally-reset` | GitHub Actions から手動で呼び出し | 本番データの初期化（Reset ワークフロー）と、管理者ログインの制限の解除（Unlock admin login ワークフロー）。初期化は、決まった合言葉付きの呼び出しでなければ何もしない |
 | （カスタムリソース） | デプロイ時 | CloudFront 署名用の鍵ペアを生成し、秘密鍵を SSM に保存、公開鍵を CloudFront に登録 |
 | （カスタムリソース） | デプロイ時 | CloudFront から API へのリクエストに付ける秘密の値を生成し、SSM に保存、CloudFront のオリジンのカスタムヘッダに入れる |
 
@@ -342,7 +343,7 @@ sequenceDiagram
   A->>D: TOKEN#<token> 取得
   alt トークンが存在しない
     A-->>S: 404（無効な QR）
-  else 紐づけ済みで、その人としてログインしたままの端末（session Cookie の uid・tok が一致）
+  else 紐づけ済みで、その人としてログインしたままの端末か、この端末で覚えている人（session Cookie か accounts Cookie の uid・tok が一致）
     A-->>S: 200 {status: "bound", user} + session / CloudFront Cookie
     S-->>U: ホーム画面へ
   else 紐づけ済みで、ほかの端末
@@ -455,7 +456,7 @@ sequenceDiagram
 
 | メソッド | パス | 説明 |
 |---|---|---|
-| POST | `/api/auth/qr` | トークンでログイン `{token, pin?}`。未紐づけなら `unbound`。その人としてログインしたままの端末でなければ、`pin` が無いと `pin_required`（`setup` が true なら暗証番号が無いので、送った `pin` を暗証番号にする）、違えば 401 `pin_invalid`、ロック中は 423 `pin_locked` |
+| POST | `/api/auth/qr` | トークンでログイン `{token, pin?}`。未紐づけなら `unbound`。その人としてログインしたままの端末でも、この端末で覚えている人（`accounts` Cookie、[4.1](#41-参加者)）でもなければ、`pin` が無いと `pin_required`（`setup` が true なら暗証番号が無いので、送った `pin` を暗証番号にする）、違えば 401 `pin_invalid`、ロック中は 423 `pin_locked` |
 | POST | `/api/auth/register` | 未紐づけトークンに名前と暗証番号（数字 4 桁）を登録（二つ名自動付与） |
 | POST | `/api/auth/logout` | 今の参加者を端末から外す。ほかに覚えている参加者がいれば、その人に切り替えて `{user}` を返す。いなければ Cookie を消す |
 | GET | `/api/accounts` | この端末で覚えている参加者の一覧（`current`・`accounts[{userId, name, epithet}]`）。紐づけを解除された人などは外して覚え直す |
@@ -481,6 +482,7 @@ sequenceDiagram
 |---|---|---|
 | POST | `/api/csp-report` | CSP の違反の報告を受ける（ブラウザが送る。`application/csp-report`）。伏せた要約をログに残して 204。8KB を超えるもの・読めないものは捨てる（[8.2](#82-応答のヘッダセキュリティ)） |
 | POST | `/api/admin/login` | パスワードでログイン。違えば 401 `unauthorized`、続けて間違えて断っている間は 429 `login_locked`（[4.2](#42-管理者)） |
+| GET | `/api/admin/me` | 管理者としてログインしているかの確かめ（ログインしていれば 200 `{}`、していなければ 401） |
 | POST | `/api/admin/logout` | Cookie 削除 |
 | POST | `/api/admin/tokens` | QR トークンを N 件発行 `{count}` |
 | GET | `/api/admin/tokens` | トークン一覧（印刷・配布管理用） |
@@ -558,7 +560,7 @@ sequenceDiagram
 
 | パス | 画面 | 内容 |
 |---|---|---|
-| `/admin/login` | ログイン | パスワード入力（タイトル「partally admin」は、ログイン前の参加者の画面と同じく管理画面の見出しの書体で中央に出す） |
+| `/admin/login` | ログイン | パスワード入力（タイトル「partally admin」は、ログイン前の参加者の画面と同じく管理画面の見出しの書体で中央に出す）。続けて間違えて断られている間（`login_locked`）は、あと何分かと、解除の方法（時間をおく・別の回線から試す・GitHub Actions の「Unlock admin login」）を出す |
 | `/admin/tokens` | QR 管理 | トークン発行、紐づけ状況、印刷用ページ、参加リンク（`/q/<token>`）のコピー（管理画面だけに出す。コピーできない環境では欄に出して選べるようにする） |
 | `/admin/tokens/print` | QR 印刷 | QR と通し番号を並べたページ。ブラウザの印刷機能で PDF 化 |
 | `/admin/users` | ユーザ管理 | 一覧（表示名・ポイント・暗証番号の状態。アップロード数・公開数・選ばれた数・選んだ数・ゲームの点数は「表示」で列ごとに出せ、初めは隠す）、名前／二つ名の編集、紐づけ解除、暗証番号のロック解除・消去 |

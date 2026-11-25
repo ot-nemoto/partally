@@ -12,7 +12,7 @@
    - **確認内容**: 何を、どうやって確かめるか（テスト・lint・型チェック・ブラウザでの動作確認など）
 2. **ブランチで作業する**。`develop`・`master` へ直接 push しない。
 3. **`develop` 宛ての PR を作る**。`.github/pull_request_template.md` に沿って、`Closes #<Issue 番号>` と実際に行った確認とその結果を書く。
-4. **CI とレビューの指摘に対応する**。CI（`.github/workflows/ci.yml`）が通るまで直す。
+4. **CI とレビューの指摘に対応する**。PR を出したら、エージェントのレビュー（`/code-review`）を必ず通し、指摘は直すか、直さない理由を返す。CI（`.github/workflows/ci.yml`）が通るまで直す。
 5. **マージはユーザが行う**。develop へマージすると、CI（`ci.yml`）がテストの後に本番へ自動でデプロイする（GitHub の `production` Environment でデプロイできるブランチを `develop` に限っている）。デプロイし直すときは、ユーザから指示があったときだけ CI ワークフローを `develop` で手動実行する。
 6. **リリースは自動 PR で行う**。毎朝 develop → master の PR が自動で作られ（`auto-pr-to-master.yml`）、付いた `bump:patch` / `bump:minor` ラベルでバージョンが上がる（`bump-version.yml`）。ユーザが「Create a merge commit」でマージすると、master でタグと GitHub Release が作られる（`release.yml`）。Issue に `enhancement` ラベルがあると minor、なければ patch になる。
 
