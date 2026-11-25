@@ -10,6 +10,7 @@ import {
   jpeg,
   PHONE,
   participant,
+  postPhoto,
   todayAt,
   unique,
   updateSettings,
@@ -123,6 +124,10 @@ test("P0-5 写真を投稿して幹事が承認すると、ほかの参加者に
   await adm.locator(".admin-photo", { hasText: a.user.name }).getByRole("button", { name: "承認" }).click();
   const myPhoto = async () => (await (await a.page.request.get("/api/photos/mine")).json()).photos[0];
   await expect.poll(async () => (await myPhoto())?.status).toBe("approved");
+  // 投稿者の自分の写真に「公開中」と出る
+  await a.page.reload();
+  await expect(a.page.locator(".photo-tile .badge-approved")).toHaveText("公開中");
+  await expect(a.page.getByText("確認待ち")).toHaveCount(0);
 
   // ほかの人の写真もギャラリーに並ぶので、この参加者の写真が見えることを確かめる
   await b.page.goto("/gallery");
@@ -231,14 +236,24 @@ test("P0-8 お気に入りを付けると双方のポイントが増え、外す
   const [photo] = (await (await a.page.request.get("/api/photos/mine")).json()).photos;
   await b.page.goto("/gallery");
   const tile = b.page.locator(".photo-tile", { has: b.page.locator(`img[src*="${photo.photoId}"]`) });
+  // 選択数と上限（既定は 10 枚）が、みんなの写真とホームで同じに出る
+  const chosen = async (n: number) => {
+    await expect(b.page.getByText(`（${n} / 10 枚選択中）`)).toBeVisible();
+    await b.page.goto("/");
+    await expect(b.page.getByText(`お気に入り：${n} / 10 枚選択中`)).toBeVisible();
+    await b.page.goto("/gallery");
+  };
+  await chosen(0);
   await tile.getByRole("button", { name: "お気に入りに選ぶ" }).click();
   await expect(tile.getByRole("button", { name: "お気に入りを外す" })).toBeVisible();
   await expect.poll(async () => (await me(a)).points).toBeGreaterThan(aBefore);
   await expect.poll(async () => (await me(b)).points).toBeGreaterThan(bBefore);
+  await chosen(1);
 
   await tile.getByRole("button", { name: "お気に入りを外す" }).click();
   await expect.poll(async () => (await me(a)).points).toBe(aBefore);
   await expect.poll(async () => (await me(b)).points).toBe(bBefore);
+  await chosen(0);
 });
 
 test("P0-9 ランキングを公開すると参加者に出て、幹事の推移の再生の最後が今の並びになる", async ({ browser }) => {
@@ -364,6 +379,8 @@ test("P0-12 イベントを終了すると参加者に知らせ、終了後の�
     await admin.post(`/admin/games/${game.gameId}/confirm`);
   };
   await finish("終了前の大会", 20);
+  // 終了の後に公開する写真（承認してから公開の設定なので、送った時点では確認待ち）
+  const photoId = await postPhoto(a.page);
   const { page: adm } = await adminPage(browser);
   try {
     await adm.goto("/admin/settings");
@@ -374,6 +391,7 @@ test("P0-12 イベントを終了すると参加者に知らせ、終了後の�
     await a.page.goto("/");
     await expect(a.page.locator(".event-ended")).toContainText("イベントは終了しました");
     await finish("終了後の大会", 30);
+    await admin.post(`/admin/photos/${photoId}/approve`);
     await a.page.goto("/");
     await expect(a.page.locator(".points-value")).toHaveText("20");
 
@@ -381,7 +399,8 @@ test("P0-12 イベントを終了すると参加者に知らせ、終了後の�
     await acceptConfirm(adm);
     await a.page.goto("/");
     await expect(a.page.locator(".event-ended")).toHaveCount(0);
-    await expect(a.page.locator(".points-value")).toHaveText("50");
+    // ゲーム（30）と写真の公開（1）の両方が入る
+    await expect(a.page.locator(".points-value")).toHaveText("51");
   } finally {
     // ほかのテストのために、終了したままにしない
     await admin.post("/admin/event/reopen");
