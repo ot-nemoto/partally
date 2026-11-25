@@ -133,10 +133,10 @@ E2E の対象は、API テストでは検証できない次のものに限る。
 
 ## 7. 実装の作り
 
-2026-11-19 の試行（7章）から得た決め事と、それに沿った今の作り。
+2026-11-19 の試行（8章）から得た決め事と、それに沿った今の作り。
 
 - 道具は Playwright（`e2e` ワークスペース、`@playwright/test`）。幹事と参加者A・Bを別々の BrowserContext で同時操作でき、モバイル幅・オフライン・ダウンロードの検証が1つで足りるため。参加者はスマホの大きさ（390×844）、幹事は PC の大きさで開く
-- ローカル開発環境（メモリ内の API `api/src/dev.ts` と web の Vite）に対して実行し、本番 AWS には流さない。`playwright.config.ts` の `webServer` で両方と、CSP の確認に使う本番と同じビルドの画面（`vite preview`、ポート 4173）を起動する（手元で起動済みなら使い回す）
+- ローカル開発環境（メモリ内の API `api/src/dev.ts` と web の Vite）に対して実行し、本番 AWS には流さない。`playwright.config.ts` の `webServer` で両方と、CSP の確認に使う本番と同じビルドの画面（`vite preview`、ポート 4173）を起動する（API と Vite は、手元で起動済みなら使い回す。`vite preview` は古いビルドで確かめないよう、毎回ビルドし直して起動する）
 - API は1つで、データはテストの間で共有する。そのためテストは1つずつ順に実行し（`workers: 1`）、各テストは自分で作ったデータだけを見る。開催中のゲーム・ラウンドは、テストのたびに `afterEach` で止めて次のテストに持ち越さない
 - 準備（QR の発行・参加者の登録・ゲームの作成・設定の変更）は API を直接呼んで作り、検証したい流れだけを画面から操作する。`e2e/tests/helpers.ts` の `adminApi()`（幹事の API）・`participant()`（登録済みの参加者のブラウザ）・`adminPage()`（ログイン済みの幹事のブラウザ）・`updateSettings()` を使う
 - 確認ダイアログは、画面内の確認ダイアログ（`web/src/components/ConfirmDialog.tsx` の `confirmDialog()`）で出す（#194 で `window.confirm()` から置き換えた）。テストでは `acceptConfirm()` で「OK」を押し、確認を承認して進む流れとして確かめる

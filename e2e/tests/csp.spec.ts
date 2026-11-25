@@ -27,7 +27,10 @@ declare global {
   }
 }
 
-/** CSP を付けて画面を開くブラウザ。違反は securitypolicyviolation とコンソールの両方から集める */
+/**
+ * CSP を付けて画面を開くブラウザ。違反は、画面の securitypolicyviolation とコンソールから集める。
+ * Worker（HEIC の変換）の中の違反は画面の securitypolicyviolation には出ないので、変換が止まって送れないこと（アップロード数）で気づく
+ */
 async function cspContext(browser: Browser, viewport = PHONE) {
   const context = await browser.newContext({ baseURL: PREVIEW_URL, viewport, locale: "ja-JP" });
   await context.route(`${PREVIEW_URL}/**`, async (route) => {
@@ -49,7 +52,13 @@ async function cspContext(browser: Browser, viewport = PHONE) {
   /** 開いた画面で起きた違反（画面を移ると securitypolicyviolation の記録は消えるので、移る前にも呼ぶ） */
   const violations = async () => [
     ...consoleViolations,
-    ...(await page.evaluate(() => window.__cspViolations ?? []).catch(() => [])),
+    ...(await page
+      .evaluate(() => window.__cspViolations ?? [])
+      .catch((e: Error) => {
+        // 画面を移っている途中で読めなかったときだけ、記録なしとする（ほかの失敗は隠さない）
+        if (/Execution context was destroyed/.test(e.message)) return [];
+        throw e;
+      })),
   ];
   return { context, page, violations };
 }
@@ -69,7 +78,7 @@ async function chooseFile(page: Page, file: { name: string; mimeType: string; bu
   await (await chooser).setFiles(file);
 }
 
-/** 画面の画像が読み込めている（CSP で止められると naturalWidth が 0 のまま） */
+/** 画面の画像が読み込めている（CSP で止められると naturalWidth が 0 のまま）。画面の外で遅れて読む画像は含めない */
 async function expectImagesLoaded(page: Page, selector: string) {
   const images = page.locator(selector);
   await expect(images.first()).toBeVisible();
@@ -111,14 +120,15 @@ test("CSP 参加者：登録・写真（JPEG と HEIC）の投稿・ギャラリ
   await expect(page.locator(".error")).toHaveCount(0);
   expect(await violations()).toEqual([]);
 
-  // 承認して、ギャラリーと自分の写真で画像（/photos の署名付き URL）が出ることを確かめる
+  // 承認して、ギャラリーで自分の写真の画像（/photos の URL）が出ることを確かめる。
+  // ほかのテストの写真も並ぶ（画面の外のものは遅れて読む）ので、自分の写真だけを見る
   const userId = (await (await page.request.get("/api/me")).json()).user.userId;
   const { photos } = await admin.get("/admin/photos?status=pending");
-  for (const p of photos.filter((p: { uploaderId: string }) => p.uploaderId === userId)) {
-    await admin.post(`/admin/photos/${p.photoId}/approve`);
-  }
+  const mine: { photoId: string }[] = photos.filter((p: { uploaderId: string }) => p.uploaderId === userId);
+  expect(mine).toHaveLength(2);
+  for (const p of mine) await admin.post(`/admin/photos/${p.photoId}/approve`);
   await page.goto("/gallery");
-  await expectImagesLoaded(page, "main img");
+  await expectImagesLoaded(page, mine.map((p) => `main img[src*="${p.photoId}"]`).join(", "));
   expect(await violations()).toEqual([]);
 
   await visitAll(page, violations, ["/", "/mine", "/game", "/standings"]);
