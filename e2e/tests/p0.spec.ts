@@ -161,19 +161,43 @@ test("P0-6 クイズを開始すると参加者にお知らせが出て、決定
   await expect(a.page.locator(".points-value")).toHaveText("10");
 });
 
-test("P0-7 結果入力のゲームを開始・終了すると、選んだ人のホームに「優勝 +30」が出る", async ({ browser }) => {
-  const a = await participant(browser, admin, "優勝 四郎");
+test("P0-7 結果入力のゲームを管理画面で作って人を選び、開始・終了すると、選んだ人のホームに「優勝 +30」が出る", async ({
+  browser,
+}) => {
+  const a = await participant(browser, admin, unique("優勝 四郎"));
   const gameName = unique("じゃんけん大会");
-  await admin.post("/admin/games", {
-    format: "result",
-    name: gameName,
-    slots: [{ name: "優勝", points: 30, userIds: [a.user.userId] }],
-  });
   const { page: adm } = await adminPage(browser);
   await adm.goto("/admin/games");
+
+  // 結果入力を選び、名前と枠（優勝 30 点）を入れて作る
+  await adm.getByRole("button", { name: "ゲームを作る" }).click();
+  const form = adm.locator("dialog.game-dialog[open]");
+  // 形式は、ラジオボタンを覆うパネルを押して選ぶ
+  await form.locator("label.game-format-panel", { hasText: "結果入力" }).click();
+  await expect(form.getByRole("radio", { name: /結果入力/ })).toBeChecked();
+  await form.getByLabel("名前", { exact: true }).fill(gameName);
+  await form.getByRole("button", { name: "枠を追加" }).click();
+  await form.getByRole("textbox", { name: /^枠 1/ }).fill("優勝");
+  // 名前はラベルの「点数」と、範囲の案内（0〜100）をつなげたもの
+  await form.getByRole("textbox", { name: /^点数/ }).fill("30");
+  await form.getByRole("button", { name: "保存" }).click();
+  await expect(form).toHaveCount(0);
+
+  // 枠の「人を選ぶ」で、名前で絞り込んで選ぶ
   const card = adm.locator("article.game-card", { hasText: gameName });
+  await card.getByRole("button", { name: "優勝の人を選ぶ", exact: true }).click();
+  const picker = adm.locator("dialog.game-dialog[open]");
+  await picker.getByRole("searchbox", { name: "絞り込み" }).fill(a.user.name);
+  await picker.getByRole("checkbox").check();
+  await picker.getByRole("button", { name: "保存" }).click();
+  await expect(picker).toHaveCount(0);
+  await expect(card.locator(".game-slot-members")).toContainText(a.user.name);
+
   await card.locator("header").getByRole("button", { name: "開始" }).click();
   await expect(card.locator("header").getByRole("button", { name: "終了" })).toBeVisible();
+  // 結果入力のお知らせは「ゲーム開催中」
+  await a.page.goto("/");
+  await expect(a.page.locator(".quiz-banner")).toContainText("ゲーム開催中");
   await card.locator("header").getByRole("button", { name: "終了" }).click();
   await acceptConfirm(adm);
   await expect(card.locator(".status")).toHaveText("終了");

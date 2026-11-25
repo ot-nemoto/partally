@@ -5,13 +5,16 @@ import {
   adminApi,
   adminPage,
   homePoints,
+  jpeg,
   participant,
   unique,
+  updateSettings,
   useDefaultSettings,
 } from "./helpers";
 
 /**
- * ゲームの共通の流れ・ラウンド・管理画面の操作（docs/e2e-tests.md の 3 章「ゲーム共通・形式別・ラウンド」と 4 章。#269）。
+ * ゲームの共通の流れ・ラウンド・管理画面の操作（#269）と、形式別（数値予想・投票・合言葉・抽選・画像付きのクイズ・結果入力の人選び。#270）。
+ * docs/e2e-tests.md の 3 章「ゲーム共通・形式別・ラウンド」と 4 章。
  * 準備のデータは API で作り、確かめたい流れだけを画面から操作する
  */
 useDefaultSettings();
@@ -40,7 +43,15 @@ test.afterEach(async ({ browser }) => {
   }
 });
 
-type Game = { gameId: string; name: string; status: string; confirmedAt?: string; storedAnswerCount: number };
+type Game = {
+  gameId: string;
+  name: string;
+  status: string;
+  confirmedAt?: string;
+  storedAnswerCount: number;
+  /** 抽選を終了したときに決めた順番 */
+  drawOrder?: string[];
+};
 
 /** クイズを下書きで作る（選択肢は「北海道」10 点・「沖縄」0 点）。名前は保存された名前（NFKC でそろう）を返す */
 async function createQuiz(name: string, points = 10): Promise<Game> {
@@ -67,6 +78,13 @@ async function createResult(name: string, userIds: string[] = []): Promise<Game>
 
 const getGame = async (gameId: string): Promise<Game> =>
   (await admin.get("/admin/games")).games.find((g: Game) => g.gameId === gameId);
+
+/** 管理画面の一覧からゲームを読む（無ければ、TypeError ではなくアサーションで失敗させる） */
+async function mustGetGame(gameId: string): Promise<Game> {
+  const game = await getGame(gameId);
+  expect(game, `ゲーム ${gameId} が一覧に無い`).toBeDefined();
+  return game;
+}
 
 /** 管理画面のゲームのカード（名前で探す） */
 const gameCard = (page: Page, name: string) =>
@@ -483,5 +501,361 @@ test.describe("ゲームの編集・プレビュー・一覧", () => {
     await form2.getByRole("button", { name: "保存" }).click();
     await expect(form2.locator(".error")).toContainText("ほかの画面でこのゲームが変更されました");
     expect((await getGame(quiz.gameId)).name).toBe(name1);
+  });
+});
+
+/** ゲームを下書きで作る（作るときの本文をそのまま送る。名前は unique() で変える） */
+async function createGame(body: Record<string, unknown> & { name: string }): Promise<Game> {
+  const { game } = await admin.post("/admin/games", { ...body, name: unique(body.name) });
+  return game;
+}
+
+/** 参加者のホームの、そのゲームで点数が入った行 */
+const awardOf = (page: Page, gameName: string) => page.locator(".game-awards li", { hasText: gameName });
+
+/** 管理画面で、そのゲームの「回答者を見る」を開く */
+async function openAnswers(adm: Page, name: string) {
+  await adm.goto("/admin/games");
+  await gameCard(adm, name).getByRole("button", { name: "回答者を見る" }).click();
+  return adm.locator("dialog.game-dialog[open]");
+}
+
+test.describe("形式別", () => {
+  test("P1 数値予想：正解の数を入れないと終了できず、終了後は近い順の順位と点数がホームに出る", async ({ browser }) => {
+    const a = await participant(browser, admin, unique("予想 一郎"));
+    const b = await participant(browser, admin, unique("予想 二郎"));
+    const game = await createGame({
+      format: "number",
+      name: "飴の数",
+      ranks: [
+        { from: 1, to: 1, points: 10 },
+        { from: 2, to: 3, points: 5 },
+      ],
+    });
+    await admin.post(`/admin/games/${game.gameId}/open`);
+
+    await a.page.goto("/");
+    await expect(a.page.locator(".quiz-banner")).toContainText("問題が出ています");
+    await a.page.goto("/game");
+    await a.page.getByRole("textbox", { name: /^予想する数/ }).fill("40");
+    await a.page.getByRole("button", { name: "決定" }).click();
+    // 決定した後は答え直せない
+    await expect(a.page.locator(".game-number-mine")).toHaveText("40");
+    await expect(a.page.locator(".game-done-stamp")).toBeVisible();
+    await expect(a.page.getByRole("textbox", { name: /^予想する数/ })).toHaveCount(0);
+    await answer(b.page, game.gameId, { value: 42 });
+
+    // 正解の数が無いうちは終了できず、理由が出る
+    const { page: adm } = await adminPage(browser);
+    await adm.goto("/admin/games");
+    const card = gameCard(adm, game.name);
+    const end = card.getByRole("button", { name: "終了" });
+    await expect(end).toBeDisabled();
+    await expect(end).toHaveAttribute("title", "正解の数を入れてから終了してください");
+    await expect(card).toContainText("未設定（「編集」で入れると終了できます）");
+
+    await card.getByRole("button", { name: "編集" }).click();
+    const form = adm.locator("dialog.game-dialog[open]");
+    await form.getByRole("textbox", { name: /^正解の数/ }).fill("43");
+    await form.getByRole("button", { name: "保存" }).click();
+    await expect(form).toHaveCount(0);
+    await expect(card).toContainText("正解の数: 43");
+    await end.click();
+    await acceptConfirm(adm);
+    await expect(card.locator(".status")).toHaveText("終了");
+
+    // 差が 3 の a は 2 位で 5 点、差が 1 の b は 1 位で 10 点
+    await a.page.goto("/");
+    await expect(awardOf(a.page, game.name)).toContainText("2 位（予想 40）");
+    await expect(awardOf(a.page, game.name)).toContainText("+5");
+    await b.page.goto("/");
+    await expect(awardOf(b.page, game.name)).toContainText("1 位（予想 42）");
+    await expect(awardOf(b.page, game.name)).toContainText("+10");
+  });
+
+  test("P1 投票：名前・二つ名で絞り込めて自分は選べず、参加者には票が見えず、幹事には集計が見える", async ({
+    browser,
+  }) => {
+    // 投票の候補は、ランキングの「名前を伏せる」に関係なく名前を出す
+    await updateSettings(admin, { rankingVisible: true, rankingHideNames: true });
+    const a = await participant(browser, admin, unique("投票 一郎"));
+    const b = await participant(browser, admin, unique("投票 二郎"));
+    const c = await participant(browser, admin, unique("投票 三郎"));
+    const game = await createGame({
+      format: "vote",
+      name: "ベストドレッサー",
+      ranks: [{ from: 1, to: 1, points: 30 }],
+      voterPoints: 5,
+    });
+    await admin.post(`/admin/games/${game.gameId}/open`);
+
+    await a.page.goto("/");
+    await expect(a.page.locator(".quiz-banner")).toContainText("投票受付中");
+    await a.page.goto("/game");
+    const search = a.page.getByRole("searchbox", { name: "名前・二つ名で探す" });
+    const list = a.page.locator(".game-vote-list");
+    // 自分は候補に出ない
+    await search.fill(a.user.name);
+    await expect(a.page.getByText("見つかりません。")).toBeVisible();
+    // 二つ名で絞り込める（二つ名は全員で重ならない）。名前は伏せずに出る
+    await search.fill(b.user.epithet);
+    await expect(list.getByRole("button")).toHaveCount(1);
+    await expect(list).toContainText(b.user.name);
+    await list.getByRole("button").click();
+    await a.page.locator(".game-decide-bar").getByRole("button", { name: "決定" }).click();
+    await expect(a.page.locator(".game-vote-mine")).toContainText(b.user.name);
+    await expect(a.page.locator(".game-done-stamp")).toBeVisible();
+    await answer(c.page, game.gameId, { targetUserId: b.user.userId });
+
+    // 参加者には、票数も、ほかの人の投票先も見えない。画面に出ないことに加え、参加者に返る内容にも含まれない
+    await a.page.reload();
+    await expect(a.page.locator(".game-vote-mine")).toContainText(b.user.name);
+    await expect(a.page.locator("main")).not.toContainText(/\d+\s*票/);
+    await expect(a.page.locator("main")).not.toContainText(c.user.name);
+    await expect(a.page.locator(".game-voters")).toHaveCount(0);
+    const [current] = (await (await a.page.request.get("/api/game/current")).json()).games;
+    expect(current.myTargetUserId).toBe(b.user.userId);
+    expect(JSON.stringify(current)).not.toContain(c.user.userId);
+    expect(Object.keys(current)).not.toEqual(expect.arrayContaining(["votes"]));
+    expect(Object.keys(current)).not.toEqual(expect.arrayContaining(["answers"]));
+
+    // 幹事には、順位・票数・点数と、投票した人が見える
+    const { page: adm } = await adminPage(browser);
+    const dialog = await openAnswers(adm, game.name);
+    const row = dialog.locator("tr", { hasText: b.user.name });
+    await expect(row.locator("td").nth(0)).toHaveText("1 位");
+    await expect(row.locator("td").nth(2)).toHaveText("2");
+    await expect(row.locator("td").nth(3)).toHaveText("30 点");
+    await expect(row.locator(".game-voters")).toContainText(a.user.name);
+    await expect(row.locator(".game-voters")).toContainText(c.user.name);
+
+    await admin.post(`/admin/games/${game.gameId}/confirm`);
+    await b.page.goto("/");
+    await expect(awardOf(b.page, game.name)).toContainText("1 位（2 票）");
+    await expect(awardOf(b.page, game.name)).toContainText("+30");
+    await a.page.goto("/");
+    await expect(awardOf(a.page, game.name)).toContainText("投票");
+    await expect(awardOf(a.page, game.name)).toContainText("+5");
+  });
+
+  test("P1 合言葉：不正解なら何度でも試せ、表記ゆれでも正解になり、正解した後は送れない", async ({ browser }) => {
+    const a = await participant(browser, admin, unique("合言葉 一郎"));
+    const b = await participant(browser, admin, unique("合言葉 二郎"));
+    const game = await createGame({
+      format: "keyword",
+      name: "会場の合言葉",
+      keyword: "パーティー",
+      ranks: [{ from: 1, to: 3, points: 10 }],
+    });
+    await admin.post(`/admin/games/${game.gameId}/open`);
+
+    await a.page.goto("/");
+    await expect(a.page.locator(".quiz-banner")).toContainText("合言葉を受付中");
+    await a.page.goto("/game");
+    const input = a.page.getByRole("textbox", { name: "合言葉" });
+    await input.fill("パーテー");
+    await a.page.getByRole("button", { name: "送る" }).click();
+    await expect(a.page.getByText("ちがいます。もう一度どうぞ。")).toBeVisible();
+    // 半角カナでも正解になる
+    await input.fill("ﾊﾟｰﾃｨｰ");
+    await a.page.getByRole("button", { name: "送る" }).click();
+    await expect(a.page.getByText("正解です！")).toBeVisible();
+    await expect(a.page.getByRole("textbox", { name: "合言葉" })).toHaveCount(0);
+    await expect(a.page.getByRole("button", { name: "送る" })).toHaveCount(0);
+    // ひらがなでも正解になる
+    const res = await b.page.request.put(`/api/game/${game.gameId}/answer`, { data: { text: "ぱーてぃー" } });
+    expect((await res.json()).correct).toBe(true);
+
+    // 幹事には正解した順に出る。不正解の言葉は残らない
+    const { page: adm } = await adminPage(browser);
+    const dialog = await openAnswers(adm, game.name);
+    await expect(dialog).toContainText("正解 2 人");
+    await expect(dialog.locator("tbody tr").nth(0)).toContainText(a.user.name);
+    await expect(dialog.locator("tbody tr").nth(1)).toContainText(b.user.name);
+    await expect(dialog).not.toContainText("パーテー");
+
+    await admin.post(`/admin/games/${game.gameId}/confirm`);
+    await a.page.goto("/");
+    await expect(awardOf(a.page, game.name)).toContainText("1 番目に正解");
+    await expect(awardOf(a.page, game.name)).toContainText("+10");
+  });
+
+  test("P1 抽選：参加は 1 回だけで、終了で当選が決まり、幹事には順番と抽選に入らなかった人が出て、取り消すと引き直しになる", async ({
+    browser,
+  }) => {
+    const a = await participant(browser, admin, unique("抽選 一郎"));
+    const b = await participant(browser, admin, unique("抽選 二郎"));
+    const c = await participant(browser, admin, unique("抽選 三郎"));
+    const game = await createGame({
+      format: "lottery",
+      name: "お楽しみ抽選",
+      ranks: [
+        { from: 1, to: 1, points: 30 },
+        { from: 2, to: 5, points: 10 },
+      ],
+    });
+    await admin.post(`/admin/games/${game.gameId}/open`);
+
+    await a.page.goto("/");
+    await expect(a.page.locator(".quiz-banner")).toContainText("抽選の参加受付中");
+    await a.page.goto("/game");
+    await a.page.getByRole("button", { name: "参加する" }).click();
+    await expect(a.page.getByText("参加しました")).toBeVisible();
+    await expect(a.page.locator(".game-done-stamp")).toBeVisible();
+    await a.page.reload();
+    await expect(a.page.getByRole("button", { name: "参加する" })).toHaveCount(0);
+    // 2 回目の参加は断られる
+    const again = await a.page.request.put(`/api/game/${game.gameId}/answer`, { data: { entry: true } });
+    expect(again.status()).toBe(409);
+    await answer(b.page, game.gameId, { entry: true });
+    await answer(c.page, game.gameId, { entry: true });
+    // 参加した後に紐づけを解除された人は、抽選に入らない
+    await admin.post(`/admin/users/${c.user.userId}/unbind`);
+
+    const { page: adm } = await adminPage(browser);
+    await adm.goto("/admin/games");
+    const card = gameCard(adm, game.name);
+    await card.getByRole("button", { name: "終了" }).click();
+    await acceptConfirm(adm);
+    await expect(card.locator(".status")).toHaveText("終了");
+    const order = (await mustGetGame(game.gameId)).drawOrder ?? [];
+    expect([...order].sort()).toEqual([a.user.userId, b.user.userId].sort());
+
+    // 幹事には、当選した人が順番どおりに出て、抽選に入らなかった人も出る
+    const dialog = await openAnswers(adm, game.name);
+    const rows = dialog.locator("tbody tr");
+    const nameOf = (id: string) => (id === a.user.userId ? a.user.name : b.user.name);
+    await expect(rows.nth(0)).toContainText(nameOf(order[0]!));
+    await expect(rows.nth(0)).toContainText("1 等");
+    await expect(rows.nth(1)).toContainText(nameOf(order[1]!));
+    await expect(dialog).toContainText("抽選に入っていない参加者（1 人）");
+    await expect(dialog).toContainText(c.user.name);
+    await dialog.getByRole("button", { name: "閉じる" }).click();
+
+    // 1 番目に引かれた人のホームに「1 等に当選 +30」が出る
+    const first = order[0] === a.user.userId ? a : b;
+    await first.page.goto("/");
+    await expect(awardOf(first.page, game.name)).toContainText("1 等に当選");
+    await expect(awardOf(first.page, game.name)).toContainText("+30");
+
+    // 終了を取り消すときは、引き直しになることを知らせる。取り消すと順番も消える
+    await card.getByRole("button", { name: "終了を取り消す" }).click();
+    await expect(adm.locator("dialog.confirm-dialog[open]")).toContainText("引き直しになります");
+    await acceptConfirm(adm);
+    await expect(card.locator(".status")).toHaveText("下書き");
+    expect((await mustGetGame(game.gameId)).drawOrder).toBeFalsy();
+  });
+
+  test("P2 画像付きのクイズ（問題と選択肢）では、選択肢が画像付きの大きいボタン（2 列）になる", async ({ browser }) => {
+    const a = await participant(browser, admin, unique("画像 一郎"));
+    const { page: adm } = await adminPage(browser);
+    await adm.goto("/admin/games");
+    const name = unique("この写真はどこ？").normalize("NFKC");
+
+    // 管理画面で、問題と選択肢に画像を付けて作る（選択肢 3 は画像なし）
+    await adm.getByRole("button", { name: "ゲームを作る" }).click();
+    const form = adm.locator("dialog.game-dialog[open]");
+    await form.getByLabel("名前", { exact: true }).fill(name);
+    await form
+      .locator("input[type=file]")
+      .first()
+      .setInputFiles({
+        name: "question.jpg",
+        mimeType: "image/jpeg",
+        buffer: await jpeg(adm, "#8e44ad"),
+      });
+    for (const [i, text] of ["海", "山", "川"].entries()) {
+      await form.getByRole("textbox", { name: new RegExp(`^選択肢 ${i + 1}`) }).fill(text);
+      if (i < 2) {
+        await form
+          .locator(".field", { hasText: `選択肢 ${i + 1} の画像` })
+          .locator("input[type=file]")
+          .setInputFiles({ name: `choice${i}.jpg`, mimeType: "image/jpeg", buffer: await jpeg(adm, "#16a085") });
+      }
+    }
+    const save = form.getByRole("button", { name: "保存" });
+    await expect(save).toBeEnabled({ timeout: 20_000 });
+    await save.click();
+    await expect(form).toHaveCount(0, { timeout: 20_000 });
+
+    const game: Game = (await admin.get("/admin/games")).games.find((g: Game) => g.name === name);
+    await admin.post(`/admin/games/${game.gameId}/open`);
+    await a.page.goto("/game");
+    // 問題の画像と、選択肢の画像が読み込まれる
+    const question = a.page.getByRole("img", { name: "問題の画像" });
+    await expect(question).toBeVisible();
+    await expect.poll(() => question.evaluate((e) => (e as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    const choices = a.page.locator(".quiz-choices.with-images");
+    await expect(choices.locator(".quiz-choice-image")).toHaveCount(2);
+    await expect
+      .poll(() =>
+        choices
+          .locator(".quiz-choice-image")
+          .evaluateAll((els) => els.every((e) => (e as HTMLImageElement).naturalWidth > 0)),
+      )
+      .toBe(true);
+    // スマホの幅で 2 列に並ぶ
+    const columns = await choices.evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").length);
+    expect(columns).toBe(2);
+  });
+
+  test("P2 結果入力の人選びで、絞り込み・全員の選択と解除・複数選択ができ、ほかの枠の人を選ぶと枠が移る", async ({
+    browser,
+  }) => {
+    const tag = unique("人選び");
+    const a = await participant(browser, admin, `${tag} 一`);
+    const b = await participant(browser, admin, `${tag} 二`);
+    const game = await createGame({
+      format: "result",
+      name: "人選びの大会",
+      slots: [
+        { name: "優勝", points: 30, userIds: [] },
+        { name: "準優勝", points: 20, userIds: [] },
+      ],
+    });
+    const { page: adm } = await adminPage(browser);
+    await adm.goto("/admin/games");
+    const card = gameCard(adm, game.name);
+    const picker = adm.locator("dialog.game-dialog[open]");
+    const count = picker.locator(".member-picker-count");
+
+    // 絞り込みと、表示中の全員の選択・選択の解除
+    await card.getByRole("button", { name: "優勝の人を選ぶ", exact: true }).click();
+    await picker.getByRole("searchbox", { name: "絞り込み" }).fill(tag);
+    await expect(picker.locator(".member-list li")).toHaveCount(2);
+    await picker.getByRole("button", { name: "表示中の人を全員選ぶ" }).click();
+    await expect(count).toHaveText("2 人を選択中");
+    await picker.getByRole("button", { name: "選択を外す" }).click();
+    await expect(count).toHaveText("0 人を選択中");
+    // チェックで選ぶ（a だけ）
+    await picker.locator(".member-list li", { hasText: a.user.name }).getByRole("checkbox").check();
+    await picker.getByRole("button", { name: "保存" }).click();
+    await expect(picker).toHaveCount(0);
+    // 「優勝」が「準優勝」に当たらないよう、枠の名前は完全一致で探す
+    const slot = (slotName: string) =>
+      card
+        .locator(".game-slots > li")
+        .filter({ has: adm.locator(".game-slot-head strong").getByText(slotName, { exact: true }) });
+    await expect(slot("優勝").locator(".game-slot-members")).toHaveText(new RegExp(a.user.name));
+
+    // 絞り込まずに「全員を選ぶ」と、一覧の全員が選ばれる（保存しない）
+    await card.getByRole("button", { name: "準優勝の人を選ぶ", exact: true }).click();
+    await picker.getByRole("button", { name: "全員を選ぶ" }).click();
+    const all = await picker.locator(".member-list li").count();
+    await expect(count).toHaveText(`${all} 人を選択中`);
+    await picker.getByRole("button", { name: "選択を外す" }).click();
+
+    // ほかの枠（優勝）の a と、b を選ぶと、a は準優勝に移る
+    await picker.getByRole("searchbox", { name: "絞り込み" }).fill(tag);
+    const aRow = picker.locator(".member-list li", { hasText: a.user.name });
+    await expect(aRow.locator(".member-other")).toHaveText("優勝");
+    await aRow.getByRole("checkbox").check();
+    await picker.locator(".member-list li", { hasText: b.user.name }).getByRole("checkbox").check();
+    await expect(picker).toContainText("ほかの枠に入っている 1 人は、この枠に移ります。");
+    await picker.getByRole("button", { name: "保存" }).click();
+    await expect(picker).toHaveCount(0);
+    await expect(slot("優勝").locator(".game-slot-members")).toHaveText("まだ選んでいません");
+    await expect(slot("準優勝").locator(".game-slot-members")).toContainText(a.user.name);
+    await expect(slot("準優勝").locator(".game-slot-members")).toContainText(b.user.name);
   });
 });
