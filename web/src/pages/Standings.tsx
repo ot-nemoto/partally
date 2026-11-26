@@ -180,8 +180,8 @@ function PrizesView() {
     return (
       <p className="error">
         {t(
-          "景品を読み込めませんでした。画面を下に引っ張って、読み込み直してください。",
-          "Couldn’t load the prizes. Pull down the screen to reload.",
+          "景品を読み込めませんでした。画面を下に引っ張るか、ブラウザで読み込み直してください。",
+          "Couldn’t load the prizes. Pull down the screen or reload the page.",
         )}
       </p>
     );
@@ -271,7 +271,10 @@ function StandingsView({ view, withPrizes }: { view: "ranking" | "trend"; withPr
         </div>
       )}
       <p className="muted small">
-        {t("最新にするには、画面を下に引っ張って読み込み直してください。", "Pull down the screen to update.")}
+        {t(
+          "最新にするには、画面を下に引っ張るか、ブラウザで読み込み直してください。",
+          "To update, pull down the screen or reload the page.",
+        )}
       </p>
     </>
   );

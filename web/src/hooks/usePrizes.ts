@@ -13,7 +13,7 @@ export function usePrizes(path: "/admin/prizes" | "/prizes", enabled = true) {
   const [prizes, setPrizes] = useState<PrizeDto[]>();
   const [state, setState] = useState<PrizesState>("loading");
 
-  // 「更新」を続けて押して読み込みが重なったとき、後から返ってきた古い応答で戻さない
+  // 管理画面の「更新」を続けて押して読み込みが重なったとき、後から返ってきた古い応答で戻さない
   const latestRequest = useRef(0);
   const load = useCallback(() => {
     const request = ++latestRequest.current;
