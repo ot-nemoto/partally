@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
-import { ORIGIN_VERIFY_HEADER, PartallyStack, RESET_FUNCTION_NAME, reportOnlyCsp } from "../lib/partally-stack.js";
+import {
+  contentSecurityPolicy,
+  ORIGIN_VERIFY_HEADER,
+  PartallyStack,
+  RESET_FUNCTION_NAME,
+} from "../lib/partally-stack.js";
 
 describe("PartallyStack", () => {
   let template: Template;
@@ -88,17 +93,17 @@ describe("PartallyStack", () => {
     template.hasResourceProperties("AWS::CloudFormation::CustomResource", { ParameterName: "/partally/origin-verify" });
   });
 
-  it("読み込み元を絞る CSP を Report-Only で付け、違反を /api/csp-report に送らせる", () => {
+  it("読み込み元を絞る CSP を（報告だけでなく）強制で付け、違反を /api/csp-report に送らせる", () => {
     template.hasResourceProperties("AWS::CloudFront::ResponseHeadersPolicy", {
       ResponseHeadersPolicyConfig: Match.objectLike({
-        CustomHeadersConfig: {
-          Items: [
-            { Header: "Content-Security-Policy-Report-Only", Value: reportOnlyCsp("ap-northeast-1"), Override: true },
-          ],
-        },
+        SecurityHeadersConfig: Match.objectLike({
+          ContentSecurityPolicy: { ContentSecurityPolicy: contentSecurityPolicy("ap-northeast-1"), Override: true },
+        }),
       }),
     });
-    const csp = reportOnlyCsp("ap-northeast-1");
+    const policy = template.findResources("AWS::CloudFront::ResponseHeadersPolicy");
+    expect(JSON.stringify(policy)).not.toContain("Content-Security-Policy-Report-Only");
+    const csp = contentSecurityPolicy("ap-northeast-1");
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("report-uri /api/csp-report");
     expect(csp).toContain("https://*.s3.ap-northeast-1.amazonaws.com");
