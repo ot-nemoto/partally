@@ -1,6 +1,6 @@
 import { type PrizeDto, SCHEDULE_COLUMNS_MAX, type ScheduleItemDto, type ScheduleResponse } from "@partally/shared";
 import type { DataArchive } from "@partally/shared/data-archive";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../../../api";
 import { confirmDialog } from "../../../components/ConfirmDialog";
 import { Modal } from "../../../components/Modal";
@@ -77,7 +77,11 @@ export function DataImportDialog(props: {
   const [scheduleItems, setScheduleItems] = useState<ScheduleItemDto[]>(current.scheduleItems);
   // 今の列と取り込む列を合わせて上限を超えると、途中で作れなくなって止まるので、始める前に分かるようにする
   // （置き換えも、取り込めてから今の項目を消すので同じ）
-  const schedulePlan = data.schedule && planScheduleImport(scheduleItems, data.schedule.items);
+  // 全件の並べ直しをたどるので、取り込み中の進み具合の描画のたびには数え直さない
+  const schedulePlan = useMemo(
+    () => data.schedule && planScheduleImport(scheduleItems, data.schedule.items),
+    [scheduleItems, data.schedule],
+  );
   const tooManyColumns = include.schedule && schedulePlan !== undefined && !schedulePlan.fits;
   /** 列が上限を超えるときの理由 */
   const tooManyColumnsMessage = (plan: ScheduleImportPlan) =>
@@ -88,7 +92,7 @@ export function DataImportDialog(props: {
 
   /**
    * 今のスケジュールを読み直して、取り込みの計画を立て直す（開いた後や、ゲーム・景品を取り込んでいる間に、ほかの画面で
-   * 列が増えているかもしれないので）。上限を超えるなら、理由を出して undefined を返す
+   * 列が増えているかもしれないので）。上限を超えるなら TooManyColumnsError を投げる（理由は、スケジュールの欄にも出る）
    */
   async function replanSchedule(): Promise<{ plan: ScheduleImportPlan; items: ScheduleItemDto[] }> {
     const { items } = await api<ScheduleResponse>("GET", "/admin/schedule");
@@ -101,7 +105,6 @@ export function DataImportDialog(props: {
   async function run() {
     if (started.current) return;
     started.current = true;
-    setRunning(true);
     setError(undefined);
     try {
       await runImport();
@@ -119,7 +122,8 @@ export function DataImportDialog(props: {
       try {
         schedule = await replanSchedule();
       } catch (e) {
-        setError(e instanceof TooManyColumnsError ? e.message : errorMessage(e));
+        // 列が多すぎるときの理由は、読み直した項目でスケジュールの欄に出るので、下には重ねて出さない
+        if (!(e instanceof TooManyColumnsError)) setError(errorMessage(e));
         return;
       }
     }
@@ -155,6 +159,7 @@ export function DataImportDialog(props: {
     )
       return;
 
+    setRunning(true);
     /** 今していること（止まったときの表示に使う） */
     let doing = "";
     /** 置き換えで、今のものを消している途中か（止まったときに、残っている分があると知らせる） */
@@ -326,7 +331,7 @@ export function DataImportDialog(props: {
             <ModeChoice
               name="schedule-mode"
               noun={t("項目", "items")}
-              count={current.scheduleItems.length}
+              count={scheduleItems.length}
               mode={scheduleMode}
               onChange={setScheduleMode}
               addNote={t(
@@ -334,7 +339,10 @@ export function DataImportDialog(props: {
                 "Imported items go in columns to the right of the current ones, keeping the file’s column order.",
               )}
             />
-            {tooManyColumns && schedulePlan && <p className="error small">{tooManyColumnsMessage(schedulePlan)}</p>}
+            {/* 取り込みの途中で止まったときは、下に止まった理由として出るので、重ねて出さない */}
+            {tooManyColumns && schedulePlan && !error && (
+              <p className="error small">{tooManyColumnsMessage(schedulePlan)}</p>
+            )}
             {data.schedule.date && (
               <label className="import-option">
                 <input type="checkbox" checked={withDate} onChange={(e) => setWithDate(e.target.checked)} />
