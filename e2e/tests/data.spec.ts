@@ -23,7 +23,7 @@ import {
  * docs/e2e-tests.md の 3 章「公開・設定・移行・言語・景品・スケジュール」と 4 章。
  *
  * 空の環境は用意できない（API は 1 つで、データの入った環境へも流す）ので、今のデータは消さずに「追加」で取り込む。
- * 書き出した ZIP には環境のすべてのゲーム・景品・スケジュールが入る（取り込める件数を超えることもある）ので、
+ * 書き出した ZIP には環境のすべてのゲーム・景品・スケジュールが入る（取り込むと、環境のデータがその分だけ増える）ので、
  * このテストで作ったものだけを抜き出した ZIP を作り直して取り込む
  */
 useDefaultSettings();
@@ -316,4 +316,49 @@ test("P2 不正な ZIP は何も取り込まずに理由が出て、以前の形
     "スケジュール（1 件）",
   );
   expect(await itemsTitled(oldItem)).toHaveLength(1);
+});
+
+test("P2 スケジュールを取り込むと今の列と合わせて上限（50 列）を超えるときは、始める前に理由が出て取り込めない", async ({
+  browser,
+}) => {
+  // 今の項目を少なくとも 1 列にする（右端の新しい列に置く）。ファイルは上限いっぱいの 50 列にするので、合わせると必ず超える
+  const anchor = unique("E2E 列の上限 今の項目");
+  titles.push(anchor);
+  await admin.post("/admin/schedule", {
+    title: anchor,
+    detail: "",
+    startMinute: 6 * 60,
+    durationMinutes: 30,
+    column: 49,
+  });
+  const fileItems: ScheduleFileItem[] = Array.from({ length: 50 }, (_, column) => {
+    const title = unique(`E2E 列の上限 ${column}`);
+    titles.push(title);
+    return { title, detail: "", startMinute: 6 * 60, durationMinutes: 30, column };
+  });
+
+  const { page: adm } = await adminPage(browser);
+  await adm.goto("/admin/data");
+  await expect(adm.getByRole("button", { name: "ファイルを選ぶ" })).toBeEnabled();
+  await chooseFile(adm, {
+    name: "schedule.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(buildScheduleFile({ items: fileItems }, new Date().toISOString())),
+  });
+  const dialog = adm.locator("dialog[open]");
+  const reason = dialog.getByText(/取り込むと \d+ 列になって上限の 50 列を超えるため取り込めません/);
+  await expect(reason).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "取り込む" })).toBeDisabled();
+  // 置き換えも、取り込んでから今の項目を消すので同じ
+  await dialog.getByLabel(/消して、取り込んだ項目に置き換える/).check();
+  await expect(reason).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "取り込む" })).toBeDisabled();
+
+  await dialog.getByRole("button", { name: "キャンセル" }).click();
+  await expect(dialog).toHaveCount(0);
+  // 1 件も作られていない
+  const created = ((await admin.get("/admin/schedule")).items as Item[]).filter((i) =>
+    fileItems.some((f) => f.title === i.title),
+  );
+  expect(created).toEqual([]);
 });
