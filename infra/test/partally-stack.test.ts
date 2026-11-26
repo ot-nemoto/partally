@@ -105,6 +105,9 @@ describe("PartallyStack", () => {
     expect(JSON.stringify(policy)).not.toContain("Content-Security-Policy-Report-Only");
     const csp = contentSecurityPolicy("ap-northeast-1");
     expect(csp).toContain("default-src 'self'");
+    // HEIC の変換の Worker（blob:）。worker-src を知らない古い Safari は child-src で決める
+    expect(csp).toContain("worker-src 'self' blob:");
+    expect(csp).toContain("child-src 'self' blob:");
     expect(csp).toContain("report-uri /api/csp-report");
     expect(csp).toContain("https://*.s3.ap-northeast-1.amazonaws.com");
   });
