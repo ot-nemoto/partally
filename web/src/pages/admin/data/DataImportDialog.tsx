@@ -1,4 +1,4 @@
-import { type PrizeDto, SCHEDULE_COLUMNS_MAX, type ScheduleItemDto } from "@partally/shared";
+import { type PrizeDto, SCHEDULE_COLUMNS_MAX, type ScheduleItemDto, type ScheduleResponse } from "@partally/shared";
 import type { DataArchive } from "@partally/shared/data-archive";
 import { type ReactNode, useEffect, useState } from "react";
 import { ApiError, api, errorMessage } from "../../../api";
@@ -8,7 +8,7 @@ import { useT } from "../../../i18n";
 import { GamePreview, importGame, importRounds } from "./games";
 import { importPrize, PrizePreview } from "./prizes";
 import { importScheduleItem, SchedulePreview } from "./schedule";
-import { scheduleImportColumns, scheduleImportOffset } from "./scheduleColumns";
+import { planScheduleImport, type ScheduleImportPlan } from "./scheduleColumns";
 import { SettingsPreview, saveSettings } from "./settings";
 
 type Mode = "add" | "replace";
@@ -65,10 +65,31 @@ export function DataImportDialog(props: {
   const nothing = !Object.values(include).some(Boolean);
   // 今の列と取り込む列を合わせて上限を超えると、途中で作れなくなって止まるので、始める前に分かるようにする
   // （置き換えも、取り込めてから今の項目を消すので同じ）
-  const scheduleColumns = data.schedule && scheduleImportColumns(current.scheduleItems, data.schedule.items);
-  const tooManyColumns = include.schedule && scheduleColumns !== undefined && !scheduleColumns.fits;
+  const schedulePlan = data.schedule && planScheduleImport(current.scheduleItems, data.schedule.items);
+  const tooManyColumns = include.schedule && schedulePlan !== undefined && !schedulePlan.fits;
+  /** 列が上限を超えるときの理由 */
+  const tooManyColumnsMessage = (plan: ScheduleImportPlan) =>
+    t(
+      `今の項目は ${plan.current} 列あり、取り込むと ${plan.total} 列になって上限の ${SCHEDULE_COLUMNS_MAX} 列を超えるため取り込めません（置き換えも、取り込んでから今の項目を消すので同じです）。スケジュールの画面で今の項目を減らすか、スケジュールを選ばずに取り込んでください。`,
+      `The current items use ${plan.current} columns, and importing would make ${plan.total}, over the limit of ${SCHEDULE_COLUMNS_MAX} columns, so they can’t be imported (replacing also adds the imported items before deleting the current ones). Reduce the current items on the Schedule page, or import without the schedule.`,
+    );
 
   async function run() {
+    // 画面を開いた後に、ほかの画面で列が増えているかもしれないので、今のスケジュールを読み直して確かめ直す
+    let plan = schedulePlan;
+    if (include.schedule && data.schedule) {
+      try {
+        const { items } = await api<ScheduleResponse>("GET", "/admin/schedule");
+        plan = planScheduleImport(items, data.schedule.items);
+      } catch (e) {
+        setError(errorMessage(e));
+        return;
+      }
+      if (!plan.fits) {
+        setError(tooManyColumnsMessage(plan));
+        return;
+      }
+    }
     const removing = [
       include.prizes &&
         prizeMode === "replace" &&
@@ -174,16 +195,11 @@ export function DataImportDialog(props: {
           scheduleMode === "replace"
             ? current.scheduleItems.map((item) => () => api("DELETE", `/admin/schedule/${item.itemId}`))
             : [];
-        // 取り込む項目は、今の列の右に、ファイルの列の並びのまま置く（今の項目と重ならないように）。
-        // 置き換えなら、今の項目を消すと左の列が詰まり、ファイルのとおりの列になる。
-        // 左の列から順に作る（列を左から埋めないと、作るたびに空いた列が詰められて、置いた列がずれる）
-        const offset = scheduleImportOffset(current.scheduleItems);
-        const ordered = [...data.schedule.items]
-          .sort((a, b) => (a.column ?? 0) - (b.column ?? 0) || a.startMinute - b.startMinute)
-          .map((item) => ({ ...item, column: (item.column ?? 0) + offset }));
+        // 送る順と列は planScheduleImport() で決めた（押した時点の今の項目の右に、ファイルの列の並びのまま、左の列から）。
+        // 置き換えなら、今の項目を消すと左の列が詰まり、ファイルのとおりの列になる
         await step(
           ["スケジュール", "Schedule items", "Schedule item"],
-          ordered,
+          plan?.items ?? [],
           (item) => item.title,
           importScheduleItem,
           removers,
@@ -286,14 +302,7 @@ export function DataImportDialog(props: {
                 "Imported items go in columns to the right of the current ones, keeping the file’s column order.",
               )}
             />
-            {tooManyColumns && scheduleColumns && (
-              <p className="error small">
-                {t(
-                  `今の項目は ${scheduleColumns.current} 列、取り込む項目は ${scheduleColumns.imported} 列あり、合わせると上限の ${SCHEDULE_COLUMNS_MAX} 列を超えるため取り込めません（置き換えも、取り込んでから今の項目を消すので同じです）。スケジュールの画面で今の項目を減らすか、スケジュールを選ばずに取り込んでください。`,
-                  `The current items use ${scheduleColumns.current} columns and the imported ones use ${scheduleColumns.imported}, which together exceed the limit of ${SCHEDULE_COLUMNS_MAX} columns, so they can’t be imported (replacing also adds the imported items before deleting the current ones). Reduce the current items on the Schedule page, or import without the schedule.`,
-                )}
-              </p>
-            )}
+            {tooManyColumns && schedulePlan && <p className="error small">{tooManyColumnsMessage(schedulePlan)}</p>}
             {data.schedule.date && (
               <label className="import-option">
                 <input type="checkbox" checked={withDate} onChange={(e) => setWithDate(e.target.checked)} />

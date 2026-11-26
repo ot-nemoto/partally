@@ -346,7 +346,7 @@ test("P2 スケジュールを取り込むと今の列と合わせて上限（50
     buffer: Buffer.from(buildScheduleFile({ items: fileItems }, new Date().toISOString())),
   });
   const dialog = adm.locator("dialog[open]");
-  const reason = dialog.getByText(/取り込む項目は 50 列あり、合わせると上限の 50 列を超えるため取り込めません/);
+  const reason = dialog.getByText(/取り込むと \d+ 列になって上限の 50 列を超えるため取り込めません/);
   await expect(reason).toBeVisible();
   await expect(dialog.getByRole("button", { name: "取り込む" })).toBeDisabled();
   // 置き換えも、取り込んでから今の項目を消すので同じ
