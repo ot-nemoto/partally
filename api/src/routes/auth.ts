@@ -6,8 +6,9 @@ import {
   randomEpithet,
   registerRequestSchema,
   switchAccountRequestSchema,
+  tokenSchema,
 } from "@partally/shared";
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
 import { adminLoginAttempt, adminLoginWindow, viewerAddress } from "../admin-login-limit.js";
 import { toRules } from "../dto.js";
@@ -18,6 +19,17 @@ import { ADMIN_SESSION_MAX_AGE, type AdminSession, safeEqual, sign } from "../se
 import { ADMIN_COOKIE, ADMIN_COOKIE_PATH, type AppContext, USER_COOKIE } from "./context.js";
 
 const EPITHET_ATTEMPTS = 10;
+
+/**
+ * 送られたトークンが、文字列だが形の違うものか（読み取りが途中で切れた QR や、打ち間違えた URL）。
+ * 参加者には入力の誤りではなく、発行していないトークンと同じく「無効な QR コード」として返す。
+ * 本文はこの後の parseBody() でも読む（Hono が読んだ本文を取っておく）
+ */
+async function isMalformedToken(c: Context): Promise<boolean> {
+  const json: unknown = await c.req.json().catch(() => undefined);
+  const token = typeof json === "object" && json !== null ? (json as { token?: unknown }).token : undefined;
+  return typeof token === "string" && !tokenSchema.safeParse(token).success;
+}
 
 export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
   const {
@@ -39,6 +51,7 @@ export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
   } = ctx;
 
   app.post("/auth/qr", async (c) => {
+    if (await isMalformedToken(c)) return fail(c, 404, "invalid_token");
     const body = await parseBody(c, qrLoginRequestSchema);
     if (!body.ok) return body.response;
 
@@ -85,6 +98,7 @@ export function registerAuthRoutes(app: Hono<Env>, ctx: AppContext) {
   });
 
   app.post("/auth/register", async (c) => {
+    if (await isMalformedToken(c)) return fail(c, 404, "invalid_token");
     const body = await parseBody(c, registerRequestSchema);
     if (!body.ok) return body.response;
     const { token, name, pin } = body.data;

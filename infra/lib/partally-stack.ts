@@ -24,9 +24,9 @@ import {
   aws_ssm as ssm,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
-import { reportOnlyCsp } from "./csp.js";
+import { contentSecurityPolicy } from "./csp.js";
 
-export { reportOnlyCsp };
+export { contentSecurityPolicy };
 
 export interface PartallyStackProps extends StackProps {
   /** 管理者パスワードを保存した SSM SecureString の名前（デプロイの CI が GitHub の Secret から書き込む） */
@@ -193,24 +193,14 @@ function handler(event) {
     // - nosniff: 写真などを、送った Content-Type 以外（HTML やスクリプト）として扱わせない
     // - X-Frame-Options / frame-ancestors: ほかのサイトの枠（iframe）に入れさせない（クリックジャッキング対策）
     // - Referrer-Policy: ほかのサイトへ URL を送らない（参加リンク /q/<トークン> の URL にトークンが入るため）
-    // - CSP: 画面の動きに関わらない項目だけを付ける
-    // - CSP（Report-Only）: 読み込み元を絞る CSP を、まず報告だけで試す（違反は /api/csp-report でログに残る）。
-    //   本番で違反が出ないことを確かめてから、Content-Security-Policy に移す（#227）
+    // - CSP: 読み込み元を絞る CSP（csp.ts）。違反は /api/csp-report でログに残る（#227）
     const securityHeaders = new cloudfront.ResponseHeadersPolicy(this, "SecurityHeaders", {
-      customHeadersBehavior: {
-        customHeaders: [
-          { header: "Content-Security-Policy-Report-Only", value: reportOnlyCsp(this.region), override: true },
-        ],
-      },
       securityHeadersBehavior: {
         strictTransportSecurity: { accessControlMaxAge: Duration.days(365), includeSubdomains: false, override: true },
         contentTypeOptions: { override: true },
         frameOptions: { frameOption: cloudfront.HeadersFrameOption.DENY, override: true },
         referrerPolicy: { referrerPolicy: cloudfront.HeadersReferrerPolicy.SAME_ORIGIN, override: true },
-        contentSecurityPolicy: {
-          contentSecurityPolicy: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'",
-          override: true,
-        },
+        contentSecurityPolicy: { contentSecurityPolicy: contentSecurityPolicy(this.region), override: true },
       },
     });
 

@@ -4,11 +4,14 @@ import {
   acceptConfirm,
   adminApi,
   adminPage,
+  deleteScheduleItems,
   homePoints,
   issueToken,
   jpeg,
   PHONE,
   participant,
+  postPhoto,
+  todayAt,
   unique,
   updateSettings,
   useDefaultSettings,
@@ -53,6 +56,12 @@ test("P0-1 QR から名前と暗証番号で登録すると、二つ名が授け
   await expect(page.locator(".profile .epithet")).toHaveText(title);
   await expect(page.locator(".profile .name")).toHaveText("登録 太郎");
   await expect(page.locator(".points-value")).toHaveText("0");
+  // ポイントのルール（何をすると何ポイントか。設定は既定値にそろえている）
+  const rules = page.locator("p.muted.small", { hasText: "写真 1 枚公開で" });
+  await expect(rules).toContainText("写真 1 枚公開で 1 ポイント");
+  await expect(rules).toContainText("お気に入りに 1 回選ばれると 1 ポイント");
+  await expect(rules).toContainText("お気に入りを 1 枚選ぶと 10 ポイント");
+  await expect(rules).toContainText("ゲーム（クイズを含む）は結果が決まると、選んだ答えや入った枠の点数が入ります");
 });
 
 test("P0-2 同じ端末でもう一度 QR を読み込むと、暗証番号を聞かれずにホームへ入れる", async ({ browser }) => {
@@ -115,6 +124,10 @@ test("P0-5 写真を投稿して幹事が承認すると、ほかの参加者に
   await adm.locator(".admin-photo", { hasText: a.user.name }).getByRole("button", { name: "承認" }).click();
   const myPhoto = async () => (await (await a.page.request.get("/api/photos/mine")).json()).photos[0];
   await expect.poll(async () => (await myPhoto())?.status).toBe("approved");
+  // 投稿者の自分の写真に「公開中」と出る
+  await a.page.reload();
+  await expect(a.page.locator(".photo-tile .badge-approved")).toHaveText("公開中");
+  await expect(a.page.getByText("確認待ち")).toHaveCount(0);
 
   // ほかの人の写真もギャラリーに並ぶので、この参加者の写真が見えることを確かめる
   await b.page.goto("/gallery");
@@ -223,14 +236,24 @@ test("P0-8 お気に入りを付けると双方のポイントが増え、外す
   const [photo] = (await (await a.page.request.get("/api/photos/mine")).json()).photos;
   await b.page.goto("/gallery");
   const tile = b.page.locator(".photo-tile", { has: b.page.locator(`img[src*="${photo.photoId}"]`) });
+  // 選択数と上限（既定は 10 枚）が、みんなの写真とホームで同じに出る
+  const chosen = async (n: number) => {
+    await expect(b.page.getByText(`（${n} / 10 枚選択中）`)).toBeVisible();
+    await b.page.goto("/");
+    await expect(b.page.getByText(`お気に入り：${n} / 10 枚選択中`)).toBeVisible();
+    await b.page.goto("/gallery");
+  };
+  await chosen(0);
   await tile.getByRole("button", { name: "お気に入りに選ぶ" }).click();
   await expect(tile.getByRole("button", { name: "お気に入りを外す" })).toBeVisible();
   await expect.poll(async () => (await me(a)).points).toBeGreaterThan(aBefore);
   await expect.poll(async () => (await me(b)).points).toBeGreaterThan(bBefore);
+  await chosen(1);
 
   await tile.getByRole("button", { name: "お気に入りを外す" }).click();
   await expect.poll(async () => (await me(a)).points).toBe(aBefore);
   await expect.poll(async () => (await me(b)).points).toBe(bBefore);
+  await chosen(0);
 });
 
 test("P0-9 ランキングを公開すると参加者に出て、幹事の推移の再生の最後が今の並びになる", async ({ browser }) => {
@@ -290,30 +313,55 @@ test("P0-10 画像付きの景品を順位に割り当てて公開すると、�
   await expect(a.page.locator(".ranking-table")).toContainText(prizeName);
 });
 
-test("P0-11 スケジュールを公開すると、今の項目に「いま」が付き、押すと詳細が出る", async ({ browser }) => {
+test("P0-11 タイムラインで作った項目を公開すると、今の項目に「いま」、次の項目に「つぎ」が付き、押すと詳細が出る", async ({
+  browser,
+}) => {
   const a = await participant(browser, admin, "予定 九郎");
   const title = unique("E2E の乾杯");
-  const now = await a.page.evaluate(() => {
-    const d = new Date();
-    return d.getHours() * 60 + d.getMinutes();
-  });
-  const start = Math.max(0, Math.min(now - 10, 24 * 60 - 60));
-  await updateSettings(admin, { scheduleVisible: true, scheduleDate: "" });
-  await admin.post("/admin/schedule", {
-    title,
-    detail: "幹事の挨拶のあと、全員で乾杯します。",
-    startMinute: start,
-    durationMinutes: 60,
-    column: 0,
-  });
-  // 参加者に見せるのはスケジュールだけ（設定はほかを既定値の「見せない」にそろえている）なので、切り替えのタブは出ない
-  await a.page.goto("/standings");
-  await expect(a.page.getByRole("tablist")).toHaveCount(0);
-  const block = a.page.locator(".schedule-block", { hasText: title });
-  await expect(block).toBeVisible();
-  await expect(block).toContainText("いま");
-  await block.click();
-  await expect(a.page.locator("dialog[open]")).toContainText("幹事の挨拶のあと、全員で乾杯します。");
+  const nextTitle = unique("E2E の歓談");
+  // 参加者の時刻は 12:00 にする（流した時刻で「いま」「つぎ」が変わらないように）
+  await a.page.clock.setFixedTime(todayAt(12 * 60));
+  const { page: adm } = await adminPage(browser);
+  try {
+    // 管理画面のタイムラインの「項目を追加」で、11:50 から 1 時間の項目を作る
+    await adm.goto("/admin/schedule");
+    await adm.getByRole("button", { name: "項目を追加", exact: true }).click();
+    const dialog = adm.locator("dialog[open]");
+    await dialog.getByLabel("タイトル", { exact: true }).fill(title);
+    await dialog.getByLabel("開始", { exact: true }).fill("11:50");
+    await dialog.getByRole("button", { name: "1 時間", exact: true }).click();
+    await dialog.getByLabel("詳細（任意）").fill("幹事の挨拶のあと、全員で乾杯します。");
+    await dialog.getByRole("button", { name: "保存" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(adm.locator(".schedule-grid .schedule-block", { hasText: title })).toHaveAccessibleName(
+      new RegExp(`^11:50〜12:50 ${title}`),
+    );
+    // 次の項目（12:01 から）は準備として API で作る。12:01 に始まる項目はほかにあっても同じく「つぎ」なので、
+    // データの入った環境でもこの項目に「つぎ」が付く
+    await admin.post("/admin/schedule", {
+      title: nextTitle,
+      detail: "",
+      startMinute: 12 * 60 + 1,
+      durationMinutes: 30,
+      // 右端の、ほかの項目の無い列に置く
+      column: 49,
+    });
+    await updateSettings(admin, { scheduleVisible: true, scheduleDate: "" });
+
+    // 参加者に見せるのはスケジュールだけ（設定はほかを既定値の「見せない」にそろえている）なので、切り替えのタブは出ない
+    await a.page.goto("/standings");
+    await expect(a.page.getByRole("tablist")).toHaveCount(0);
+    const block = a.page.locator(".schedule-block", { hasText: title });
+    await expect(block.locator(".schedule-badge")).toHaveText("いま");
+    await expect(a.page.locator(".schedule-block", { hasText: nextTitle }).locator(".schedule-badge")).toHaveText(
+      "つぎ",
+    );
+    await block.click();
+    await expect(a.page.locator("dialog[open]")).toContainText("幹事の挨拶のあと、全員で乾杯します。");
+  } finally {
+    // 同じ時刻に流すたびに列が増えないよう、作った項目を消す
+    await deleteScheduleItems(admin, [title, nextTitle]);
+  }
 });
 
 test("P0-12 イベントを終了すると参加者に知らせ、終了後の点数は数えず、取り消すと数える", async ({ browser }) => {
@@ -331,6 +379,8 @@ test("P0-12 イベントを終了すると参加者に知らせ、終了後の�
     await admin.post(`/admin/games/${game.gameId}/confirm`);
   };
   await finish("終了前の大会", 20);
+  // 終了の後に公開する写真（承認してから公開の設定なので、送った時点では確認待ち）
+  const photoId = await postPhoto(a.page);
   const { page: adm } = await adminPage(browser);
   try {
     await adm.goto("/admin/settings");
@@ -341,6 +391,7 @@ test("P0-12 イベントを終了すると参加者に知らせ、終了後の�
     await a.page.goto("/");
     await expect(a.page.locator(".event-ended")).toContainText("イベントは終了しました");
     await finish("終了後の大会", 30);
+    await admin.post(`/admin/photos/${photoId}/approve`);
     await a.page.goto("/");
     await expect(a.page.locator(".points-value")).toHaveText("20");
 
@@ -348,7 +399,8 @@ test("P0-12 イベントを終了すると参加者に知らせ、終了後の�
     await acceptConfirm(adm);
     await a.page.goto("/");
     await expect(a.page.locator(".event-ended")).toHaveCount(0);
-    await expect(a.page.locator(".points-value")).toHaveText("50");
+    // ゲーム（30）と写真の公開（1）の両方が入る
+    await expect(a.page.locator(".points-value")).toHaveText("51");
   } finally {
     // ほかのテストのために、終了したままにしない
     await admin.post("/admin/event/reopen");

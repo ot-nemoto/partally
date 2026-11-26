@@ -22,8 +22,6 @@ import { prizeRequestSchema } from "./schemas.js";
 export const PRIZE_ARCHIVE_FORMAT = "partally-prizes";
 export const PRIZE_ARCHIVE_VERSION = 1;
 export const PRIZE_ARCHIVE_MANIFEST = "prizes.json";
-/** 1 回で取り込める景品の数 */
-export const PRIZE_ARCHIVE_MAX_PRIZES = 100;
 export const PRIZE_ARCHIVE_MAX_BYTES = ARCHIVE_MAX_BYTES;
 export const PRIZE_ARCHIVE_MAX_FILE_BYTES = ARCHIVE_MAX_FILE_BYTES;
 export const PRIZE_ARCHIVE_MAX_TOTAL_BYTES = ARCHIVE_MAX_TOTAL_BYTES;
@@ -104,9 +102,6 @@ export function parsePrizeArchive(
 /** 景品の一覧を確かめる。各件は景品の登録と同じ決まり（prizeRequestSchema）で確かめ、1 件でも合わなければ全体を失敗にする */
 export function parsePrizes(list: unknown[], file: (path: string) => Uint8Array | undefined): PrizeArchiveResult {
   if (list.length === 0) return fail("景品が 1 つも入っていません。");
-  if (list.length > PRIZE_ARCHIVE_MAX_PRIZES) {
-    return fail(`景品が多すぎます（1 回に ${PRIZE_ARCHIVE_MAX_PRIZES} 件まで）。`);
-  }
   const prizes: PrizeArchiveItem[] = [];
   for (const [i, raw] of list.entries()) {
     const label = `${i + 1} 件目`;

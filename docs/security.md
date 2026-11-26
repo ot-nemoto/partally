@@ -51,7 +51,7 @@ partally で行っているセキュリティ対策の一覧。何を、どう�
   - 更新の API（GET・HEAD 以外）は `Content-Type: application/json` だけを受け付ける。ほかのサイトから JSON を送るにはプリフライトが要り、許していないので送れない。
   - Cookie は `SameSite`（参加者は Lax、管理者は Strict）なので、ほかのサイトからの送信には付かない。
 - **入力の確かめ**
-  - API が受け取る値は、すべて zod のスキーマ（`packages/shared/src/schemas.ts`）で形・長さ・範囲を確かめる。合わなければ 400。
+  - API が受け取る値は、すべて zod のスキーマ（`packages/shared/src/schemas.ts`）で形・長さ・範囲を確かめる。合わなければ 400。ただし QR のログイン・登録（`/api/auth/qr`・`/api/auth/register`）で、トークンが文字列で形だけ違うとき（途中で切れた QR など）は、発行していないトークンと同じく 404 `invalid_token` を返す（参加者に「この QR コードは無効です」と出すため。#280）。
   - 文字列は NFKC で正規化し、前後の空白を除いてから確かめる。
   - データの取り込み（ZIP）は、読む前（50MB）と展開するとき（1 ファイル 20MB・合計 200MB）に大きさを確かめ、各件を作成と同じスキーマで確かめる。1 件でも合わなければ何も取り込まない。
 - **XSS**
@@ -78,8 +78,9 @@ partally で行っているセキュリティ対策の一覧。何を、どう�
 
 - 画面は HTTP を HTTPS に転送し、API・写真は HTTPS だけを受け付ける。
 - API は CloudFront を通ったリクエストだけを受ける。CloudFront が秘密の値を `X-Origin-Verify` ヘッダで付け、API はこれが合わないリクエスト（API Gateway の元の URL に直接送られたもの）を 403 で断る。応答のヘッダや、接続元（管理者のログインの試行回数を数えるのに使う）を迂回・偽装させないため。
-- CloudFront で、すべての応答にセキュリティ用のヘッダを付ける（HSTS、`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: same-origin`、CSP の一部）。
-- 読み込み元を絞る CSP（スクリプト・スタイル・フォントは自分のサイトだけ、など）を Report-Only で付け、違反を `/api/csp-report` で CloudWatch Logs に残す（参加リンクのトークンは伏せる）。ログで違反が出ないことを確かめてから効かせる（#227）。同じ値を効かせた状態で主な流れが動くことは、E2E（`e2e/tests/csp.spec.ts`）で確かめている。
+- CloudFront で、すべての応答にセキュリティ用のヘッダを付ける（HSTS、`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: same-origin`、CSP）。
+- 読み込み元を絞る CSP（スクリプト・スタイル・フォントは自分のサイトだけ、など）を効かせ、万一 XSS があったときに、ほかのサイトのスクリプトの読み込みや、ほかのサイトへの送信をブラウザに止めさせる。違反は `/api/csp-report` で CloudWatch Logs に残す（参加リンクのトークンは伏せる）。HEIC の変換のため `script-src 'unsafe-eval'` を許しているので、その分の守りは弱い（#227）。
+  - 効かせた状態で主な流れが動くことは、E2E（`e2e/tests/csp.spec.ts`。Chromium と WebKit）で確かめている。本番のログで違反を見ることは必須にせず、見られるときに見る。画面が動かなくなる違反が出ていたら、報告だけ（Report-Only）に戻す（運用でカバーする。手順は [設計書 8.2](design.md#82-応答のヘッダセキュリティ)）。
 - 参加リンク（`/q/<トークン>`）の URL にはトークンが入るので、`Referrer-Policy` でほかのサイトへ URL を送らない。
 
 詳しくは [設計書 8.2](design.md#82-応答のヘッダセキュリティ)。
@@ -124,6 +125,4 @@ partally で行っているセキュリティ対策の一覧。何を、どう�
 
 まだ対応していないもの。対応したら、該当する章に移す。
 
-| Issue | 内容 |
-|---|---|
-| [#227](https://github.com/ot-nemoto/partally/issues/227) | 読み込み元を絞る CSP は、まだ Report-Only（報告だけ）。本番で違反が出ないことを確かめてから効かせる。HEIC の変換のため `script-src 'unsafe-eval'` を許している |
+今はありません（#227 の CSP は 6 章に移した）。

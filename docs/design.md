@@ -456,8 +456,8 @@ sequenceDiagram
 
 | メソッド | パス | 説明 |
 |---|---|---|
-| POST | `/api/auth/qr` | トークンでログイン `{token, pin?}`。未紐づけなら `unbound`。その人としてログインしたままの端末でも、この端末で覚えている人（`accounts` Cookie、[4.1](#41-参加者)）でもなければ、`pin` が無いと `pin_required`（`setup` が true なら暗証番号が無いので、送った `pin` を暗証番号にする）、違えば 401 `pin_invalid`、ロック中は 423 `pin_locked` |
-| POST | `/api/auth/register` | 未紐づけトークンに名前と暗証番号（数字 4 桁）を登録（二つ名自動付与） |
+| POST | `/api/auth/qr` | トークンでログイン `{token, pin?}`。未紐づけなら `unbound`。その人としてログインしたままの端末でも、この端末で覚えている人（`accounts` Cookie、[4.1](#41-参加者)）でもなければ、`pin` が無いと `pin_required`（`setup` が true なら暗証番号が無いので、送った `pin` を暗証番号にする）、違えば 401 `pin_invalid`、ロック中は 423 `pin_locked`。発行していないトークンと、文字列で形の違うトークンは 404 `invalid_token` |
+| POST | `/api/auth/register` | 未紐づけトークンに名前と暗証番号（数字 4 桁）を登録（二つ名自動付与）。発行していないトークンと、文字列で形の違うトークンは 404 `invalid_token`、紐づけ済みは 409 `token_already_bound` |
 | POST | `/api/auth/logout` | 今の参加者を端末から外す。ほかに覚えている参加者がいれば、その人に切り替えて `{user}` を返す。いなければ Cookie を消す |
 | GET | `/api/accounts` | この端末で覚えている参加者の一覧（`current`・`accounts[{userId, name, epithet}]`）。紐づけを解除された人などは外して覚え直す |
 | POST | `/api/accounts/switch` | `{userId}` の参加者に切り替える（この端末で覚えている人だけ。暗証番号は聞かない）。覚えていなければ 404 |
@@ -579,16 +579,16 @@ sequenceDiagram
 
 | 種類 | `data.json` の中身 | 取り込み |
 |---|---|---|
-| `games` | `[{format, name, description, image?, choices: [{text, points, image?}], slots: [{name, points}], ranks, correctNumber?, voterPoints, keyword?, round?: {name, position, index}}]`（作成順。`round` は入っていたラウンドの名前・ラウンドの並び・中の順。状態・答え・抽選の順番・枠に選んだ人は入れない） | 下書きとして追加だけ（`POST /api/admin/games`。ラウンドに入っていたゲームは、作った後に `POST /api/admin/rounds` でラウンドを作り直す。置き換えは、終了したゲームのポイントが消えるので無い）。100 件まで |
-| `prizes` | `[{name, quantity, positions, image?}]`（作成順。`image` は ZIP の中のパス） | 追加か置き換え（`POST`・`DELETE /api/admin/prizes`）。100 件まで |
-| `schedule` | `{date?, items: [{title, detail, startMinute, durationMinutes, column?, hidden?}]}`（`hidden` は見せない項目だけ `true`）（開始時刻の早い順） | 追加か置き換え（`POST`・`DELETE /api/admin/schedule`）。項目は今の列の右に、ファイルの列の並びのまま（列の小さい順に）作る。日付は選んだときだけ設定に入れる。200 件まで |
+| `games` | `[{format, name, description, image?, choices: [{text, points, image?}], slots: [{name, points}], ranks, correctNumber?, voterPoints, keyword?, round?: {name, position, index}}]`（作成順。`round` は入っていたラウンドの名前・ラウンドの並び・中の順。状態・答え・抽選の順番・枠に選んだ人は入れない） | 下書きとして追加だけ（`POST /api/admin/games`。ラウンドに入っていたゲームは、作った後に `POST /api/admin/rounds` でラウンドを作り直す。置き換えは、終了したゲームのポイントが消えるので無い） |
+| `prizes` | `[{name, quantity, positions, image?}]`（作成順。`image` は ZIP の中のパス） | 追加か置き換え（`POST`・`DELETE /api/admin/prizes`） |
+| `schedule` | `{date?, items: [{title, detail, startMinute, durationMinutes, column?, hidden?}]}`（`hidden` は見せない項目だけ `true`）（開始時刻の早い順） | 追加か置き換え（`POST`・`DELETE /api/admin/schedule`）。項目は今の列の右に、ファイルの列の並びのまま（列の小さい順に）作る。日付は選んだときだけ設定に入れる |
 | `settings` | 設定（`scheduleDate` を除く） | 今の設定に重ねて `PUT /api/admin/settings`（イベントの日付は今のまま） |
 
 - 以前の形式（景品の ZIP `prizes.json`（`partally-prizes`）、ゲームの ZIP `games.json`（`partally-games`）、スケジュールの JSON（`partally-schedule`））も読む。それぞれの中身は `data.json` の同じ種類と同じ形。
 - ZIP のライブラリ fflate は、Data の画面で使うときだけ読み込む。ZIP の読み書き（大きさの確かめ、一覧の JSON の探し方）は `packages/shared/src/archive.ts`、種類ごとの書き方・確かめ方は `prize-archive.ts`・`game-archive.ts`・`schedule-file.ts` にある。
 - 画像は今の配信 URL から取る（JPEG は圧縮し直さない）。取り込むときは、作成と同じ流れ（画像を端末で縮小・JPEG にしてから `image-upload` → 署名付き POST → `POST /api/admin/prizes`・`POST /api/admin/games`）で 1 件ずつ作る。
 - 取り込みはゲーム → 景品 → スケジュール → 設定の順。置き換えのときは、その種類をすべて取り込めてから今のものを削除する（ほかの画面で先に消されていたもの（404）は消えているとみなして続ける）。途中で止まったときは、どこで止まったかを出す。
-- 大きさは、ファイルを読む前（50MB）と、展開するとき（1 ファイル 20MB・合計 200MB）に確かめる。一覧の JSON は ZIP のいちばん上か 1 つ下のフォルダから探し、macOS の付属ファイルは読まない。各件は作成と同じ決まり（`prizeRequestSchema`・`gameRequestSchema`・`scheduleItemRequestSchema`・`updateSettingsRequestSchema`）で確かめ、1 件でも合わなければ何も取り込まない。
+- 大きさは、ファイルを読む前（50MB）と、展開するとき（1 ファイル 20MB・合計 200MB）に確かめる。件数には上限を設けない（アプリでは件数を限っていないので、書き出したものをそのまま取り込めるように。取り込みは 1 件ずつ API を呼ぶので、件数が多いと時間がかかるだけ。#279）。一覧の JSON は ZIP のいちばん上か 1 つ下のフォルダから探し、macOS の付属ファイルは読まない。各件は作成と同じ決まり（`prizeRequestSchema`・`gameRequestSchema`・`scheduleItemRequestSchema`・`updateSettingsRequestSchema`）で確かめ、1 件でも合わなければ何も取り込まない。
 - 画面は `web/src/pages/admin/AdminData.tsx` と `web/src/pages/admin/data/`（種類ごとの書き出し・取り込み・中身の一覧と、取り込みの画面）。
 
 ---
@@ -619,16 +619,22 @@ CloudFront の応答ヘッダーのポリシー（`infra/lib/partally-stack.ts` 
 | `X-Content-Type-Options` | `nosniff` | 写真などを、送った Content-Type 以外（HTML・スクリプト）として扱わせない |
 | `X-Frame-Options` | `DENY` | ほかのサイトの枠（iframe）に入れさせない（クリックジャッキング対策） |
 | `Referrer-Policy` | `same-origin` | ほかのサイトへ URL を送らない（参加リンク `/q/<トークン>` の URL にトークンが入るため） |
-| `Content-Security-Policy` | `frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'` | 画面の動きに関わらない項目だけ |
-| `Content-Security-Policy-Report-Only` | 下の「読み込み元を絞る CSP」 | 読み込み元を絞る CSP を、まず報告だけで試す（#227）。本番で違反が出ないことを確かめてから `Content-Security-Policy` に移す |
+| `Content-Security-Policy` | 下の「読み込み元を絞る CSP」 | 許していないところからのスクリプト・画像などの読み込みと通信を、ブラウザに止めさせる（万一 XSS があったときの被害を小さくする） |
 
-読み込み元を絞る CSP（`infra/lib/partally-stack.ts` の `reportOnlyCsp()`）:
+読み込み元を絞る CSP（`infra/lib/csp.ts` の `contentSecurityPolicy()`）:
 
 - `default-src 'self'`。スタイル・フォントも自分のサイトだけ。
-- `script-src 'self' 'unsafe-eval'` と `worker-src 'self' blob:`：HEIC の変換（heic2any）が `blob:` の URL から Worker を作り、その中で `new Function` を使うため。`'unsafe-eval'` が無いと HEIC の写真を送れない（ローカルで確かめた）。インラインのスクリプトとほかのサイトのスクリプトは許さない。
+- `script-src 'self' 'unsafe-eval'` と `worker-src 'self' blob:`（と `child-src 'self' blob:`）：HEIC の変換（heic2any）が `blob:` の URL から Worker を作り、その中で `new Function` を使うため。`'unsafe-eval'` が無いと HEIC の写真を送れない（ローカルで確かめた）。インラインのスクリプトとほかのサイトのスクリプトは許さない。`child-src` は、`worker-src` を知らない古い Safari（iOS 15.4 以前）が Worker の許可を `child-src` で決めるため（古い Safari では確かめていない）。
 - `img-src 'self' data: blob:`：端末で縮小した写真や QR の画像のため。
 - `connect-src 'self' https://*.s3.<リージョン>.amazonaws.com https://s3.<リージョン>.amazonaws.com`：写真・景品の画像の署名付き POST の送り先。バケット名は書かない。
+- `object-src 'none'`・`base-uri 'self'`・`form-action 'self'`・`frame-ancestors 'none'`。
 - `report-uri /api/csp-report`：違反を API に報告させる。API は、違反した項目、読み込もうとしたもののオリジンか種類（`inline`・`eval`・`data` など）、ページとスクリプトのパスだけを、CloudWatch Logs（`ApiLogs`）に `{"cspViolation": …}` で残す。参加リンクのトークン（`/q/<トークン>`）とクエリは伏せる。報告は `application/csp-report` で届くので、「更新は JSON だけ」の確かめより前に受ける（状態は変えない）。
+
+初めは Report-Only（報告だけ）で付けて試した。強制に移す前の確かめは、本番のログを見る代わりに E2E（`e2e/tests/csp.spec.ts`）で行った。同じ値を効かせて、参加者・幹事の主な流れを Chromium と WebKit（iPhone の Safari と同じエンジン）で通し、違反が出ないことを確かめた（#227）。E2E では、アプリ内ブラウザ（LINE など）やブラウザの拡張機能による違反は確かめられない。本番のログ（`{"cspViolation": …}`）は見られるときに見て、画面が動かなくなる違反が出ていたら、報告だけに戻してデプロイする（運用でカバーする）。戻すときは次のようにする。
+
+- `partally-stack.ts` で、読み込み元を絞る CSP を `customHeadersBehavior` の `Content-Security-Policy-Report-Only` に移す
+- `Content-Security-Policy` には、画面の動きに関わらない項目（`frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'`）を残す（クリックジャッキングなどの対策まで報告だけにしない）
+- `infra/test/partally-stack.test.ts` の CSP のテスト（強制で付き、Report-Only が無いことを確かめている）も合わせて直す
 
 ### 8.3 運用・その他
 

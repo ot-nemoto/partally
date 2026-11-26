@@ -12,6 +12,12 @@ import { REMOTE_URL } from "./target";
 
 export { REMOTE_URL };
 export const BASE_URL = REMOTE_URL ?? "http://localhost:5173";
+/**
+ * 本番と同じビルドの画面（vite preview、playwright.config.ts）。開発用のサーバ（Vite）の画面は、インラインのスクリプトを
+ * 入れ、オフラインにすると開発用のサーバとの接続が切れて画面を開き直すので、それでは確かめられないときに開く。
+ * E2E_BASE_URL を付けたときは、その環境の画面（本番と同じビルド）
+ */
+export const PREVIEW_URL = REMOTE_URL ?? "http://localhost:4173";
 /** ローカルでしか確かめられないテストを skip するときの理由 */
 export const LOCAL_ONLY = "ローカル開発環境でしか確かめられないため、E2E_BASE_URL を付けたときは流さない";
 
@@ -94,10 +100,42 @@ export function useDefaultSettings() {
   });
 }
 
-/** 参加者 1 人分のブラウザ（スマホの大きさ）。登録は API で行い、Cookie はこのブラウザに入る */
-export async function participant(browser: Browser, admin: AdminApi, name: string, pin = "1234") {
+/**
+ * スケジュールの項目を、タイトルで探して消す（テストが作った項目だけ）。スケジュールは 1 つの時間軸を共有し、
+ * 残すと同じ時刻に流すたびに列が増え（上限 50 列）、後のテストの「いま」「つぎ」も変わるので、テストの終わりに片付ける
+ */
+export async function deleteScheduleItems(admin: AdminApi, titles: string[]) {
+  const { items } = await admin.get("/admin/schedule");
+  for (const item of items as { itemId: string; title: string }[]) {
+    if (titles.includes(item.title)) await admin.del(`/admin/schedule/${item.itemId}`);
+  }
+}
+
+/** 今日のその時刻（0:00 からの分と秒）。参加者の画面の時計（page.clock）に使う */
+export function todayAt(minute: number, second = 0): Date {
+  const d = new Date();
+  d.setHours(Math.floor(minute / 60), minute % 60, second, 0);
+  return d;
+}
+
+/**
+ * 参加者 1 人分のブラウザ（スマホの大きさ）。登録は API で行い、Cookie はこのブラウザに入る。
+ * baseURL を省くと、開発用のサーバの画面を開く
+ */
+export async function participant(
+  browser: Browser,
+  admin: AdminApi,
+  name: string,
+  pin = "1234",
+  options: { baseURL?: string } = {},
+) {
   const token = await issueToken(admin);
-  const context = await browser.newContext({ viewport: PHONE, locale: "ja-JP" });
+  // baseURL に undefined を渡すと設定の baseURL まで消えるので、指定したときだけ渡す
+  const context = await browser.newContext({
+    viewport: PHONE,
+    locale: "ja-JP",
+    ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+  });
   const page = await context.newPage();
   const res = await page.request.post("/api/auth/register", { data: { token, name, pin } });
   expect(res.ok()).toBe(true);
@@ -123,20 +161,56 @@ export async function acceptConfirm(page: Page) {
   await expect(dialog).toHaveCount(0);
 }
 
-/** テスト用の JPEG（ブラウザの canvas で作る。写真・景品の画像のアップロードに使う） */
-export async function jpeg(page: Page, color = "#c0392b"): Promise<Buffer> {
-  const dataUrl = await page.evaluate((fill) => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 320;
-    canvas.height = 240;
-    const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = fill;
-    ctx.fillRect(0, 0, 320, 240);
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(40, 40, 120, 80);
-    return canvas.toDataURL("image/jpeg", 0.9);
-  }, color);
+/**
+ * テスト用の JPEG（ブラウザの canvas で作る。写真・景品の画像のアップロードに使う）。
+ * 大きさを省くと 320×240
+ */
+export async function jpeg(page: Page, color = "#c0392b", size = { width: 320, height: 240 }): Promise<Buffer> {
+  const dataUrl = await page.evaluate(
+    ({ fill, width, height }) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = fill;
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(width / 8, height / 6, width / 3, height / 3);
+      return canvas.toDataURL("image/jpeg", 0.9);
+    },
+    { fill: color, ...size },
+  );
   return Buffer.from(dataUrl.split(",")[1]!, "base64");
+}
+
+/** 参加者の写真の一覧（自分の写真。新しい順） */
+export async function myPhotos(page: Page): Promise<{ photoId: string; status: string; createdAt: string }[]> {
+  const res = await page.request.get("/api/photos/mine");
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok()) throw new Error(`GET /api/photos/mine → ${res.status()} ${JSON.stringify(body)}`);
+  return body.photos;
+}
+
+/**
+ * 写真を、画面を通さずに API で送る（準備の写真）。送り先の発行から、サムネイル・本体の送信までを画面と同じ順に行い、
+ * サーバが取り込むまで待って photoId を返す。送り先の発行は短い間の上限（10 分に 30 回）に数える
+ */
+export async function postPhoto(page: Page, color = "#27ae60"): Promise<string> {
+  const res = await page.request.post("/api/photos/upload-url", { data: {} });
+  expect(res.ok()).toBe(true);
+  const target = await res.json();
+  const body = await jpeg(page, color);
+  for (const kind of ["thumb", "full"] as const) {
+    const { url, fields } = target[kind] as { url: string; fields: Record<string, string> };
+    const sent = await page.request.post(url, {
+      multipart: { ...fields, file: { name: "photo.jpg", mimeType: "image/jpeg", buffer: body } },
+    });
+    expect(sent.ok()).toBe(true);
+  }
+  await expect
+    .poll(async () => (await myPhotos(page)).some((p) => p.photoId === target.photoId), { timeout: 30_000 })
+    .toBe(true);
+  return target.photoId;
 }
 
 /** 参加者のホームに出ているポイント（数字） */
