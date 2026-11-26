@@ -33,6 +33,21 @@ describe("スケジュールの取り込みの列", () => {
     expect(planScheduleImport([], [fileItem(0)])).toMatchObject({ current: 0, total: 1, fits: true });
   });
 
+  it("同じ列で重なって右に移った項目の列には、ファイルの次の列の項目を入れない", () => {
+    // ファイルの列 0 に重なる A・B、列 1 に C。A は 3 列目、B は重なって 4 列目に移り、C は 5 列目に入る
+    const plan = planScheduleImport(currentColumns(3), [
+      { ...fileItem(0), title: "A" },
+      { ...fileItem(0), title: "B" },
+      { ...fileItem(1, 700), title: "C" },
+    ]);
+    expect(plan.items.map((i) => [i.title, i.column])).toEqual([
+      ["A", 3],
+      ["B", 3],
+      ["C", 5],
+    ]);
+    expect(plan).toMatchObject({ total: 6, fits: true });
+  });
+
   it("ファイルの列に飛びがあれば、使っている列だけで詰めて送る", () => {
     const plan = planScheduleImport(currentColumns(2), [fileItem(0), fileItem(5), fileItem(9)]);
     expect(plan.items.map((i) => i.column)).toEqual([2, 3, 4]);
