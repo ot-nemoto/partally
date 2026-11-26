@@ -1,6 +1,6 @@
 import { DEVICE_ACCOUNTS_MAX } from "@partally/shared";
 import type { ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { LanguageSwitch, useT } from "../i18n";
 
 /**
@@ -11,8 +11,9 @@ import { LanguageSwitch, useT } from "../i18n";
 export function Privacy() {
   const t = useT();
   const navigate = useNavigate();
-  // 別のタブで開いたときや、URL を直接開いたときは戻る先が無いので、トップへ
-  const back = () => (window.history.length > 1 ? navigate(-1) : navigate("/"));
+  const location = useLocation();
+  // アプリの中から来たときだけ戻る。別のタブで開いたときや、URL を直接開いたとき（ほかのサイトから来たときを含む）はトップへ
+  const back = () => (location.key === "default" ? navigate("/") : navigate(-1));
 
   return (
     <main className="page privacy">
@@ -72,7 +73,7 @@ export function Privacy() {
         <li>
           {t(
             "幹事が公開しなかった写真や削除した写真は、ほかの参加者には見えません",
-            "Photos the organizers don’t publish or delete can’t be seen by other participants",
+            "Photos the organizers reject or delete can’t be seen by other participants",
           )}
         </li>
       </Section>
@@ -92,14 +93,14 @@ export function Privacy() {
         </li>
         <li>
           {t(
-            "ゲームの結果を公開したとき：優勝や上位、抽選の当選などに入った人のお名前と二つ名（クイズでは出ません）",
-            "When game results are shown: the names and titles of people who won, placed, or were drawn in a lottery (not for quizzes)",
+            "ゲームの結果を公開したとき：ゲームごとに、点数が入った人のお名前と二つ名（優勝などの枠、上位の順位、合言葉に正解した人、抽選の当選、票が入った人など。クイズでは出ません）と、正解",
+            "When game results are shown: for each game, the names and titles of people who got points (such as winners, top ranks, people who found the keyword, lottery winners, or people who got votes; not for quizzes), and the correct answer",
           )}
         </li>
         <li>
           {t(
-            "誰がお気に入りに選んだか、写真に付いたお気に入りの数、ゲームで何と答えたか、投票で誰に入れたかは、ほかの参加者には見えません（お気に入りの数は、ポイントを見せる設定のとき、写真を送った本人に見えます）",
-            "Other participants can’t see who chose a favorite, how many favorites a photo has, what you answered in games, or who you voted for (when points are shown, the person who sent a photo can see its favorite count)",
+            "誰がお気に入りに選んだか、写真に付いたお気に入りの数、ゲームで何と答えたか、投票で誰に入れたかは、ほかの参加者には見えません（ただし、ゲームの結果に名前が出ると、点数が入る答えをしたことは分かります。お気に入りの数は、ポイントを見せる設定のとき、写真を送った本人に見えます）",
+            "Other participants can’t see who chose a favorite, how many favorites a photo has, what you answered in games, or who you voted for (though if your name appears in game results, others can tell your answer earned points; when points are shown, the person who sent a photo can see its favorite count)",
           )}
         </li>
       </Section>
@@ -118,15 +119,15 @@ export function Privacy() {
       <Section title={t("スマホに残すもの", "What is kept on your phone")}>
         <li>
           {t(
-            `ログインの情報（Cookie。30 日間）と、この端末で使う参加者の一覧（${DEVICE_ACCOUNTS_MAX} 人まで）`,
-            `Login information (a cookie, for 30 days) and the list of people using this phone (up to ${DEVICE_ACCOUNTS_MAX})`,
+            `ログインの情報（Cookie。30 日間）と、この端末で使う参加者の一覧（${DEVICE_ACCOUNTS_MAX} 人まで）。写真を見るための Cookie（12 時間）`,
+            `Login information (a cookie, for 30 days) and the list of people using this phone (up to ${DEVICE_ACCOUNTS_MAX}), and a cookie for viewing photos (12 hours)`,
           )}
         </li>
         <li>{t("表示の言語", "Your display language")}</li>
         <li>
           {t(
-            "電波が悪くて送れなかった写真（送れるまで）",
-            "Photos that couldn’t be sent because of a weak signal (until they are sent)",
+            "撮った・選んだ写真は、送り終えるまでスマホに置きます（電波が悪いときや、ログインが切れているときは、送れるまで残ります。5 回断られた写真は捨てます）",
+            "Photos you take or choose are kept on your phone until they are sent (if the signal is weak or you are logged out, they stay until they can be sent; photos refused 5 times are discarded)",
           )}
         </li>
       </Section>
@@ -149,8 +150,14 @@ export function Privacy() {
         </li>
         <li>
           {t(
-            "分からないことや、消してほしいものがあるときは、幹事に声をかけてください",
-            "If you have questions or want something deleted, please ask the organizers",
+            "写真は、幹事に声をかければ、イベントの途中でも消してもらえます。お名前は幹事が変えられます。お名前・ゲームの答え・お気に入りを一人分だけ消すことはできないので、イベントの後にまとめて消します",
+            "Photos can be deleted by the organizers during the event if you ask. The organizers can also change your name. Your name, game answers, and favorites can’t be deleted one person at a time, so they are deleted together after the event",
+          )}
+        </li>
+        <li>
+          {t(
+            "分からないことがあるときは、幹事に声をかけてください",
+            "If you have any questions, please ask the organizers",
           )}
         </li>
       </Section>
