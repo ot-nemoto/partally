@@ -383,9 +383,15 @@ test("P2 参加者のスケジュールの項目は、下のメニューの後�
   const nav = (await a.page.locator(".tabbar").boundingBox())!;
   const box = (await item.boundingBox())!;
   const x = Math.min(Math.max(box.x + box.width / 2, nav.x + 1), nav.x + nav.width - 1);
+  const y = nav.y + nav.height / 2;
+  // 測る点が、項目の中（メニューの後ろに項目がある所）であることを先に確かめる（項目が無い所で測っても確かめにならない）
+  expect(x).toBeGreaterThan(box.x);
+  expect(x).toBeLessThan(box.x + box.width);
+  expect(y).toBeGreaterThan(box.y);
+  expect(y).toBeLessThan(box.y + box.height);
   const onTop = await a.page.evaluate(
     ([px, py]) => document.elementFromPoint(px!, py!)?.closest(".tabbar") !== null,
-    [x, nav.y + nav.height / 2],
+    [x, y],
   );
   expect(onTop).toBe(true);
 });
