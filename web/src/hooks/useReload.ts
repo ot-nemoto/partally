@@ -1,6 +1,9 @@
 import { createContext, useContext, useEffect, useRef } from "react";
 
-/** 「更新」ボタンが押された回数。画面はこの値が変わったときだけ取り直す（自動では取り直さない） */
+/**
+ * 管理画面の「更新」ボタンが押された回数。画面はこの値が変わったときだけ取り直す（自動では取り直さない）。
+ * 参加者の画面には「更新」ボタンが無く（画面を下に引っ張って読み込み直す。#294）、この値は変わらない
+ */
 const ReloadContext = createContext(0);
 
 export const ReloadProvider = ReloadContext.Provider;

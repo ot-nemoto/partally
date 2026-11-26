@@ -4,10 +4,9 @@ import { api, errorMessage } from "../api";
 import { FavoriteButton } from "../components/FavoriteButton";
 import { Lightbox } from "../components/Lightbox";
 import { useParticipant } from "../components/ParticipantLayout";
-import { useOnReload } from "../hooks/useReload";
 import { useT } from "../i18n";
 
-/** 公開済みの写真を新しい順に表示する。新着は「更新」で取り込む。他の人の写真は ♡ でお気に入りに選べる */
+/** 公開済みの写真を新しい順に表示する。新着は開き直したとき（画面を下に引っ張って読み込み直したときなど）に出る。他の人の写真は ♡ でお気に入りに選べる */
 export function Gallery() {
   const [photos, setPhotos] = useState<PhotoDto[]>([]);
   const [cursor, setCursor] = useState<string>();
@@ -50,7 +49,6 @@ export function Gallery() {
   useEffect(() => {
     void fetchLatest();
   }, [fetchLatest]);
-  useOnReload(fetchLatest);
 
   /** お気に入りの付け外しの結果を一覧と拡大表示に反映する */
   function replacePhoto(photo: PhotoDto) {

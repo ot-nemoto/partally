@@ -15,7 +15,6 @@ import { PrizeImage } from "../components/PrizeChips";
 import { RankingBars } from "../components/RankingBars";
 import { MAX_LINES, RankingChart } from "../components/RankingChart";
 import { usePrizes } from "../hooks/usePrizes";
-import { useOnReload } from "../hooks/useReload";
 import { useLang, useT } from "../i18n";
 import { ScheduleView } from "./ScheduleView";
 
@@ -96,7 +95,6 @@ function GameResultsView() {
       .catch((e) => setError(errorMessage(e)));
   }, []);
   useEffect(load, [load]);
-  useOnReload(load);
 
   /** 自分の答えと結果を 1 行にする（答えていなければ「答えていません」） */
   const mineOf = (g: GameResultDto) => {
@@ -182,8 +180,8 @@ function PrizesView() {
     return (
       <p className="error">
         {t(
-          "景品を読み込めませんでした。下の「更新」を押してください。",
-          "Couldn’t load the prizes. Tap “Refresh” below.",
+          "景品を読み込めませんでした。画面を下に引っ張って、読み込み直してください。",
+          "Couldn’t load the prizes. Pull down the screen to reload.",
         )}
       </p>
     );
@@ -224,7 +222,7 @@ function StandingsView({ view, withPrizes }: { view: "ranking" | "trend"; withPr
   const [error, setError] = useState<string>();
   const [hidden, setHidden] = useState(false);
 
-  // 「更新」を続けて押したとき、後から返ってきた古い応答で戻さない
+  // 読み込みが重なったとき（表示を切り替えたときなど）、後から返ってきた古い応答で戻さない
   const latestRequest = useRef(0);
   const load = useCallback(() => {
     const request = ++latestRequest.current;
@@ -244,7 +242,6 @@ function StandingsView({ view, withPrizes }: { view: "ranking" | "trend"; withPr
       });
   }, [view]);
   useEffect(load, [load]);
-  useOnReload(load);
 
   // 推移は上位の人を色付きにし、ほかは灰色の線で出す
   const series = useMemo(
@@ -274,7 +271,7 @@ function StandingsView({ view, withPrizes }: { view: "ranking" | "trend"; withPr
         </div>
       )}
       <p className="muted small">
-        {t("最新にするには下の「更新」を押してください。", "Tap “Refresh” below to update.")}
+        {t("最新にするには、画面を下に引っ張って読み込み直してください。", "Pull down the screen to update.")}
       </p>
     </>
   );
