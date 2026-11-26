@@ -360,7 +360,7 @@ input {
   padding-bottom: calc(5rem + env(safe-area-inset-bottom));
 }
 
-/* タブは等分し、「更新」は文字の幅だけにする。タブが 5 つでも折り返さないよう、狭い画面では文字を小さくする */
+/* タブは等分する。タブが 4 つでも折り返さないよう、狭い画面では文字を小さくする */
 .tabbar {
   position: fixed;
   right: 0;
@@ -388,19 +388,6 @@ input {
 .tabbar a.active {
   color: var(--accent);
   font-weight: 600;
-}
-
-/* 自動では取り直さないので、どの画面からでも押せるようタブバーに置く */
-.tabbar-reload {
-  flex: none;
-  min-height: auto;
-  padding: 0.85rem 0.625rem;
-  white-space: nowrap;
-  border: none;
-  border-radius: 0;
-  background: none;
-  color: var(--muted);
-  font-size: min(0.85rem, 3.3vw);
 }
 
 /* ---- 管理画面 ---- */
@@ -3091,11 +3078,6 @@ table.import-table td.nowrap {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.account-hint summary {
-  cursor: pointer;
-  font-size: 0.9rem;
 }
 
 /* データの扱い（#291） */

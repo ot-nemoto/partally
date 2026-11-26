@@ -6,14 +6,14 @@ import { useOnReload } from "./useReload";
 export type PrizesState = "loading" | "ok" | "hidden" | "error";
 
 /**
- * 景品の一覧。画面を開いたときと「更新」で取り直す。path は管理画面なら /admin/prizes、参加者なら /prizes。
+ * 景品の一覧。画面を開いたときと、管理画面の「更新」で取り直す。path は管理画面なら /admin/prizes、参加者なら /prizes。
  * enabled が false の間は読まず、持っている景品も消す。404（参加者に見せない設定）は hidden にする
  */
 export function usePrizes(path: "/admin/prizes" | "/prizes", enabled = true) {
   const [prizes, setPrizes] = useState<PrizeDto[]>();
   const [state, setState] = useState<PrizesState>("loading");
 
-  // 「更新」を続けて押して読み込みが重なったとき、後から返ってきた古い応答で戻さない
+  // 管理画面の「更新」を続けて押して読み込みが重なったとき、後から返ってきた古い応答で戻さない
   const latestRequest = useRef(0);
   const load = useCallback(() => {
     const request = ++latestRequest.current;

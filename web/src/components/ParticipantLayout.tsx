@@ -13,7 +13,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useOutletContext } from "react-router-dom";
 import { ApiError, api, errorMessage } from "../api";
 import { useAutoRefresh } from "../hooks/useAutoRefresh";
-import { ReloadProvider } from "../hooks/useReload";
 import { LanguageSwitch, useLang, useT } from "../i18n";
 import { UserSwitch } from "./UserSwitch";
 
@@ -133,15 +132,7 @@ export function ParticipantLayout() {
   }, [state.kind, refreshGame]);
   useAutoRefresh(refreshGame, GAME_REFRESH_MS);
 
-  // ゲーム以外は自動では取り直さない。「更新」で自分の情報・ルール・開催中のゲームと、表示中の画面の一覧を取り直す
-  const [reloadCount, setReloadCount] = useState(0);
-  const [reloading, setReloading] = useState(false);
-  const reload = useCallback(async () => {
-    setReloading(true);
-    setReloadCount((n) => n + 1);
-    await Promise.all([loadMe(), refreshGame()]);
-    setReloading(false);
-  }, [loadMe, refreshGame]);
+  // ゲーム以外は自動では取り直さない。最新にするときは、ブラウザで画面を下に引っ張って読み込み直す（#294）
   const location = useLocation();
   const t = useT();
   const lang = useLang();
@@ -209,23 +200,21 @@ export function ParticipantLayout() {
             <span className="quiz-banner-sub">{banner.note}</span>
           </Link>
         )}
-        <ReloadProvider value={reloadCount}>
-          <Outlet
-            context={
-              {
-                user: state.user,
-                rules: state.rules,
-                reloadUser,
-                setUser,
-                games: current?.games,
-                round: current?.round,
-                setGame,
-                closeGames,
-                refreshGames: refreshGame,
-              } satisfies ParticipantContext
-            }
-          />
-        </ReloadProvider>
+        <Outlet
+          context={
+            {
+              user: state.user,
+              rules: state.rules,
+              reloadUser,
+              setUser,
+              games: current?.games,
+              round: current?.round,
+              setGame,
+              closeGames,
+              refreshGames: refreshGame,
+            } satisfies ParticipantContext
+          }
+        />
       </main>
       <nav className="tabbar">
         <NavLink to="/" end>
@@ -239,9 +228,6 @@ export function ParticipantLayout() {
           state.rules.prizesVisible ||
           state.rules.scheduleVisible ||
           state.rules.gameResultsVisible) && <NavLink to="/standings">{t("イベント情報", "Event info")}</NavLink>}
-        <button type="button" className="tabbar-reload" onClick={reload} disabled={reloading}>
-          {reloading ? t("更新中…", "Refreshing…") : t("↻ 更新", "↻ Refresh")}
-        </button>
       </nav>
     </div>
   );
