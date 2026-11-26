@@ -99,8 +99,8 @@ export function Privacy() {
         </li>
         <li>
           {t(
-            "誰がお気に入りに選んだか、写真に付いたお気に入りの数、ゲームで何と答えたか、投票で誰に入れたかは、ほかの参加者には見えません（ただし、ゲームの結果に名前が出ると、点数が入る答えをしたことは分かります。お気に入りの数は、ポイントを見せる設定のとき、写真を送った本人に見えます）",
-            "Other participants can’t see who chose a favorite, how many favorites a photo has, what you answered in games, or who you voted for (though if your name appears in game results, others can tell your answer earned points; when points are shown, the person who sent a photo can see its favorite count)",
+            "誰がお気に入りに選んだか、写真に付いたお気に入りの数、ゲームで何と答えたか、投票で誰に入れたかは、ほかの参加者には見えません（ただし、ゲームの結果に名前が出ると、点数が入る答えをしたことは分かります。ポイントの推移を公開しているときは、同じ時刻の点数の動きから、誰が誰の写真を選んだか推測できることがあります。お気に入りの数は、ポイントを見せる設定のとき、写真を送った本人に見えます）",
+            "Other participants can’t see who chose a favorite, how many favorites a photo has, what you answered in games, or who you voted for (though if your name appears in game results, others can tell your answer earned points; when the points history is shown, others may guess who chose whose photo from points that change at the same moment; when points are shown, the person who sent a photo can see its favorite count)",
           )}
         </li>
       </Section>
@@ -126,8 +126,8 @@ export function Privacy() {
         <li>{t("表示の言語", "Your display language")}</li>
         <li>
           {t(
-            "撮った・選んだ写真は、送り終えるまでスマホに置きます（電波が悪いときや、ログインが切れているときは、送れるまで残ります。5 回断られた写真は捨てます）",
-            "Photos you take or choose are kept on your phone until they are sent (if the signal is weak or you are logged out, they stay until they can be sent; photos refused 5 times are discarded)",
+            "撮った・選んだ写真は、送り終えるまでスマホに置きます（電波が悪いときや、ログインが切れているときは、送れるまで残ります。読めなくなった写真や、5 回断られた写真は捨てます）",
+            "Photos you take or choose are kept on your phone until they are sent (if the signal is weak or you are logged out, they stay until they can be sent; photos that can no longer be read or are refused 5 times are discarded)",
           )}
         </li>
       </Section>
