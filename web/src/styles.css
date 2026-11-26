@@ -366,6 +366,8 @@ input {
   right: 0;
   bottom: 0;
   left: 0;
+  /* 中身（スケジュールの項目など、重なりの順を持つもの）より常に前に出す（#293） */
+  z-index: 20;
   display: flex;
   padding-bottom: env(safe-area-inset-bottom);
   border-top: 1px solid var(--border);
