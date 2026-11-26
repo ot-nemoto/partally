@@ -619,16 +619,22 @@ CloudFront の応答ヘッダーのポリシー（`infra/lib/partally-stack.ts` 
 | `X-Content-Type-Options` | `nosniff` | 写真などを、送った Content-Type 以外（HTML・スクリプト）として扱わせない |
 | `X-Frame-Options` | `DENY` | ほかのサイトの枠（iframe）に入れさせない（クリックジャッキング対策） |
 | `Referrer-Policy` | `same-origin` | ほかのサイトへ URL を送らない（参加リンク `/q/<トークン>` の URL にトークンが入るため） |
-| `Content-Security-Policy` | `frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'` | 画面の動きに関わらない項目だけ |
-| `Content-Security-Policy-Report-Only` | 下の「読み込み元を絞る CSP」 | 読み込み元を絞る CSP を、まず報告だけで試す（#227）。本番で違反が出ないことを確かめてから `Content-Security-Policy` に移す |
+| `Content-Security-Policy` | 下の「読み込み元を絞る CSP」 | 許していないところからのスクリプト・画像などの読み込みと通信を、ブラウザに止めさせる（万一 XSS があったときの被害を小さくする） |
 
-読み込み元を絞る CSP（`infra/lib/partally-stack.ts` の `reportOnlyCsp()`）:
+読み込み元を絞る CSP（`infra/lib/csp.ts` の `contentSecurityPolicy()`）:
 
 - `default-src 'self'`。スタイル・フォントも自分のサイトだけ。
-- `script-src 'self' 'unsafe-eval'` と `worker-src 'self' blob:`：HEIC の変換（heic2any）が `blob:` の URL から Worker を作り、その中で `new Function` を使うため。`'unsafe-eval'` が無いと HEIC の写真を送れない（ローカルで確かめた）。インラインのスクリプトとほかのサイトのスクリプトは許さない。
+- `script-src 'self' 'unsafe-eval'` と `worker-src 'self' blob:`（と `child-src 'self' blob:`）：HEIC の変換（heic2any）が `blob:` の URL から Worker を作り、その中で `new Function` を使うため。`'unsafe-eval'` が無いと HEIC の写真を送れない（ローカルで確かめた）。インラインのスクリプトとほかのサイトのスクリプトは許さない。`child-src` は、`worker-src` を知らない古い Safari（iOS 15.4 以前）が Worker の許可を `child-src` で決めるため（古い Safari では確かめていない）。
 - `img-src 'self' data: blob:`：端末で縮小した写真や QR の画像のため。
 - `connect-src 'self' https://*.s3.<リージョン>.amazonaws.com https://s3.<リージョン>.amazonaws.com`：写真・景品の画像の署名付き POST の送り先。バケット名は書かない。
+- `object-src 'none'`・`base-uri 'self'`・`form-action 'self'`・`frame-ancestors 'none'`。
 - `report-uri /api/csp-report`：違反を API に報告させる。API は、違反した項目、読み込もうとしたもののオリジンか種類（`inline`・`eval`・`data` など）、ページとスクリプトのパスだけを、CloudWatch Logs（`ApiLogs`）に `{"cspViolation": …}` で残す。参加リンクのトークン（`/q/<トークン>`）とクエリは伏せる。報告は `application/csp-report` で届くので、「更新は JSON だけ」の確かめより前に受ける（状態は変えない）。
+
+初めは Report-Only（報告だけ）で付けて試した。強制に移す前の確かめは、本番のログを見る代わりに E2E（`e2e/tests/csp.spec.ts`）で行った。同じ値を効かせて、参加者・幹事の主な流れを Chromium と WebKit（iPhone の Safari と同じエンジン）で通し、違反が出ないことを確かめた（#227）。E2E では、アプリ内ブラウザ（LINE など）やブラウザの拡張機能による違反は確かめられない。本番のログ（`{"cspViolation": …}`）は見られるときに見て、画面が動かなくなる違反が出ていたら、報告だけに戻してデプロイする（運用でカバーする）。戻すときは次のようにする。
+
+- `partally-stack.ts` で、読み込み元を絞る CSP を `customHeadersBehavior` の `Content-Security-Policy-Report-Only` に移す
+- `Content-Security-Policy` には、画面の動きに関わらない項目（`frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'`）を残す（クリックジャッキングなどの対策まで報告だけにしない）
+- `infra/test/partally-stack.test.ts` の CSP のテスト（強制で付き、Report-Only が無いことを確かめている）も合わせて直す
 
 ### 8.3 運用・その他
 

@@ -202,10 +202,12 @@ E2E の対象は、API テストでは検証できない次のものに限る。
 
 ## 5. CSP を効かせた主な流れ（`e2e/tests/csp.spec.ts` で実装済み）
 
-本番では読み込み元を絞る CSP（`infra/lib/csp.ts` の `reportOnlyCsp()`）を Report-Only で付けている（#227）。同じ値を CloudFront の代わりに画面の応答へ `Content-Security-Policy` として付けて（強制にして）、次の流れで違反が出ず、動くことを確かめる。開発用のサーバ（Vite）はインラインのスクリプトを入れるので、本番と同じビルドの画面（`vite preview`）を開く。
+本番では読み込み元を絞る CSP（`infra/lib/csp.ts` の `contentSecurityPolicy()`）を効かせている（#227）。同じ値を CloudFront の代わりに画面の応答へ `Content-Security-Policy` として付けて、次の流れで違反が出ず、動くことを確かめる。開発用のサーバ（Vite）はインラインのスクリプトを入れるので、本番と同じビルドの画面（`vite preview`）を開く。このテストだけは、Chromium に加えて WebKit（iPhone の Safari と同じエンジン）でも流す（`playwright.config.ts` の `webkit` の project）。
 
-- 参加者：QR からの登録、写真の投稿（JPEG と HEIC。HEIC は heic2any で JPEG に変換してから送る）、ギャラリー（`/photos` の画像）、ホーム・自分の写真・ゲーム・イベント情報
-- 管理画面：ログイン、各画面、データの書き出し（ZIP）、QR の印刷ページ（`data:` の画像）
+- 参加者：QR からの登録、写真の投稿（JPEG と HEIC。HEIC は heic2any で JPEG に変換してから送る）、ギャラリー（`/photos` の画像）と写真の拡大、ホーム・自分の写真・ゲーム・イベント情報、画像付きのクイズに答える、イベント情報の景品の画像
+- 管理画面：ログイン、各画面、データの書き出し（ZIP）、QR の印刷ページ（`data:` の画像）、画像付きのゲーム・景品を作る（画像を S3 へ送る）、画像付きの景品の入った ZIP を取り込む
+
+強制に移す前の確かめは、本番のログを見る代わりにこのテストで行った（ローカルと検証用の環境の両方）。アプリ内ブラウザ（LINE など）やブラウザの拡張機能による違反は、E2E では確かめられないので、本番のログを見られるときに見る（[設計書 8.2](design.md#82-応答のヘッダセキュリティ)）。WebKit をローカルで流すには、`npx playwright install --with-deps webkit` で、WebKit と動かすためのライブラリを入れる。
 
 ## 6. E2E でやらないもの
 

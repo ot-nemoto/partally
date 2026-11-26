@@ -19,12 +19,23 @@ export default defineConfig({
     baseURL: remoteUrl ?? "http://localhost:5173",
     locale: "ja-JP",
     trace: "off",
-    // 入っているブラウザを使うとき（Playwright の版に合うブラウザを入れられない環境など）は、その場所を
-    // PLAYWRIGHT_CHROMIUM_PATH に入れる。無ければ Playwright が入れたブラウザを使う（CI はこちら）
-    ...(process.env.PLAYWRIGHT_CHROMIUM_PATH && {
-      launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH },
-    }),
   },
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        browserName: "chromium",
+        // 入っているブラウザを使うとき（Playwright の版に合うブラウザを入れられない環境など）は、その場所を
+        // PLAYWRIGHT_CHROMIUM_PATH に入れる。無ければ Playwright が入れたブラウザを使う（CI はこちら）
+        ...(process.env.PLAYWRIGHT_CHROMIUM_PATH && {
+          launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH },
+        }),
+      },
+    },
+    // CSP は、参加者の多くが使う iPhone の Safari と同じエンジン（WebKit）でも確かめる（#227）。
+    // ほかのテストは Chromium だけで流す
+    { name: "webkit", testMatch: /csp\.spec\.ts$/, use: { browserName: "webkit" } },
+  ],
   // テストを始める前に、API と web を起動する（ローカルで起動済みなら使い回す）。ほかの環境へ向けるときは起動しない
   webServer: remoteUrl
     ? undefined
