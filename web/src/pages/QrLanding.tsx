@@ -177,6 +177,12 @@ export function QrLanding() {
               "Only the organizers can change your name, so please check it carefully.",
             )}
           </p>
+          <p className="small privacy-link">
+            {/* 入れかけた名前と暗証番号が消えないよう、別のタブで開く */}
+            <Link to="/privacy" target="_blank" rel="noopener">
+              {t("データの扱い（お名前・写真などをどう扱うか）", "How we handle your data (name, photos, etc.)")}
+            </Link>
+          </p>
         </form>
       )}
 

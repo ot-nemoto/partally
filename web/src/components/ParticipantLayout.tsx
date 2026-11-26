@@ -171,6 +171,9 @@ export function ParticipantLayout() {
             )}
           </p>
         </section>
+        <p className="small privacy-link">
+          <Link to="/privacy">{t("データの扱い", "How we handle your data")}</Link>
+        </p>
       </main>
     );
   }

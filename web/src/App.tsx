@@ -19,6 +19,7 @@ import { Gallery } from "./pages/Gallery";
 import { Game } from "./pages/Game";
 import { Home } from "./pages/Home";
 import { Mine } from "./pages/Mine";
+import { Privacy } from "./pages/Privacy";
 import { QrLanding } from "./pages/QrLanding";
 import { Standings } from "./pages/Standings";
 
@@ -47,6 +48,8 @@ function AppRoutes() {
         <Route path="/favorites" element={<Navigate to="/gallery" replace />} />
       </Route>
       <Route path="/q/:token" element={<QrLanding />} />
+      {/* データの扱い。ログインしていなくても開ける */}
+      <Route path="/privacy" element={<Privacy />} />
       <Route path="/admin/login" element={<AdminLogin />} />
       <Route path="/admin/tokens/print" element={<AdminTokensPrint />} />
       <Route path="/admin" element={<AdminLayout />}>

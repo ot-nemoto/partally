@@ -3095,3 +3095,15 @@ table.import-table td.nowrap {
   cursor: pointer;
   font-size: 0.9rem;
 }
+
+/* データの扱い（#291） */
+.privacy-link {
+  text-align: center;
+}
+.privacy ul {
+  margin: 0;
+  padding-left: 1.2em;
+}
+.privacy li + li {
+  margin-top: 0.4em;
+}

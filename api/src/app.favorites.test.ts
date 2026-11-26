@@ -110,7 +110,9 @@ describe("API", () => {
       const { a, b, photoA1 } = await setup();
       const res = await b.request("PUT", `/api/photos/${photoA1}/favorite`);
       expect(res.status).toBe(200);
-      expect(res.body.photo).toMatchObject({ photoId: photoA1, favorited: true, favoriteCount: 1 });
+      expect(res.body.photo).toMatchObject({ photoId: photoA1, favorited: true });
+      // ほかの人の写真の ♥ の数は、参加者には返さない（送った本人と幹事だけが見られる）
+      expect(res.body.photo).not.toHaveProperty("favoriteCount");
       expect(res.body.user).toMatchObject({ favoritesGiven: 1 });
       expect((await b.request("PUT", `/api/photos/${photoA1}/favorite`)).status).toBe(200);
 
@@ -119,8 +121,18 @@ describe("API", () => {
       expect((await me(b.request)).user).toMatchObject({ favoritesGiven: 1, points: 11 });
 
       const gallery = (await b.request("GET", "/api/photos")).body.photos;
-      expect(gallery.find((p: any) => p.photoId === photoA1)).toMatchObject({ favorited: true, favoriteCount: 1 });
+      expect(gallery.find((p: any) => p.photoId === photoA1)).toMatchObject({ favorited: true });
+      expect(gallery.find((p: any) => p.photoId === photoA1)).not.toHaveProperty("favoriteCount");
       expect(gallery.filter((p: any) => p.favorited)).toHaveLength(1);
+      // 送った本人には、ギャラリーでも自分の写真でも ♥ の数が見える
+      expect((await a.request("GET", "/api/photos")).body.photos.find((p: any) => p.photoId === photoA1)).toMatchObject(
+        {
+          favoriteCount: 1,
+        },
+      );
+      expect(
+        (await a.request("GET", "/api/photos/mine")).body.photos.find((p: any) => p.photoId === photoA1),
+      ).toMatchObject({ favoriteCount: 1 });
     });
 
     it("自分の写真・検閲待ちの写真・存在しない写真は選べない", async () => {
@@ -146,7 +158,7 @@ describe("API", () => {
       expect(over.body.error).toBe("favorite_limit");
 
       const removed = await b.request("DELETE", `/api/photos/${photoA1}/favorite`);
-      expect(removed.body.photo).toMatchObject({ favorited: false, favoriteCount: 0 });
+      expect(removed.body.photo).toMatchObject({ favorited: false });
       expect((await b.request("PUT", `/api/photos/${photoA2}/favorite`)).status).toBe(200);
       expect((await me(a.request)).user.favoritesReceived).toBe(1);
       // 選んでいない写真を外しても何も起きない
