@@ -80,11 +80,13 @@ export function registerPhotoRoutes(app: Hono<Env>, ctx: AppContext) {
     ]);
     const users = await uploadersOf(page.items);
     const favorites = new Set(favoriteIds);
+    const me = c.get("user").userId;
     setPhotoCookies(c);
     return c.json({
+      // ♥ の数は、送った本人の写真だけに付ける（ほかの人の写真の数は、参加者には見せない。データの扱い #291）
       photos: page.items
         .filter(isVisible)
-        .map((p) => toPhotoDto(p, users, { favorites, hideCounts: !settings.showPoints })),
+        .map((p) => toPhotoDto(p, users, { favorites, hideCounts: !settings.showPoints || p.uploaderId !== me })),
       cursor: page.cursor,
     });
   });
@@ -122,9 +124,10 @@ export function registerPhotoRoutes(app: Hono<Env>, ctx: AppContext) {
     ]);
     if (!updatedPhoto || !isVisible(updatedPhoto) || !updatedUser) return fail(c, 404, "not_found");
     return c.json({
+      // 選べるのはほかの人の写真だけなので、♥ の数は付けない（ほかの人の写真の数は、参加者には見せない。#291）
       photo: toPhotoDto(updatedPhoto, uploaders, {
         favorites: new Set(action === "add" ? [photo.photoId] : []),
-        hideCounts: !settings.showPoints,
+        hideCounts: true,
       }),
       user: await participantUser(updatedUser, settings),
     });

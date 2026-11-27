@@ -1,8 +1,19 @@
 import { expect, type Page, test } from "@playwright/test";
-import { type AdminApi, adminApi, adminPage, participant, unique, updateSettings, useDefaultSettings } from "./helpers";
+import {
+  type AdminApi,
+  adminApi,
+  adminPage,
+  issueToken,
+  PHONE,
+  participant,
+  unique,
+  updateSettings,
+  useDefaultSettings,
+} from "./helpers";
 
 /**
  * 画面全体にかかわるもの（#271）：言語の切り替え、スマホの幅、以前の URL、QR の印刷、入れた HTML を文字のまま出すこと。
+ * 参加者向けの「データの扱い」のページ（#291）。
  * docs/e2e-tests.md の 3 章「公開・設定・移行・言語・景品・スケジュール」と 4 章。
  * 準備のデータは API で作り、確かめたい流れだけを画面から操作する
  */
@@ -179,4 +190,51 @@ test("P2 名前・ゲームの説明・景品名に入れた HTML は、文字�
   await adm.goto("/admin/prizes");
   await expect(adm.getByRole("heading", { name: prizeName, exact: true })).toBeVisible();
   await injected(adm);
+});
+
+test("P1 「データの扱い」は、ログインしていなくても案内・QR の登録・ホームから開け、英語にも切り替わる", async ({
+  browser,
+}) => {
+  const heading = (page: Page) => page.getByRole("heading", { level: 1 });
+
+  // ログインしていない（案内の画面）から開き、戻る
+  const guest = await browser.newContext({ viewport: PHONE, locale: "ja-JP" });
+  const page = await guest.newPage();
+  await page.goto("/");
+  await expect(page.getByText("配布された QR コードをスマホのカメラで読み込んでください。")).toBeVisible();
+  await page.getByRole("link", { name: "データの扱い" }).click();
+  await expect(page).toHaveURL(/\/privacy$/);
+  await expect(heading(page)).toHaveText("データの扱い");
+  await expect(page.getByRole("heading", { level: 2 })).toHaveText([
+    "集めるもの",
+    "写真",
+    "ほかの参加者に見えるもの",
+    "幹事に見えるもの",
+    "スマホに残すもの",
+    "使わないもの",
+    "消すとき",
+  ]);
+  await expect(page.locator("main")).toContainText("位置情報などの撮影情報は消える");
+  expect(await fitsWidth(page)).toBe(true);
+  // 英語に切り替わる
+  await page.getByRole("button", { name: "English" }).click();
+  await expect(heading(page)).toHaveText("How we handle your data");
+  await page.getByRole("button", { name: "日本語" }).click();
+  await page.getByRole("button", { name: "戻る" }).click();
+  await expect(page).toHaveURL(/\/$/);
+
+  // QR の登録の画面からは、入れかけた内容が消えないよう別のタブで開く
+  await page.goto(`/q/${await issueToken(admin)}`);
+  await page.getByLabel("お名前").fill("入れかけ");
+  const opened = guest.waitForEvent("page");
+  await page.getByRole("link", { name: /データの扱い/ }).click();
+  const tab = await opened;
+  await expect(heading(tab)).toHaveText("データの扱い");
+  await expect(page.getByLabel("お名前")).toHaveValue("入れかけ");
+
+  // ログインした参加者は、ホームから開ける
+  const a = await participant(browser, admin, unique("データ 見る"));
+  await a.page.goto("/");
+  await a.page.getByRole("link", { name: "データの扱い" }).click();
+  await expect(heading(a.page)).toHaveText("データの扱い");
 });

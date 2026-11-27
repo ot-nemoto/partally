@@ -1,13 +1,12 @@
 import type { PhotoDto, PhotosResponse } from "@partally/shared";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, errorMessage } from "../api";
 import { FavoriteButton } from "../components/FavoriteButton";
 import { Lightbox } from "../components/Lightbox";
 import { useParticipant } from "../components/ParticipantLayout";
-import { useOnReload } from "../hooks/useReload";
 import { useT } from "../i18n";
 
-/** 公開済みの写真を新しい順に表示する。新着は「更新」で取り込む。他の人の写真は ♡ でお気に入りに選べる */
+/** 公開済みの写真を新しい順に表示する。新着は開き直したとき（画面を下に引っ張って読み込み直したときなど）に出る。他の人の写真は ♡ でお気に入りに選べる */
 export function Gallery() {
   const [photos, setPhotos] = useState<PhotoDto[]>([]);
   const [cursor, setCursor] = useState<string>();
@@ -17,44 +16,20 @@ export function Gallery() {
   const [selected, setSelected] = useState<PhotoDto>();
   const { user, rules } = useParticipant();
   const t = useT();
-  // 「もっと見る」の位置は初回の読み込み結果だけで決める（新着の取り込みでは動かさない）
-  const cursorInitialized = useRef(false);
-  // お気に入りを付け外しした回数。取得中に操作されたら、古い応答で手元の状態を上書きしない
-  const changeCount = useRef(0);
-
-  const fetchLatest = useCallback(async () => {
-    try {
-      const startedAt = changeCount.current;
-      const res = await api<PhotosResponse>("GET", "/photos");
-      const stale = changeCount.current !== startedAt;
-      setPhotos((prev) => {
-        // 初回は丸ごと、以降は手元に無い新着を先頭に足し、手元にある写真はお気に入り数などを最新にする
-        // （削除された写真は次回の読み込みで消える）
-        if (prev.length === 0) return res.photos;
-        const latest = new Map(stale ? [] : res.photos.map((p) => [p.photoId, p]));
-        const known = new Set(prev.map((p) => p.photoId));
-        return [...res.photos.filter((p) => !known.has(p.photoId)), ...prev.map((p) => latest.get(p.photoId) ?? p)];
-      });
-      if (!cursorInitialized.current) {
-        cursorInitialized.current = true;
-        setCursor(res.cursor);
-      }
-      setError(undefined);
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setLoaded(true);
-    }
-  }, []);
-
+  // 画面を開いたときに 1 ページ目を読む（新着は、開き直したときに出る。#294）
   useEffect(() => {
-    void fetchLatest();
-  }, [fetchLatest]);
-  useOnReload(fetchLatest);
+    api<PhotosResponse>("GET", "/photos")
+      .then((res) => {
+        setPhotos(res.photos);
+        setCursor(res.cursor);
+        setError(undefined);
+      })
+      .catch((e) => setError(errorMessage(e)))
+      .finally(() => setLoaded(true));
+  }, []);
 
   /** お気に入りの付け外しの結果を一覧と拡大表示に反映する */
   function replacePhoto(photo: PhotoDto) {
-    changeCount.current++;
     setPhotos((prev) => prev.map((p) => (p.photoId === photo.photoId ? photo : p)));
     setSelected((prev) => (prev?.photoId === photo.photoId ? photo : prev));
   }

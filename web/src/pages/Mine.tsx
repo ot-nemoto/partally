@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../api";
 import { CaptureButtons } from "../components/CaptureButtons";
 import { Lightbox } from "../components/Lightbox";
-import { useOnReload } from "../hooks/useReload";
 import { useT } from "../i18n";
 import { subscribeQueue } from "../photos/queue";
 
@@ -20,7 +19,7 @@ export function Mine() {
   const t = useT();
   const statusLabel = (status: PhotoStatus) => t(...STATUS_LABEL[status]);
 
-  // 送信後の取り直しと「更新」で読み込みが重なったとき、後から返ってきた古い応答で戻さない
+  // 送信後の取り直しが重なったとき、後から返ってきた古い応答で戻さない
   const latestRequest = useRef(0);
   const load = useCallback(() => {
     const request = ++latestRequest.current;
@@ -34,7 +33,6 @@ export function Mine() {
   }, []);
 
   useEffect(load, [load]);
-  useOnReload(load);
 
   // 送信待ちが減ったら（送信の完了。諦めて破棄したときも含む）一覧を取り直す。サーバ側の登録は S3 のイベントで
   // 少し遅れる（Lambda の起動待ちでは数秒）ので、少し待ってから 1 回、最後の送信から 5 秒後にもう 1 回取り直す。

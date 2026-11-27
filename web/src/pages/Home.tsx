@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { AccountHint } from "../components/AccountHint";
+import { Link } from "react-router-dom";
 import { CaptureButtons } from "../components/CaptureButtons";
 import { useParticipant } from "../components/ParticipantLayout";
 import { useT } from "../i18n";
@@ -109,7 +109,9 @@ export function Home() {
           </p>
         )}
       </section>
-      <AccountHint />
+      <p className="small privacy-link">
+        <Link to="/privacy">{t("データの扱い", "How we handle your data")}</Link>
+      </p>
     </>
   );
 }

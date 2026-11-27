@@ -2,7 +2,6 @@ import type { ScheduleResponse } from "@partally/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api, errorMessage } from "../api";
 import { ScheduleContent } from "../components/ScheduleTimeline";
-import { useOnReload } from "../hooks/useReload";
 import { useT } from "../i18n";
 
 /** 「いま」「つぎ」を時刻に合わせて付け直す間隔 */
@@ -19,7 +18,7 @@ export function ScheduleView() {
   const [error, setError] = useState<string>();
   const [now, setNow] = useState(() => new Date());
 
-  // 「更新」を続けて押したとき、後から返ってきた古い応答で戻さない
+  // 読み込みが重なったとき、後から返ってきた古い応答で戻さない
   const latestRequest = useRef(0);
   const load = useCallback(() => {
     const request = ++latestRequest.current;
@@ -36,7 +35,6 @@ export function ScheduleView() {
       });
   }, []);
   useEffect(load, [load]);
-  useOnReload(load);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), TICK_MS);

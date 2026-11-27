@@ -367,3 +367,31 @@ test("P2 参加者のスケジュールは、横にスクロールでき、今�
   await a.page.clock.fastForward(30_000);
   await expect(badge(block(a.page, soon))).toHaveText("いま");
 });
+
+test("P2 参加者のスケジュールの項目は、下のメニューの後ろを通り、メニューの上に重ならない", async ({ browser }) => {
+  // 一日じゅうの項目にして、どこまでスクロールしても下のメニューの後ろに項目がある状態にする
+  const allDay = title("E2E 一日じゅう");
+  await createItem({ title: allDay, startMinute: 0, durationMinutes: 24 * 60 });
+  await updateSettings(admin, { scheduleVisible: true });
+  const a = await participant(browser, admin, "重なり 見る");
+  await a.page.goto("/standings");
+  const item = block(a.page, allDay);
+  await expect(item).toBeVisible();
+  await item.scrollIntoViewIfNeeded();
+
+  // 項目の横の位置で、下のメニューの高さのところに描かれているのはメニュー（項目ではない）
+  const nav = (await a.page.locator(".tabbar").boundingBox())!;
+  const box = (await item.boundingBox())!;
+  const x = Math.min(Math.max(box.x + box.width / 2, nav.x + 1), nav.x + nav.width - 1);
+  const y = nav.y + nav.height / 2;
+  // 測る点が、項目の中（メニューの後ろに項目がある所）であることを先に確かめる（項目が無い所で測っても確かめにならない）
+  expect(x).toBeGreaterThan(box.x);
+  expect(x).toBeLessThan(box.x + box.width);
+  expect(y).toBeGreaterThan(box.y);
+  expect(y).toBeLessThan(box.y + box.height);
+  const onTop = await a.page.evaluate(
+    ([px, py]) => document.elementFromPoint(px!, py!)?.closest(".tabbar") !== null,
+    [x, y],
+  );
+  expect(onTop).toBe(true);
+});
