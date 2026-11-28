@@ -206,7 +206,10 @@ describe("API", () => {
       expect((await createClient(t.app)("GET", "/api/me/standing")).status).toBe(401);
     });
 
-    it("ホーム画面の順位は、紐づけを解除した人を除き、同点の順に数え、終了した時点で止まる", async () => {
+    it("ホーム画面の順位は、紐づけを解除した人を除き、同点の順に数え、終了した後の点は数えない", async () => {
+      // 終了と、終了した後のゲームの確定を、別の時刻にする（同じミリ秒だと終了の前として数える）
+      now = Date.now();
+      vi.useFakeTimers({ toFake: ["Date"] });
       const admin = await t.adminClient();
       const gone = await participant("解除");
       const a = await participant("甲");
@@ -224,7 +227,9 @@ describe("API", () => {
         homeRankVisible: true,
         homePrizeVisible: true,
       });
+      tick();
       expect((await admin("POST", "/api/admin/event/end")).status).toBe(200);
+      tick();
 
       // 参加者のランキング（解除した人は出ない）と同じ順位になる
       const ranking = (await a.request("GET", "/api/ranking")).body.ranking as { userId: string; rank: number }[];
@@ -237,7 +242,7 @@ describe("API", () => {
       });
       expect((await next.request("GET", "/api/me/standing")).body).toEqual({ rank: 2, prizes: [] });
 
-      // 終了した後に 2 位の人の点が増えても、順位は変わらない
+      // 終了した後に確定したゲームで 2 位の人の点が増えても、順位は変わらない
       await finishGame(admin, next.userId, 100);
       expect((await top.request("GET", "/api/me/standing")).body.rank).toBe(1);
       expect((await next.request("GET", "/api/me/standing")).body.rank).toBe(2);
