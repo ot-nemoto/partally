@@ -34,6 +34,16 @@ export function registerAdminRoutes(app: Hono<Env>, ctx: AppContext) {
   app.get("/admin/event", async (c) => c.json({ endedAt: (await repo.getEventEnd())?.endedAt }));
 
   app.post("/admin/event/end", async (c) => {
+    // 開催中のゲームは、終了した後に確定してもポイントに数えないので、先に終了か中断をしてもらう
+    const [games, rounds] = await Promise.all([repo.listGames(), repo.listRounds()]);
+    if (games.some((g) => g.status === "open") || rounds.some((r) => r.status === "open")) {
+      return fail(
+        c,
+        409,
+        "invalid_state",
+        "開催中のゲームがあります。ゲームを終了するか中断してから、イベントを終了してください",
+      );
+    }
     // 押した時点の全員の数を残す（この後の写真・お気に入りは数えない）
     const endedAt = now().toISOString();
     const counts = snapshotCounts(await repo.listUsers());
