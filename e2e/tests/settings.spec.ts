@@ -1,4 +1,4 @@
-import type { RankingResponse } from "@partally/shared";
+import { ordinal, type RankingResponse } from "@partally/shared";
 import { expect, type Page, test } from "@playwright/test";
 import {
   type AdminApi,
@@ -267,7 +267,7 @@ test.describe("参加者への公開", () => {
     const { page: adm } = await adminPage(browser);
     const rankSwitch = adm.getByRole("switch", { name: "参加者のホーム画面に自分の順位を表示する" });
     const prizeSwitch = adm.getByRole("switch", { name: "参加者のホーム画面に自分の順位の景品" });
-    let prizeId: string | undefined;
+    const prizeIds: string[] = [];
     try {
       await adm.goto("/admin/settings");
       // 終了する前は切り替えられない
@@ -292,21 +292,72 @@ test.describe("参加者への公開", () => {
       const { ranking }: RankingResponse = await admin.get("/admin/ranking");
       const rank = ranking.filter((r) => r.status !== "unbound").findIndex((r) => r.userId === a.user.userId) + 1;
       expect(rank).toBeGreaterThan(0);
-      const prizeName = unique("E2E ホームの景品");
-      prizeId = (await admin.post("/admin/prizes", { name: prizeName, quantity: 1, positions: [rank] })).prize.prizeId;
+      // 画像のある景品（管理画面の Prize で画像を付ける）と、画像の無い景品を、その順位に割り当てる
+      const withImage = unique("E2E ホームの景品 画像あり");
+      const noImage = unique("E2E ホームの景品 画像なし");
+      for (const name of [withImage, noImage]) {
+        prizeIds.push((await admin.post("/admin/prizes", { name, quantity: 1, positions: [rank] })).prize.prizeId);
+      }
+      await adm.goto("/admin/prizes");
+      const dialog = adm.locator("dialog[open]");
+      await adm
+        .locator("article.prize-card")
+        .filter({ has: adm.getByRole("heading", { name: withImage, exact: true }) })
+        .getByRole("button", { name: "編集" })
+        .click();
+      await dialog
+        .locator("input[type=file]")
+        .setInputFiles({ name: "prize.jpg", mimeType: "image/jpeg", buffer: await jpeg(adm, "#2980b9") });
+      await expect(dialog.getByRole("img", { name: "選んだ画像" })).toBeVisible();
+      await dialog.getByRole("button", { name: "保存" }).click();
+      await expect(dialog).toHaveCount(0, { timeout: 20_000 });
+      await adm.goto("/admin/settings");
+      await expect(rankSwitch).toBeEnabled();
 
-      // オフの間はホームに出ない
+      // オフの間はホームに出ない。参加者はこのままホームを開いておく
       await a.page.goto("/");
       await expect(a.page.locator(".event-ended")).toBeVisible();
       await expect(a.page.locator(".home-standing-card")).toHaveCount(0);
 
-      // オンにして保存すると、ホームに順位と景品が出る
-      await rankSwitch.check();
-      await prizeSwitch.check();
-      await saveSettings(adm);
-      await a.page.goto("/");
-      await expect(a.page.locator(".home-rank-value")).toHaveText(`${rank} 位`);
-      await expect(a.page.locator(".home-prizes")).toContainText(prizeName);
+      const card = a.page.locator(".home-standing-card");
+      const prizeItem = (name: string) => card.locator(".home-prizes li", { hasText: name });
+      /** 幹事が 2 つのスイッチを切り替えて保存し、開いていたホームを開き直す（開き直すと最新の設定で出る） */
+      const publish = async (showRank: boolean, showPrize: boolean) => {
+        await rankSwitch.setChecked(showRank);
+        await prizeSwitch.setChecked(showPrize);
+        await saveSettings(adm);
+        await a.page.reload();
+        await expect(a.page.locator(".event-ended")).toBeVisible();
+      };
+
+      // 両方オンにすると、順位と、その順位の景品（画像は読み込まれ、画像の無い景品は箱の絵）が出る
+      await publish(true, true);
+      await expect(card.locator(".home-rank-value")).toHaveText(`${rank} 位`);
+      await expect(card).toContainText("あなたの順位");
+      const image = prizeItem(withImage).locator("img.prize-image");
+      await expect(image).toBeVisible();
+      await expect.poll(() => image.evaluate((e) => (e as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+      await expect(prizeItem(noImage).locator(".prize-image.placeholder")).toHaveText("🎁");
+
+      // English に切り替えると、順位は序数（1st など）で出る。景品の名前は訳さない
+      await a.page.getByRole("group", { name: "Language / 言語" }).getByRole("button", { name: "English" }).click();
+      await expect(card.locator(".home-rank-value")).toHaveText(ordinal(rank));
+      await expect(card).toContainText("Your rank");
+      await expect(prizeItem(withImage)).toBeVisible();
+      await a.page.getByRole("group", { name: "Language / 言語" }).getByRole("button", { name: "日本語" }).click();
+      await expect(card.locator(".home-rank-value")).toHaveText(`${rank} 位`);
+
+      // 順位だけ・景品だけも出せる。どちらもオフにすると出ない
+      await publish(true, false);
+      await expect(card.locator(".home-rank-value")).toHaveText(`${rank} 位`);
+      await expect(card.locator(".home-prizes")).toHaveCount(0);
+      await publish(false, true);
+      await expect(prizeItem(withImage)).toBeVisible();
+      await expect(card.locator(".home-rank")).toHaveCount(0);
+      await publish(false, false);
+      await expect(card).toHaveCount(0);
+      await publish(true, true);
+      await expect(card.locator(".home-rank-value")).toHaveText(`${rank} 位`);
 
       // 終了を取り消すと、どちらもオフに戻り、出ない
       await adm.getByRole("button", { name: "終了を取り消す" }).click();
@@ -324,7 +375,7 @@ test.describe("参加者への公開", () => {
     } finally {
       // ほかのテストのために、終了したままにせず、作った景品を消す
       if ((await admin.get("/admin/event")).endedAt) await admin.post("/admin/event/reopen");
-      if (prizeId) await admin.del(`/admin/prizes/${prizeId}`);
+      for (const id of prizeIds) await admin.del(`/admin/prizes/${id}`);
     }
   });
 });
