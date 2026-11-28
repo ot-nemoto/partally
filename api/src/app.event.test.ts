@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ingestUpload } from "./ingest.js";
-import { type Client, jpegBytes, useApiTest } from "./test-support.js";
+import { type Client, createClient, jpegBytes, useApiTest } from "./test-support.js";
 
 describe("API", () => {
   const t = useApiTest();
@@ -116,6 +116,88 @@ describe("API", () => {
       expect(after.田中).toEqual([42, 1, 1, 1, 30]);
       expect(after.鈴木).toEqual([62, 1, 1, 1, 50]);
       expect(after.佐藤).toEqual([1, 1, 0, 0, 0]);
+    });
+
+    it("開催中のゲームやラウンドがあると終了できない（終了するか中断すれば終了できる）", async () => {
+      const admin = await t.adminClient();
+      const game = (
+        await admin("POST", "/api/admin/games", {
+          format: "quiz",
+          name: "Q",
+          choices: [
+            { text: "A", points: 10 },
+            { text: "B", points: 0 },
+          ],
+        })
+      ).body.game;
+      await admin("POST", `/api/admin/games/${game.gameId}/open`);
+      const blocked = await admin("POST", "/api/admin/event/end");
+      expect(blocked.status).toBe(409);
+      expect(blocked.body.error).toBe("invalid_state");
+      expect((await admin("GET", "/api/admin/event")).body.endedAt).toBeUndefined();
+
+      // 中断して、ラウンドで開始しても終了できない
+      await admin("POST", `/api/admin/games/${game.gameId}/stop`);
+      const round = (await admin("POST", "/api/admin/rounds", { name: "第 1 部", gameIds: [game.gameId] })).body.round;
+      expect((await admin("POST", `/api/admin/rounds/${round.roundId}/open`)).status).toBe(200);
+      expect((await admin("POST", "/api/admin/event/end")).status).toBe(409);
+
+      // ラウンドを終了すれば終了できる
+      expect((await admin("POST", `/api/admin/rounds/${round.roundId}/confirm`)).status).toBe(200);
+      expect((await admin("POST", "/api/admin/event/end")).status).toBe(200);
+    });
+
+    it("終了した後、設定でオンにした項目だけ、ホーム画面に自分の順位と景品を返す", async () => {
+      const admin = await t.adminClient();
+      const a = await participant("田中");
+      const b = await participant("鈴木");
+      await finishGame(admin, a.userId, 30);
+      await finishGame(admin, b.userId, 10);
+      const first = (await admin("POST", "/api/admin/prizes", { name: "TV", quantity: 1, positions: [1] })).body.prize;
+      const second = (await admin("POST", "/api/admin/prizes", { name: "お菓子", quantity: 2, positions: [1, 2] })).body
+        .prize;
+      const settings = (await admin("GET", "/api/admin/settings")).body.settings;
+      expect(settings).toMatchObject({ homeRankVisible: false, homePrizeVisible: false });
+      const set = (changes: object) => admin("PUT", "/api/admin/settings", { ...settings, ...changes });
+      const standing = async (request: Client) => {
+        const res = await request("GET", "/api/me/standing");
+        return res.status === 200 ? res.body : res.status;
+      };
+
+      // 終了する前は、オンにしていても返さない
+      await set({ homeRankVisible: true, homePrizeVisible: true });
+      expect((await a.request("GET", "/api/me")).body.rules).toMatchObject({
+        homeRankVisible: true,
+        homePrizeVisible: true,
+      });
+      expect(await standing(a.request)).toBe(404);
+
+      expect((await admin("POST", "/api/admin/event/end")).status).toBe(200);
+      const mine = await standing(a.request);
+      expect(mine.rank).toBe(1);
+      expect(mine.prizes.map((p: any) => p.prizeId)).toEqual([first.prizeId, second.prizeId]);
+      const theirs = await standing(b.request);
+      expect(theirs.rank).toBe(2);
+      expect(theirs.prizes.map((p: any) => p.name)).toEqual(["お菓子"]);
+
+      // 景品の無い順位は、空の一覧
+      const c = await participant("佐藤");
+      expect(await standing(c.request)).toEqual({ rank: 3, prizes: [] });
+
+      // オンにした項目だけを返し、両方オフなら無いものとして扱う
+      await set({ homeRankVisible: true, homePrizeVisible: false });
+      expect(await standing(a.request)).toEqual({ rank: 1 });
+      await set({ homeRankVisible: false, homePrizeVisible: true });
+      expect(await standing(a.request)).not.toHaveProperty("rank");
+      await set({ homeRankVisible: false, homePrizeVisible: false });
+      expect(await standing(a.request)).toBe(404);
+
+      // 終了を取り消すと、オンでも返さない
+      await set({ homeRankVisible: true, homePrizeVisible: true });
+      await admin("POST", "/api/admin/event/reopen");
+      expect(await standing(a.request)).toBe(404);
+      // ログインしていなければ 401
+      expect((await createClient(t.app)("GET", "/api/me/standing")).status).toBe(401);
     });
   });
 });

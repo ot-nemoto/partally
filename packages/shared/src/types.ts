@@ -203,6 +203,10 @@ export interface Settings {
   scheduleVisible: boolean;
   /** 参加者に終了したゲームの結果（誰に何点入ったか）を見せるか */
   gameResultsVisible: boolean;
+  /** イベントを終了した後、参加者のホーム画面に自分の順位を見せるか（終了していない間は見せない） */
+  homeRankVisible: boolean;
+  /** イベントを終了した後、参加者のホーム画面に自分の順位の景品（画像・名前）を見せるか（終了していない間は見せない） */
+  homePrizeVisible: boolean;
   /** イベントの日付（YYYY-MM-DD）。空なら日付を決めない（参加者の「いま」「つぎ」は毎日の時刻で判定する） */
   scheduleDate: string;
 }
@@ -282,6 +286,17 @@ export interface PrizeDto {
   /** 画像の URL（同一オリジンの署名付きパス）。画像が無ければ無い */
   imageUrl?: string;
   createdAt: string;
+}
+
+/**
+ * イベントを終了した後に、参加者のホーム画面で見せる自分の順位と景品。
+ * 設定（homeRankVisible・homePrizeVisible）でオンにした項目だけを返す
+ */
+export interface StandingResponse {
+  /** 自分の順位（景品と同じく、紐づけを解除した人を除いて上から何番目か） */
+  rank?: number;
+  /** 自分の順位でもらえる景品（登録した順）。無ければ空 */
+  prizes?: PrizeDto[];
 }
 
 export interface PrizesResponse {
