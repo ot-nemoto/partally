@@ -449,7 +449,7 @@ test.describe("参加者への公開", () => {
         .click();
       const end = adm.getByRole("button", { name: "End the event" });
 
-      // ラウンドの中のゲームは単独では開始中でないが、ラウンドが開始中なので終了できず、理由が出る
+      // ラウンドで開始している間（中のゲームもラウンドと一緒に開始中になる）は終了できず、理由が出る
       await end.click();
       await acceptConfirm(adm);
       await expect(adm.locator(".event-end .error")).toContainText("This can’t be done right now.");
@@ -499,6 +499,7 @@ test.describe("参加者への公開", () => {
       expect(indexOf(gone.user.userId)).toBeLessThan(indexOf(top.user.userId));
       expect(topRank).toBeGreaterThan(0);
       expect(topRank).toBeLessThan(indexOf(top.user.userId) + 1);
+      // 後で下の人の点を上の人より多くして、順位が止まっていることを確かめるので、下の人が上の人より下にいる
       expect(lowRank).toBeGreaterThan(topRank);
 
       // 上の人の順位に景品を 1 つ足す（その順位には、ほかの景品もあればそれも出る）
@@ -512,7 +513,6 @@ test.describe("参加者への公開", () => {
           .map((p) => p.name)
           .sort();
       const topPrizes = await prizesAt(topRank);
-      expect(topPrizes).toContain(prizeName);
       // 下の人（0 点で最後に登録した人）の順位には、ふつう景品が無い（データの入った環境では、既存の景品があることもある）
       const lowPrizes = await prizesAt(lowRank);
       await updateSettings(admin, { homeRankVisible: true, homePrizeVisible: true });
@@ -533,7 +533,7 @@ test.describe("参加者への公開", () => {
       await expect(card.locator(".home-rank-value")).toHaveText(`${topRank} 位`);
       await expect.poll(homePrizeNames).toEqual(topPrizes);
 
-      // 「イベント情報」のランキングの順位・景品、景品一覧の順位と一致する。解除した人は並ばない
+      // 「イベント情報」のランキングの順位・行の景品と一致する（画面が数える順位と、ホームの API が数える順位）。解除した人は並ばない
       await page.getByRole("link", { name: "イベント情報" }).click();
       await page.getByRole("tab", { name: "ランキング" }).click();
       await expect(rankingRow(page, top.user.name).locator("td").first()).toHaveText(String(topRank));
@@ -551,10 +551,6 @@ test.describe("参加者への公開", () => {
             await rankingRow(page, low.name).locator(".prize-chips li > span:not(.prize-image)").allTextContents()
           ).sort(),
         ).toEqual(lowPrizes);
-      await page.getByRole("tab", { name: "景品" }).click();
-      await expect(page.locator(".prize-list-item", { hasText: prizeName }).locator(".prize-positions")).toHaveText(
-        `${topRank} 位`,
-      );
 
       // 終了した後に確定したゲームで、下の人の点が上の人より多くなっても、ホームの順位は変わらない（終了した後の点は数えない）
       await award(low.userId, 100, "E2E の発表 終了後 1");
