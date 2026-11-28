@@ -205,5 +205,42 @@ describe("API", () => {
       // ログインしていなければ 401
       expect((await createClient(t.app)("GET", "/api/me/standing")).status).toBe(401);
     });
+
+    it("ホーム画面の順位は、紐づけを解除した人を除き、同点の順に数え、終了した時点で止まる", async () => {
+      const admin = await t.adminClient();
+      const gone = await participant("解除");
+      const a = await participant("甲");
+      const b = await participant("乙");
+      // 解除する人がいちばん上。a と b は同点（優先順で上下が決まる）
+      await finishGame(admin, gone.userId, 50);
+      await finishGame(admin, a.userId, 20);
+      await finishGame(admin, b.userId, 20);
+      expect((await admin("POST", `/api/admin/users/${gone.userId}/unbind`)).status).toBe(200);
+      const prize = (await admin("POST", "/api/admin/prizes", { name: "TV", quantity: 1, positions: [1] })).body.prize;
+      const settings = (await admin("GET", "/api/admin/settings")).body.settings;
+      await admin("PUT", "/api/admin/settings", {
+        ...settings,
+        rankingVisible: true,
+        homeRankVisible: true,
+        homePrizeVisible: true,
+      });
+      expect((await admin("POST", "/api/admin/event/end")).status).toBe(200);
+
+      // 参加者のランキング（解除した人は出ない）と同じ順位になる
+      const ranking = (await a.request("GET", "/api/ranking")).body.ranking as { userId: string; rank: number }[];
+      expect(ranking.map((r) => r.rank)).toEqual([1, 2]);
+      expect(ranking.map((r) => r.userId).sort()).toEqual([a.userId, b.userId].sort());
+      const [top, next] = ranking[0]!.userId === a.userId ? [a, b] : [b, a];
+      expect((await top.request("GET", "/api/me/standing")).body).toEqual({
+        rank: 1,
+        prizes: [expect.objectContaining({ prizeId: prize.prizeId })],
+      });
+      expect((await next.request("GET", "/api/me/standing")).body).toEqual({ rank: 2, prizes: [] });
+
+      // 終了した後に 2 位の人の点が増えても、順位は変わらない
+      await finishGame(admin, next.userId, 100);
+      expect((await top.request("GET", "/api/me/standing")).body.rank).toBe(1);
+      expect((await next.request("GET", "/api/me/standing")).body.rank).toBe(2);
+    });
   });
 });
