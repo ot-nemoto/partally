@@ -244,6 +244,9 @@ export const DEFAULT_SETTINGS: Settings = {
   tieBreakOrder: [...TIE_BREAK_KEYS],
   scheduleVisible: false,
   gameResultsVisible: false,
+  // 自分の順位・景品の発表は、イベントを終了した後に管理者がオンにする
+  homeRankVisible: false,
+  homePrizeVisible: false,
   scheduleDate: "",
 };
 

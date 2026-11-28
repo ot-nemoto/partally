@@ -75,6 +75,9 @@ export function AdminSettings() {
   const [error, setError] = useState<string>();
   /** 知らせ（日本語・英語。表示するときに言語を選ぶ） */
   const [message, setMessage] = useState<[ja: string, en: string]>();
+  /** イベントを終了した時刻（読み込み中は undefined、終了していなければ null）。ホーム画面での発表の切り替えに使う */
+  const [endedAt, setEndedAt] = useState<string | null>();
+  const [eventError, setEventError] = useState<string>();
 
   useEffect(() => {
     api<SettingsResponse>("GET", "/admin/settings")
@@ -83,6 +86,9 @@ export function AdminSettings() {
         setSaved(res.settings);
       })
       .catch((e) => setError(errorMessage(e)));
+    api<EventStateResponse>("GET", "/admin/event")
+      .then((res) => setEndedAt(res.endedAt ?? null))
+      .catch((e) => setEventError(errorMessage(e)));
   }, []);
 
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
@@ -312,7 +318,21 @@ export function AdminSettings() {
           </div>
         </form>
       )}
-      <EventEndCard />
+      <EventEndCard
+        endedAt={endedAt}
+        onEndedAtChange={(next) => {
+          setEndedAt(next);
+          // 終了を取り消すと、サーバでホームでの発表をオフに戻すので、画面の値（保存済みの値も）を合わせる
+          if (next === null) {
+            const off = { homeRankVisible: false, homePrizeVisible: false };
+            setSettings((prev) => prev && { ...prev, ...off });
+            setSaved((prev) => prev && { ...prev, ...off });
+          }
+        }}
+        loadError={eventError}
+        settings={settings}
+        update={update}
+      />
     </section>
   );
 }
@@ -321,24 +341,30 @@ export function AdminSettings() {
  * イベントの終了。押した時刻より後の写真・お気に入り・ゲームはポイントに数えない（受付は続ける）。
  * 設定の保存とは別に、押したときにすぐ反映する
  */
-function EventEndCard() {
+function EventEndCard({
+  endedAt,
+  onEndedAtChange: setEndedAt,
+  loadError,
+  settings,
+  update,
+}: {
+  endedAt: string | null | undefined;
+  onEndedAtChange: (endedAt: string | null) => void;
+  loadError?: string;
+  settings?: Settings;
+  update: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
+}) {
   const t = useT();
-  const [endedAt, setEndedAt] = useState<string | null>();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-
-  useEffect(() => {
-    api<EventStateResponse>("GET", "/admin/event")
-      .then((res) => setEndedAt(res.endedAt ?? null))
-      .catch((e) => setError(errorMessage(e)));
-  }, []);
+  const [actionError, setError] = useState<string>();
+  const error = actionError ?? loadError;
 
   async function change(action: "end" | "reopen") {
     const question =
       action === "end"
         ? tr(
-            "イベントを終了します。今より後の写真・お気に入り・ゲームはポイントに数えません（受付は続きます）。ポイントに入れたいゲームは先に終了し、確認待ちの写真は先に承認してください。よろしいですか？",
-            "End the event? Photos, favorites and games after now won’t count toward points (they’re still accepted). End any games and approve any pending photos you want counted first.",
+            "イベントを終了します。今より後の写真・お気に入り・ゲームはポイントに数えません（受付は続きます）。確認待ちの写真でポイントに入れたいものは、先に承認してください。よろしいですか？",
+            "End the event? Photos, favorites and games after now won’t count toward points (they’re still accepted). Approve any pending photos you want counted first.",
           )
         : tr(
             "イベントの終了を取り消します。終了した後の写真・お気に入り・ゲームもポイントに数えます。よろしいですか？",
@@ -365,8 +391,8 @@ function EventEndCard() {
         <>
           <p className="muted small">
             {t(
-              "押した時刻より後の写真の公開・お気に入り・ゲームの終了は、ポイントに数えません（ランキング・推移・景品の順位も止まります）。写真のアップロードやお気に入り、ゲームの回答の受付は続きます。参加者の画面には「イベントは終了しました」と出ます。",
-              "Photos published, favorites chosen and games ended after you press this don’t count toward points (the ranking, trend and prize positions stop too). Uploads, favorites and game answers are still accepted. Participants see “The event has ended”.",
+              "押した時刻より後の写真の公開・お気に入り・ゲームの終了は、ポイントに数えません（ランキング・推移・景品の順位も止まります）。写真のアップロードやお気に入り、ゲームの回答の受付は続きます。参加者の画面には「イベントは終了しました」と出ます。開催中のゲーム（ラウンドを含む）があるときは、先に終了するか中断してください。",
+              "Photos published, favorites chosen and games ended after you press this don’t count toward points (the ranking, trend and prize positions stop too). Uploads, favorites and game answers are still accepted. Participants see “The event has ended”. If a game (or round) is running, end or stop it first.",
             )}
           </p>
           <button type="button" className="danger" onClick={() => change("end")} disabled={busy}>
@@ -391,6 +417,38 @@ function EventEndCard() {
         </>
       )}
       {error && <p className="error">{error}</p>}
+      {settings && (
+        <div className="home-standing">
+          <h3>{t("ホーム画面での発表", "Announce on the home screen")}</h3>
+          <p className="muted small">
+            {endedAt
+              ? t(
+                  "オンにして上の「保存」を押すと、参加者それぞれのホーム画面に出ます。順位は終了した時点のポイントで決まり、景品と同じく、紐づけを解除した人を除いて数えます。",
+                  "Turn on and press “Save” above to show it on each participant’s home screen. Ranks use the points when the event ended and, like prizes, skip unlinked people.",
+                )
+              : t(
+                  "イベントを終了するとオンにできます（終了を取り消すと、どちらもオフに戻ります）。",
+                  "You can turn these on after the event ends (undoing the end turns both off).",
+                )}
+          </p>
+          <SwitchField
+            label={t("参加者のホーム画面に自分の順位を表示する", "Show each participant’s rank on their home screen")}
+            checked={settings.homeRankVisible}
+            // 終了していない間はオンにできない（取り込みなどでオンになっていたら、オフには戻せる）
+            disabled={!endedAt && !settings.homeRankVisible}
+            onChange={(v) => update("homeRankVisible", v)}
+          />
+          <SwitchField
+            label={t(
+              "参加者のホーム画面に自分の順位の景品（画像・名前）を表示する",
+              "Show the prize for their rank (image and name) on their home screen",
+            )}
+            checked={settings.homePrizeVisible}
+            disabled={!endedAt && !settings.homePrizeVisible}
+            onChange={(v) => update("homePrizeVisible", v)}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -1159,6 +1159,47 @@ button.more {
   font-weight: 600;
 }
 
+/* イベントを終了した後に、ホーム画面で発表する自分の順位と景品 */
+.home-standing-card {
+  align-items: center;
+  text-align: center;
+}
+
+.home-rank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0;
+}
+
+.home-rank-value {
+  color: var(--gold);
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.home-prizes {
+  display: grid;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 20rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-prizes li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.home-prize-name {
+  font-weight: 600;
+}
+
 /* ---- お気に入り ---- */
 
 .favorite {
@@ -2873,6 +2914,18 @@ table.import-table td.nowrap {
 
 .settings.event-end {
   margin-top: 1rem;
+}
+
+/* イベントの終了の後に、ホーム画面で順位・景品を発表する切り替え */
+.home-standing {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.home-standing h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
 }
 
 /* 参加者のゲームの結果（イベント情報） */
