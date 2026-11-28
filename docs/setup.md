@@ -156,6 +156,9 @@ aws iam list-open-id-connect-providers --query "OpenIDConnectProviderList[].Arn"
 ロールを作成する（OIDC プロバイダの有無と GitHub の数値 ID を自動で取得する版）。
 
 ```sh
+# このアカウントで使う Environment（develop 用のアカウントでは develop、本番用のアカウントでは production）
+GH_ENV=develop
+
 curl -fsSLO https://raw.githubusercontent.com/ot-nemoto/partally/develop/infra/github-oidc.yaml
 
 if aws iam list-open-id-connect-providers --output text | grep -q token.actions.githubusercontent.com; then
@@ -172,7 +175,7 @@ echo "CreateOidcProvider=$CREATE OwnerId=$OWNER_ID RepoId=$REPO_ID"
 aws cloudformation deploy --stack-name partally-github-oidc \
   --template-file github-oidc.yaml --capabilities CAPABILITY_NAMED_IAM \
   --parameter-overrides CreateOidcProvider=$CREATE GitHubOwnerId=$OWNER_ID GitHubRepoId=$REPO_ID \
-    GitHubEnvironment=<Environment>   # develop 用のアカウントでは develop、本番用のアカウントでは production
+    GitHubEnvironment=$GH_ENV
 
 aws cloudformation describe-stacks --stack-name partally-github-oidc \
   --query "Stacks[0].Outputs[?OutputKey=='DeployRoleArn'].OutputValue" --output text
@@ -216,6 +219,7 @@ https://github.com/ot-nemoto/partally/settings/environments → **New environmen
 - Repository secrets（Settings → Secrets and variables → Actions）に登録しても動くが、Environment に登録すると **デプロイジョブ以外から参照できなくなる** ので、こちらを推奨する。
 - **Deployment branches and tags** を「Selected branches and tags」にして、`develop` Environment は `develop` だけ、`production` Environment は `master` だけを許可する。ほかのブランチに置いたワークフローからはその Environment に入れず、ロールも引き受けられなくなる（反映には PR のマージが必要になる）。
 - #304 より前は `production` で `develop` を許可していた。#304 をマージするときに `master` に変える（変えないと、master へのマージのデプロイが Environment の制限で止まる）。
+- #304 をマージしたら、すぐにリリースする（`auto-pr-to-master.yml` を手動実行して develop → master の PR を作り、マージする）。master のワークフローは、リリースするまで #304 より前の版のままで、本番の初期化（Reset）は確認欄の `初期化` だけで動いてしまう（`本番を初期化` を求めるのは、リリースした後）。リリースするまでは Reset を実行しない。
 - 「Required reviewers」は付けない（本番へのデプロイに承認は挟まない）。付けると、デプロイの前に承認が必要になる。
 - 公開リポジトリの Actions のログには、どちらの環境も、アカウント ID や URL・リソース名を出さない。
   - ロール ARN は Secret にする（Variables だとステップの見出しにそのまま出る）。
@@ -255,6 +259,8 @@ master にはリリースした版を置く。次のワークフローで自動�
 
 master へのマージ（リリースの PR のマージ）で、CI が本番へデプロイする（[A-3](#a-3-デプロイの実行)）。develop へのマージは develop の環境にだけ反映される。
 
+タグと GitHub Release（`release.yml`）と、本番へのデプロイ（`ci.yml`）は、master への push で別々に動く。master の CI が失敗すると、Release は作られたのに本番は前の版のまま、ということが起きる。マージした後は master の CI の結果を確かめ、失敗していたら原因を直すか、一時的な失敗なら CI を `master` で再実行する（Run workflow、または失敗した実行の Re-run）。
+
 develop → master の PR は **「Create a merge commit」でマージする**。Squash や Rebase でマージすると develop のコミットが master に入らず、翌日以降も同じコミットが差分として残り、毎回過去の変更を含む PR が作られる。
 
 使うには、PR を作るための個人アクセストークンを登録する（`GITHUB_TOKEN` で作った PR やラベルではほかのワークフローが動かず、`bump-version.yml` が動かないため）。
@@ -263,7 +269,7 @@ develop → master の PR は **「Create a merge commit」でマージする**�
    - **Repository access**: Only select repositories → `ot-nemoto/partally`
    - **Permissions**: Pull requests（Read and write）、Issues（Read and write）、Contents（Read-only）
    - 有効期限が切れたら作り直して登録し直す
-2. https://github.com/ot-nemoto/partally/settings/secrets/actions → **New repository secret** で `AUTO_PR_TOKEN` に登録する（Environment ではなく Repository secrets。production に入れると、develop 以外で動くこのワークフローから読めない）。
+2. https://github.com/ot-nemoto/partally/settings/secrets/actions → **New repository secret** で `AUTO_PR_TOKEN` に登録する（Environment ではなく Repository secrets。`develop` や `production` の Environment に入れると、Environment を使わないこのワークフローから読めない）。
 
 `bump-version.yml` は `GITHUB_TOKEN` で develop に push する。develop にブランチ保護（直接 push の禁止など）を設定する場合は、`github-actions[bot]` の push を許可しないとバージョンを上げられない。
 
@@ -399,6 +405,7 @@ API の Lambda には次のすべてを、写真の取り込み・初期化の L
 - **消えるもの**: 参加者・QR（通し番号も 001 から）・写真（S3 のファイルも）・お気に入り・ゲームと答え・景品（画像も）・スケジュール・設定（既定値に戻る）
 - **残るもの**: セッション署名鍵・CloudFront の鍵（SSM）、インフラ自体、画面
 - 元に戻せない。QR は印刷し直しになる。参加者は登録ごと消えるのでログインが切れる（管理画面のログインは残る）。
+- その環境へデプロイしている間（CI の deploy ジョブが動いている間）は実行しない。初期化とデプロイが重なると、消している途中でリソースが作り替えられることがある。
 - 参加者が使っていないときに実行する。消している間に届いた写真や回答は、スキャンし直して消すが、使われ続けていると残ることがある。
 
 ### 準備（1 回だけ）

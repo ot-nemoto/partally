@@ -2,7 +2,7 @@
 
 partally に必要な E2E（ブラウザを通した）テストの一覧と、実環境で試した結果をまとめる。機能のルールは [機能仕様書](spec.md)、開発の手順は [開発ガイド](development.md) を参照。
 
-E2E は `e2e/tests` に Playwright で実装している（#193）。今は P0 の 12 本を `e2e/tests/p0.spec.ts` に、P1 のうち実装したもの（「実装済み」と書いたもの）を `e2e/tests/p1.spec.ts` に、P2 のうち実装したものを `e2e/tests/p2.spec.ts` に、ゲーム（P1・P2。テスト名の頭に `P1`・`P2` を付ける）を `e2e/tests/game.spec.ts` に、3 章「公開・設定・移行・言語・景品・スケジュール」と、それにかかわる P2 を `e2e/tests/settings.spec.ts`（参加者への公開・ポイントの設定・景品・ゲームの結果・Trend）・`e2e/tests/schedule.spec.ts`（スケジュール）・`e2e/tests/data.spec.ts`（データの移行）・`e2e/tests/screens.spec.ts`（言語・スマホの幅・以前の URL・QR の印刷・XSS）に、3 章「参加・認証」と、それにかかわる P2 を `e2e/tests/auth.spec.ts` に、3 章「写真・お気に入り」と、それにかかわる P2 を `e2e/tests/photos.spec.ts` に、CSP を効かせた確認（5 章）を `e2e/tests/csp.spec.ts` に置き、`npm run e2e` で実行する。CI（`.github/workflows/ci.yml`）の `e2e` ジョブでも実行し、通らないと本番へデプロイしない。一覧の P1・P2 は、すべて実装した（#268 まで）。
+E2E は `e2e/tests` に Playwright で実装している（#193）。今は P0 の 12 本を `e2e/tests/p0.spec.ts` に、P1 のうち実装したもの（「実装済み」と書いたもの）を `e2e/tests/p1.spec.ts` に、P2 のうち実装したものを `e2e/tests/p2.spec.ts` に、ゲーム（P1・P2。テスト名の頭に `P1`・`P2` を付ける）を `e2e/tests/game.spec.ts` に、3 章「公開・設定・移行・言語・景品・スケジュール」と、それにかかわる P2 を `e2e/tests/settings.spec.ts`（参加者への公開・ポイントの設定・景品・ゲームの結果・Trend）・`e2e/tests/schedule.spec.ts`（スケジュール）・`e2e/tests/data.spec.ts`（データの移行）・`e2e/tests/screens.spec.ts`（言語・スマホの幅・以前の URL・QR の印刷・XSS）に、3 章「参加・認証」と、それにかかわる P2 を `e2e/tests/auth.spec.ts` に、3 章「写真・お気に入り」と、それにかかわる P2 を `e2e/tests/photos.spec.ts` に、CSP を効かせた確認（5 章）を `e2e/tests/csp.spec.ts` に置き、`npm run e2e` で実行する。CI（`.github/workflows/ci.yml`）の `e2e` ジョブでも実行し、通らないとデプロイしない（develop の環境へも本番へも）。一覧の P1・P2 は、すべて実装した（#268 まで）。
 
 ## 1. 前提：既存テストとの分担
 
