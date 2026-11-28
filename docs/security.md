@@ -102,12 +102,12 @@ partally で行っているセキュリティ対策の一覧。何を、どう�
 
 | 対策 | 内容 |
 |---|---|
-| AWS への入り方 | GitHub Actions の OIDC でロールを引き受ける。長く使えるアクセスキーは置かない。ロールの信頼ポリシーで、このリポジトリの `production` Environment のジョブだけに絞る（リポジトリ・オーナーの ID まで含めて、同じ名前で作り直されたリポジトリからのなりすましも防ぐ） |
+| AWS への入り方 | GitHub Actions の OIDC でロールを引き受ける。長く使えるアクセスキーは置かない。ロールの信頼ポリシーで、このリポジトリの、その環境の Environment（develop 用のアカウントは `develop`、本番用は `production`）のジョブだけに絞る（リポジトリ・オーナーの ID まで含めて、同じ名前で作り直されたリポジトリからのなりすましも防ぐ） |
 | ロールの権限 | CDK のデプロイ用ロールを引き受けること、初期化の Lambda を呼ぶこと、管理者パスワードの SSM パラメータに書き込むことだけ |
-| デプロイできるブランチ | `production` Environment は `develop` だけに限る。`develop` への反映には PR のマージが要る |
+| デプロイできるブランチ | `develop` Environment は `develop` だけ、`production` Environment は `master` だけに限る。どちらへの反映にも PR のマージが要る（本番へはリリースの PR） |
 | 秘密の値 | 管理者パスワード・ロール ARN・予算の通知先は Environment secrets に置く（ログで伏せられ、デプロイのジョブからしか読めない） |
-| ログに出さないもの | アカウント ID、ロールの ID、本番の URL、バケット名・テーブル名、スタック ID。認証は自前の action（`.github/actions/aws-oidc`）で行い、受け取った値は伏せてから使う。`cdk deploy` の Outputs も表示しない。デプロイ先は、ジョブのまとめに出す CloudFormation コンソールのリンクから確かめる |
-| PR の CI | PR の CI（lint・型チェック・テスト・E2E）は秘密の値を使わない。デプロイは `develop` への push だけ |
+| ログに出さないもの | どちらの環境も、アカウント ID、ロールの ID、URL、バケット名・テーブル名、スタック ID。認証は自前の action（`.github/actions/aws-oidc`）で行い、受け取った値は伏せてから使う。`cdk deploy` の Outputs も表示しない。デプロイ先は、ジョブのまとめに出す CloudFormation コンソールのリンクから確かめる |
+| PR の CI | PR の CI（lint・型チェック・テスト・E2E）は秘密の値を使わない。デプロイは `develop`・`master` への push と手動実行だけ |
 | ほかのリポジトリからの PR | バージョンを上げるワークフローは、同じリポジトリの PR でだけ動く |
 | 外部のアクション | GitHub 以外が作るアクションは、コミットの SHA で固定する（タグの付け替えで中身を差し替えられないように）。GitHub 公式（`actions/*`）は版の番号で指定する。テストで確かめる（[開発ガイド](development.md)） |
 | 依存の更新 | Dependabot が毎週、npm と GitHub Actions の更新の PR を作る。`npm audit` の指摘は、本番に含まれないビルド用の依存でも更新して解消する |

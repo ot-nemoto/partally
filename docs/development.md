@@ -104,13 +104,13 @@ PR を出す前に、CI と同じ確認（`npx biome ci .`・`npm run typecheck`
 
 | ワークフロー | いつ動くか | 何をするか |
 |---|---|---|
-| `ci.yml` | `develop` 宛ての PR、`develop` への push、手動実行 | lint・型チェック・テスト・ビルド。`develop` への push と、`develop` を選んだ手動実行では、続けて本番へデプロイする |
+| `ci.yml` | `develop` 宛ての PR、`develop`・`master` への push、手動実行 | lint・型チェック・テスト・ビルド。push と手動実行では、続けてブランチの環境へデプロイする（`develop` → develop の環境、`master` → 本番。アカウントは別。[手順](setup.md#環境は-2-つアカウントも別)） |
 | `auto-pr-to-master.yml` | 毎朝 | `develop` → `master` の PR を作り、Issue のラベルから `bump:patch` / `bump:minor` を付ける |
 | `bump-version.yml` | 上の PR のラベル | バージョンを上げる（Issue に `enhancement` があれば minor、なければ patch） |
-| `release.yml` | `master` へのマージ | タグと GitHub Release を作る |
+| `release.yml` | `master` へのマージ | タグと GitHub Release を作る（本番へのデプロイは `ci.yml` が行う） |
 | `issue-kind-label.yml` | Issue の作成・編集 | 「作業依頼」テンプレートの「種類」の答えから、種類のラベルを付ける（種類を変えたら付け直す。本文に「種類」が無ければ何もしない） |
-| `reset.yml` | 手動実行 | 本番データの初期化（[手順](setup.md#本番データの初期化)） |
-| `unlock-admin-login.yml` | 手動実行 | 管理者のログインの制限の解除（[手順](setup.md#管理者のログインの制限の解除)） |
+| `reset.yml` | 手動実行 | データの初期化。環境（develop / 本番）を選ぶ（[手順](setup.md#本番データの初期化)） |
+| `unlock-admin-login.yml` | 手動実行 | 管理者のログインの制限の解除。環境（develop / 本番）を選ぶ（[手順](setup.md#管理者のログインの制限の解除)） |
 
 依存パッケージと Actions の更新は、Dependabot が毎週 `develop` 宛てに PR を作ります。
 

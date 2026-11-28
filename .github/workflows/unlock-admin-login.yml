@@ -2,12 +2,19 @@ name: Unlock admin login
 
 # 管理者のパスワードを続けて間違えて、ログインが断られているのを解除する（試行回数の記録を消す）。
 # 待てば 15 分以内に自動で解けるので、すぐに入りたいときに使う。ほかのデータは消さない。
-# 手動実行のみ。production Environment（develop だけ）で動く
+# 手動実行のみ。選んだ Environment（develop / production）で動く。既定は develop
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 解除する環境（develop：develop 用のアカウント、production：本番）
+        required: true
+        type: choice
+        options: [develop, production]
+        default: develop
 
 concurrency:
-  group: unlock-admin-login
+  group: unlock-admin-login-${{ inputs.environment }}
   cancel-in-progress: false
 
 permissions:
@@ -17,16 +24,17 @@ permissions:
 jobs:
   unlock:
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment }}
     env:
       AWS_REGION: ap-northeast-1
     steps:
       - name: Check AWS_ROLE_ARN secret
         env:
+          TARGET: ${{ inputs.environment }}
           HAS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN != '' }}
         run: |
           if [ "$HAS_ROLE_ARN" != "true" ]; then
-            echo "::error::production の Environment secrets に AWS_ROLE_ARN を登録してください"
+            echo "::error::${TARGET} の Environment secrets に AWS_ROLE_ARN を登録してください"
             exit 1
           fi
 

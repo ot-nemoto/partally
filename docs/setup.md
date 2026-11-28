@@ -9,6 +9,20 @@ partally を AWS にデプロイするまでの手順。デプロイ方法は 2 
 
 どちらも **AWS 側の共通準備（1〜3）** は同じ。
 
+### 環境は 2 つ（アカウントも別）
+
+develop と master は、別々の AWS アカウントへデプロイする（#304）。開発中の変更は develop の環境で確かめ、リリース（master へのマージ）で本番に出す。
+
+| 環境 | ブランチ | GitHub の Environment | AWS のアカウント | デプロイするとき |
+|---|---|---|---|---|
+| develop | `develop` | `develop` | develop 用 | develop へ PR をマージしたとき |
+| 本番 | `master` | `production` | 本番用 | develop → master のリリースの PR をマージしたとき |
+
+- 共通準備（1〜3）と A-1・A-2 は、**アカウントごと・Environment ごとに 1 回ずつ**行う。手順の中の `<Environment>` は、`develop` か `production` に読み替える。
+- 本番へのデプロイに承認は挟まない（リリースの PR のマージで、そのままデプロイする）。
+- データの入った環境へ向けて E2E を流すときは、develop の環境に向ける（[E2E テスト一覧](e2e-tests.md#データの入った環境へ向けて流す)）。本番には流さない。
+- 公開リポジトリなので、どちらの環境も、Actions のログにアカウント ID・URL・ロール ARN を出さない（A-2 の最後）。
+
 ---
 
 ## 全体像
@@ -16,9 +30,9 @@ partally を AWS にデプロイするまでの手順。デプロイ方法は 2 
 ```mermaid
 flowchart LR
   subgraph GitHub
-    WF[CI ワークフローの deploy ジョブ<br/>environment: production]
+    WF[CI ワークフローの deploy ジョブ<br/>environment: develop / production]
   end
-  subgraph AWS[AWS アカウント（ap-northeast-1）]
+  subgraph AWS[AWS アカウント（ap-northeast-1。環境ごとに 1 つ）]
     OIDC[OIDC プロバイダ<br/>token.actions.githubusercontent.com]
     Role[partally-github-deploy<br/>ロール]
     CDKRoles[CDK ブートストラップロール<br/>cdk-hnb659fds-*]
@@ -157,20 +171,23 @@ echo "CreateOidcProvider=$CREATE OwnerId=$OWNER_ID RepoId=$REPO_ID"
 
 aws cloudformation deploy --stack-name partally-github-oidc \
   --template-file github-oidc.yaml --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides CreateOidcProvider=$CREATE GitHubOwnerId=$OWNER_ID GitHubRepoId=$REPO_ID
+  --parameter-overrides CreateOidcProvider=$CREATE GitHubOwnerId=$OWNER_ID GitHubRepoId=$REPO_ID \
+    GitHubEnvironment=<Environment>   # develop 用のアカウントでは develop、本番用のアカウントでは production
 
 aws cloudformation describe-stacks --stack-name partally-github-oidc \
   --query "Stacks[0].Outputs[?OutputKey=='DeployRoleArn'].OutputValue" --output text
 ```
 
-最後に表示される `arn:aws:iam::<ACCOUNT_ID>:role/partally-github-deploy` を控える。
+最後に表示される `arn:aws:iam::<ACCOUNT_ID>:role/partally-github-deploy` を控える（A-2 で、その Environment の Secret に登録する）。
+
+- 本番用のアカウントのロールは、#304 より前に `production` で作ってある（`GitHubEnvironment` の既定値）。作り直さなくてよい。
 
 #### このロールの権限
 
-- 引き受けられるのは **`ot-nemoto/partally` リポジトリの `production` Environment で動くジョブだけ**（`sub` クレームで制限）。
-- GitHub の OIDC トークンの `sub` は、ユーザ名・リポジトリ名に数値 ID が付いた形式（`repo:ot-nemoto@<owner ID>/partally@<repo ID>:environment:production`）で発行される。ID を条件に含めることで、リポジトリやアカウントが削除され同じ名前で作り直された場合のなりすましも防ぐ。
-- `GitHubOwnerId` / `GitHubRepoId` を省略すると、ID なしの形式（`repo:ot-nemoto/partally:environment:production`）で照合する。ロールの引き受けに失敗してトークンの形式を確かめたいときは、一時的に CI ワークフローの deploy ジョブへトークンのクレーム（`sub` など）を表示するステップを足す（以前の `deploy.yml` の「Show OIDC claims」ステップを git の履歴から戻せる）。
-- ロール自体の権限は、CDK のブートストラップロール（`cdk-hnb659fds-*`）を引き受けること、本番データの初期化 Lambda（`partally-reset`）を呼ぶこと、管理者パスワードの SSM パラメータ（`/partally/admin-password`）に書き込むことだけ（読み取りはできない）。実際のリソース作成は、ブートストラップで作られた CloudFormation 実行ロールが行う。
+- 引き受けられるのは **`ot-nemoto/partally` リポジトリの、`GitHubEnvironment` で指定した Environment で動くジョブだけ**（`sub` クレームで制限）。develop 用のアカウントのロールは `develop` からだけ、本番用は `production` からだけ引き受けられるので、develop のジョブが本番のアカウントに入ることはない。
+- GitHub の OIDC トークンの `sub` は、ユーザ名・リポジトリ名に数値 ID が付いた形式（`repo:ot-nemoto@<owner ID>/partally@<repo ID>:environment:<Environment>`）で発行される。ID を条件に含めることで、リポジトリやアカウントが削除され同じ名前で作り直された場合のなりすましも防ぐ。
+- `GitHubOwnerId` / `GitHubRepoId` を省略すると、ID なしの形式（`repo:ot-nemoto/partally:environment:<Environment>`）で照合する。ロールの引き受けに失敗してトークンの形式を確かめたいときは、一時的に CI ワークフローの deploy ジョブへトークンのクレーム（`sub` など）を表示するステップを足す（以前の `deploy.yml` の「Show OIDC claims」ステップを git の履歴から戻せる）。
+- ロール自体の権限は、CDK のブートストラップロール（`cdk-hnb659fds-*`）を引き受けること、データの初期化 Lambda（`partally-reset`）を呼ぶこと、管理者パスワードの SSM パラメータ（`/partally/admin-password`）に書き込むことだけ（読み取りはできない）。実際のリソース作成は、ブートストラップで作られた CloudFormation 実行ロールが行う。
 
 #### 既にロールを作ってある場合（権限の更新）
 
@@ -182,11 +199,11 @@ aws cloudformation deploy --stack-name partally-github-oidc \
   --template-file github-oidc.yaml --capabilities CAPABILITY_NAMED_IAM
 ```
 
-- **管理者パスワードを SSM に置く版（#219）へ上げる前に、必ず更新する。** 更新していないと、デプロイの CI が「管理者パスワードを SSM に書き込めませんでした」で止まる（デプロイはされず、本番はそれまでの版のまま動く）。更新してから CI を `develop` で手動実行すればよい。
+- **管理者パスワードを SSM に置く版（#219）へ上げる前に、必ず更新する。** 更新していないと、デプロイの CI が「管理者パスワードを SSM に書き込めませんでした」で止まる（デプロイはされず、その環境はそれまでの版のまま動く）。更新してから CI をその環境のブランチ（`develop` / `master`）で手動実行すればよい。
 
 ### A-2. GitHub の Environment 設定
 
-https://github.com/ot-nemoto/partally/settings/environments → **New environment** で `production` を作り、以下を登録する。
+https://github.com/ot-nemoto/partally/settings/environments → **New environment** で、`develop` と `production` の 2 つを作り、それぞれに以下を登録する。値は Environment ごとに別にする（`AWS_ROLE_ARN` は、その環境のアカウントで A-1 で控えたもの。管理者パスワードも環境ごとに別の値にする）。
 
 | 種類 | 名前 | 値 |
 |---|---|---|
@@ -197,23 +214,27 @@ https://github.com/ot-nemoto/partally/settings/environments → **New environmen
 
 - **管理者パスワードの決め方**: 管理画面の URL を知られても当てられないよう、20 文字以上のランダムな値にする（例: `openssl rand -base64 24`）。ログインは続けて間違えると一時的に断られるが（[管理者のログインの制限の解除](#管理者のログインの制限の解除)）、短い・推測しやすいパスワードでは守りきれない。
 - Repository secrets（Settings → Secrets and variables → Actions）に登録しても動くが、Environment に登録すると **デプロイジョブ以外から参照できなくなる** ので、こちらを推奨する。
-- **Deployment branches and tags** を「Selected branches and tags」にして `develop` だけを許可する。develop 以外のブランチに置いたワークフローからは `production` に入れず、ロールも引き受けられなくなる（develop への反映には PR のマージが必要になる）。
-- 「Required reviewers」に自分を入れると、デプロイ前に承認が必要になる。
-- 公開リポジトリの Actions のログには、アカウント ID や本番の URL・リソース名を出さない。
+- **Deployment branches and tags** を「Selected branches and tags」にして、`develop` Environment は `develop` だけ、`production` Environment は `master` だけを許可する。ほかのブランチに置いたワークフローからはその Environment に入れず、ロールも引き受けられなくなる（反映には PR のマージが必要になる）。
+- #304 より前は `production` で `develop` を許可していた。#304 をマージするときに `master` に変える（変えないと、master へのマージのデプロイが Environment の制限で止まる）。
+- 「Required reviewers」は付けない（本番へのデプロイに承認は挟まない）。付けると、デプロイの前に承認が必要になる。
+- 公開リポジトリの Actions のログには、どちらの環境も、アカウント ID や URL・リソース名を出さない。
   - ロール ARN は Secret にする（Variables だとステップの見出しにそのまま出る）。
   - AWS の認証は、自前の action（`.github/actions/aws-oidc`）で行う。`aws-actions/configure-aws-credentials` は使わない。このアクションは、アカウント ID を割り出せるロールの一意な ID（`AROA…`）をログに出すため。自前の action は、OIDC でロールを引き受けたあと、認証情報・ロールの ID・ARN・アカウント ID を `***` に伏せてから環境変数に入れる。
   - deploy ジョブは、デプロイの前に今のスタックの Outputs（URL・バケット名・テーブル名）とスタック ID を伏せる。CDK が最後に出す Outputs と Stack ARN も表示しない。
 
 ### A-3. デプロイの実行
 
-develop へ PR をマージする（develop へ push される）と、CI ワークフロー（`.github/workflows/ci.yml`）が lint・型チェック・テスト・ビルドの後に、deploy ジョブで本番へデプロイする。テストが失敗したらデプロイしない。
+CI ワークフロー（`.github/workflows/ci.yml`）が、lint・型チェック・テスト・ビルドの後に、deploy ジョブでブランチの環境へデプロイする。テストが失敗したらデプロイしない。
 
-初回や、コードを変えずにデプロイし直したいときは、https://github.com/ot-nemoto/partally/actions/workflows/ci.yml → **Run workflow**（ブランチは `develop`）で手動実行する。
+- develop へ PR をマージする（develop へ push される）と、develop の環境（Environment `develop`）へデプロイする。
+- develop → master のリリースの PR をマージする（master へ push される）と、本番（Environment `production`）へデプロイする。
 
-deploy ジョブは「インストール → 画面ビルド → 管理者パスワードを SSM に書き込む → CDK デプロイ」を行う。デプロイは 1 つずつ行い、続けて push されたときは最新のコミットだけをデプロイする（develop の先頭でなくなったコミットは省略する。新しいコミットが古い変更も含むため）。初回は CloudFront の作成があるため 10 分前後かかる。URL はログに出さない。確かめ方は次のどちらか。
+初回や、コードを変えずにデプロイし直したいときは、https://github.com/ot-nemoto/partally/actions/workflows/ci.yml → **Run workflow** で手動実行する。ブランチに `develop` を選ぶと develop の環境へ、`master` を選ぶと本番へデプロイする。
 
-- CI の実行結果のページの「デプロイ先」（ジョブのまとめ）にあるリンクから、CloudFormation コンソールのスタック `Partally` の Outputs を開く。AWS にログインしている必要がある。リンクに入るのはリージョンとスタック名だけ。
-- 手元で、デプロイ先のアカウントの認証情報を使って次を実行する。
+deploy ジョブは「インストール → 画面ビルド → 管理者パスワードを SSM に書き込む → CDK デプロイ」を行う。デプロイは環境ごとに 1 つずつ行い、続けて push されたときは最新のコミットだけをデプロイする（そのブランチの先頭でなくなったコミットは省略する。新しいコミットが古い変更も含むため）。develop と本番はアカウントが別なので、同時に動いてもよい。初回は CloudFront の作成があるため 10 分前後かかる。URL はログに出さない。確かめ方は次のどちらか。
+
+- CI の実行結果のページの「デプロイ先」（ジョブのまとめ）にあるリンクから、CloudFormation コンソールのスタック `Partally` の Outputs を開く。その環境のアカウントにログインしている必要がある。リンクに入るのはリージョンとスタック名だけ（どちらの環境も同じスタック名）。
+- 手元で、その環境のアカウントの認証情報を使って次を実行する。
 
 ```bash
 aws cloudformation describe-stacks --stack-name Partally --region ap-northeast-1 \
@@ -232,7 +253,7 @@ master にはリリースした版を置く。次のワークフローで自動�
 | `bump-version.yml` | master 宛ての PR に `bump:*` ラベルが付いたとき | ルートの `package.json` のバージョンを上げて、PR のブランチ（develop）に push する（`GITHUB_TOKEN` での push のため CI・デプロイは動かない） |
 | `release.yml` | master への push（PR のマージ） | `package.json` のバージョンで `v<バージョン>` のタグと GitHub Release を作る（同じタグがあれば何もしない） |
 
-master へのマージはデプロイしない（本番には develop へのマージで反映済み）。
+master へのマージ（リリースの PR のマージ）で、CI が本番へデプロイする（[A-3](#a-3-デプロイの実行)）。develop へのマージは develop の環境にだけ反映される。
 
 develop → master の PR は **「Create a merge commit」でマージする**。Squash や Rebase でマージすると develop のコミットが master に入らず、翌日以降も同じコミットが差分として残り、毎回過去の変更を含む PR が作られる。
 
@@ -246,7 +267,7 @@ develop → master の PR は **「Create a merge commit」でマージする**�
 
 `bump-version.yml` は `GITHUB_TOKEN` で develop に push する。develop にブランチ保護（直接 push の禁止など）を設定する場合は、`github-actions[bot]` の push を許可しないとバージョンを上げられない。
 
-依存パッケージ（npm）と Actions の更新は、Dependabot（`.github/dependabot.yml`）が毎週月曜に develop 宛ての PR を作る。CI が通ったものをマージすると、ほかの PR と同じくデプロイされる。
+依存パッケージ（npm）と Actions の更新は、Dependabot（`.github/dependabot.yml`）が毎週月曜に develop 宛ての PR を作る。CI が通ったものをマージすると、ほかの PR と同じく develop の環境へデプロイされ、次のリリースで本番に出る。
 
 ---
 
@@ -268,7 +289,7 @@ export PARTALLY_BUDGET_USD=5                        # 任意
 npm run deploy
 ```
 
-AWS CLI のプロファイルに別リージョンが設定されていると、そちらにデプロイされる。`AWS_REGION` を必ず指定する。
+AWS CLI のプロファイルに別リージョンが設定されていると、そちらにデプロイされる。`AWS_REGION` を必ず指定する。デプロイ先のアカウントは認証情報で決まるので、develop 用と本番用のどちらのアカウントの認証情報かを確かめてから実行する。
 
 ---
 
@@ -373,7 +394,7 @@ API の Lambda には次のすべてを、写真の取り込み・初期化の L
 
 ## 本番データの初期化
 
-リハーサルの後や次のイベントの前に、本番のデータをすべて消してデプロイ直後の状態に戻す。
+リハーサルの後や次のイベントの前に、データをすべて消してデプロイ直後の状態に戻す。develop の環境（E2E を流した後など）と本番の、どちらかを選んで消す。
 
 - **消えるもの**: 参加者・QR（通し番号も 001 から）・写真（S3 のファイルも）・お気に入り・ゲームと答え・景品（画像も）・スケジュール・設定（既定値に戻る）
 - **残るもの**: セッション署名鍵・CloudFront の鍵（SSM）、インフラ自体、画面
@@ -382,7 +403,7 @@ API の Lambda には次のすべてを、写真の取り込み・初期化の L
 
 ### 準備（1 回だけ）
 
-初期化はデプロイ用ロールから初期化 Lambda を呼んで行う。この機能より前に `partally-github-oidc` スタックを作った場合は、ロールに呼び出し権限を足すため、最新のテンプレートでスタックを更新する（パラメータは前回の値が引き継がれる）。
+初期化はデプロイ用ロールから初期化 Lambda を呼んで行う。develop 用のアカウントは、A-1 の最新のテンプレートで作っていれば準備は要らない。この機能より前に `partally-github-oidc` スタックを作った場合は、ロールに呼び出し権限を足すため、最新のテンプレートでスタックを更新する（パラメータは前回の値が引き継がれる）。
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/ot-nemoto/partally/develop/infra/github-oidc.yaml
@@ -394,10 +415,16 @@ aws cloudformation deploy --stack-name partally-github-oidc \
 
 ### 実行
 
-https://github.com/ot-nemoto/partally/actions/workflows/reset.yml → **Run workflow**（ブランチは `develop`）→ 確認欄に `初期化` と入力して実行する。
+https://github.com/ot-nemoto/partally/actions/workflows/reset.yml → **Run workflow** で、環境とブランチを選び、確認欄に入力して実行する。
 
-- 実行できるのは、リポジトリへの書き込み権限があり、`production` Environment に入れる人だけ（Environment のブランチ制限で `develop` からのみ）。誰がいつ実行したかは Actions の履歴に残る。
-- 確認欄が `初期化` でなければ、何も消さずに止まる。
+| 消す環境 | 環境の欄 | ブランチ | 確認欄 |
+|---|---|---|---|
+| develop | `develop`（既定） | `develop` | `初期化` |
+| 本番 | `production` | `master` | `本番を初期化` |
+
+- ブランチは、その Environment で許可しているものを選ぶ（ほかのブランチでは Environment の制限で止まる）。
+- 実行できるのは、リポジトリへの書き込み権限があり、その Environment に入れる人だけ。誰がいつ実行したかは Actions の履歴に残る。
+- 確認欄が、選んだ環境の文言でなければ、何も消さずに止まる。本番は文言を変えて、環境を取り違えて本番を消さないようにしている。
 - 「Reset」ステップのログに、消したアイテム数と写真の数が出る（例: `結果: {"items":420,"objects":180}`）。
 - 失敗したら、もう一度実行すれば残りを消せる（何度実行しても同じ結果になる）。エラーの詳細は公開ログには出さず、CloudWatch Logs の `ResetLogs` に残る。
 - 初期化の後は、管理画面で QR を発行し直して印刷する。景品も登録し直す。
@@ -408,8 +435,8 @@ https://github.com/ot-nemoto/partally/actions/workflows/reset.yml → **Run work
 
 - **待つ**: 区切りが終わると自動で解ける（15 分以内）。
 - **別の回線から入る**: 接続元ごとの上限なら、スマホの回線などに替えると入れる。
-- **解除のワークフローを実行する**: https://github.com/ot-nemoto/partally/actions/workflows/unlock-admin-login.yml → **Run workflow**（ブランチは `develop`）。試行回数の記録を消すので、すぐに入れる。ほかのデータは消さない。
-  - 実行できるのは、リポジトリへの書き込み権限があり、`production` Environment に入れる人だけ。
+- **解除のワークフローを実行する**: https://github.com/ot-nemoto/partally/actions/workflows/unlock-admin-login.yml → **Run workflow** で、環境（`develop` は既定・ブランチは `develop`、本番は `production`・ブランチは `master`）を選ぶ。試行回数の記録を消すので、すぐに入れる。ほかのデータは消さない。
+  - 実行できるのは、リポジトリへの書き込み権限があり、その Environment に入れる人だけ。
   - 初期化と同じ Lambda を呼ぶので、[本番データの初期化](#本番データの初期化)の「準備」が済んでいれば、ほかの準備は要らない。
   - ログには消した記録の数だけが出る。失敗したときの詳細は CloudWatch Logs の `ResetLogs` に残る。
 
@@ -417,7 +444,7 @@ https://github.com/ot-nemoto/partally/actions/workflows/reset.yml → **Run work
 
 ## 管理者パスワードの変え方
 
-`production` Environment の `PARTALLY_ADMIN_PASSWORD` を新しい値に更新し、CI ワークフローを `develop` で手動実行する（CI が SSM のパラメータを書き換える）。手元からなら、B の手順の `aws ssm put-parameter --overwrite` で書き換える（デプロイし直さなくてよい）。
+その環境の Environment（`develop` / `production`）の `PARTALLY_ADMIN_PASSWORD` を新しい値に更新し、CI ワークフローをその環境のブランチ（`develop` / `master`）で手動実行する（CI が SSM のパラメータを書き換える）。手元からなら、B の手順の `aws ssm put-parameter --overwrite` で書き換える（デプロイし直さなくてよい）。
 
 - 書き換えてから 5 分以内に、API の Lambda が新しいパスワードに切り替わる。切り替わると、それまでにログインしていた管理画面はすべてログインし直しになる（古いパスワードで発行した管理者の Cookie は使えなくなる）。パスワードや Cookie が漏れたおそれがあるときは、これで締め出せる。
 - 参加者のログインには影響しない。
@@ -459,6 +486,8 @@ QR でログインすると、API はブラウザに `session` Cookie を渡す�
 ---
 
 ## 後片付け
+
+環境ごとに、そのアカウントで実行する。
 
 ```sh
 # アプリ本体（CloudFormation コンソールで Partally スタックを削除してもよい）

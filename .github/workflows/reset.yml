@@ -1,18 +1,25 @@
 name: Reset
 
-# 本番データ（参加者・QR・写真・お気に入り・クイズ・景品・スケジュール・設定）をすべて消して、デプロイ直後の状態に戻す。
-# 手動実行のみ。production Environment（develop だけ）で動き、確認欄に「初期化」と入力しないと止まる
+# 選んだ環境のデータ（参加者・QR・写真・お気に入り・クイズ・景品・スケジュール・設定）をすべて消して、デプロイ直後の状態に戻す。
+# 手動実行のみ。選んだ Environment（develop / production）で動く。既定は develop。
+# 確認欄に、develop なら「初期化」、本番（production）なら「本番を初期化」と入力しないと止まる（環境を取り違えて本番を消さないため）
 on:
   workflow_dispatch:
     inputs:
+      environment:
+        description: 初期化する環境（develop：develop 用のアカウント、production：本番）
+        required: true
+        type: choice
+        options: [develop, production]
+        default: develop
       confirm:
-        description: 本番のデータをすべて消します（元に戻せません）。実行するなら「初期化」と入力
+        description: 選んだ環境のデータをすべて消します（元に戻せません）。develop なら「初期化」、production なら「本番を初期化」と入力
         required: true
         type: string
 
 # 二重に動かさない。デプロイとは別のグループにする（同じグループだと、待っている方が後から来た実行に取り消される）
 concurrency:
-  group: reset
+  group: reset-${{ inputs.environment }}
   cancel-in-progress: false
 
 permissions:
@@ -22,21 +29,23 @@ permissions:
 jobs:
   reset:
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment }}
     env:
       AWS_REGION: ap-northeast-1
     steps:
       - name: Check confirmation
         env:
+          TARGET: ${{ inputs.environment }}
           CONFIRM: ${{ inputs.confirm }}
           HAS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN != '' }}
         run: |
-          if [ "$CONFIRM" != "初期化" ]; then
-            echo "::error::確認欄に「初期化」と入力されていないため、何も消さずに終了しました"
+          if [ "$TARGET" = "production" ]; then EXPECTED="本番を初期化"; else EXPECTED="初期化"; fi
+          if [ "$CONFIRM" != "$EXPECTED" ]; then
+            echo "::error::${TARGET} を初期化するには、確認欄に「${EXPECTED}」と入力してください。何も消さずに終了しました"
             exit 1
           fi
           if [ "$HAS_ROLE_ARN" != "true" ]; then
-            echo "::error::production の Environment secrets に AWS_ROLE_ARN を登録してください"
+            echo "::error::${TARGET} の Environment secrets に AWS_ROLE_ARN を登録してください"
             exit 1
           fi
 

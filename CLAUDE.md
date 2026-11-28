@@ -18,7 +18,7 @@
 2. **ブランチで作業する**。`develop`・`master` へ直接 push しない。
 3. **`develop` 宛ての PR を作る**。`.github/pull_request_template.md` に沿って、`Closes #<Issue 番号>` と実際に行った確認とその結果を書く。
 4. **CI とレビューの指摘に対応する**。PR を出したら、エージェントのレビュー（`/code-review`）を必ず通し、指摘は直すか、直さない理由を返す。CI（`.github/workflows/ci.yml`）が通るまで直す。
-5. **マージはユーザが行う**。develop へマージすると、CI（`ci.yml`）がテストの後に本番へ自動でデプロイする（GitHub の `production` Environment でデプロイできるブランチを `develop` に限っている）。デプロイし直すときは、ユーザから指示があったときだけ CI ワークフローを `develop` で手動実行する。
+5. **マージはユーザが行う**。develop へマージすると、CI（`ci.yml`）がテストの後に develop の環境（develop 用の AWS アカウント。GitHub の `develop` Environment）へ自動でデプロイする。本番（別のアカウント。`production` Environment）へは、リリースの PR を master へマージしたときにデプロイする（6.）。Environment ごとに、デプロイできるブランチを 1 つ（`develop` / `master`）に限っている。データの入った環境へ向けて流す E2E は develop の環境に向け、本番には流さない。デプロイし直すときは、ユーザから指示があったときだけ CI ワークフローをその環境のブランチで手動実行する。
 6. **リリースは自動 PR で行う**。毎朝 develop → master の PR が自動で作られ（`auto-pr-to-master.yml`）、付いた `bump:patch` / `bump:minor` ラベルでバージョンが上がる（`bump-version.yml`）。ユーザが「Create a merge commit」でマージすると、master でタグと GitHub Release が作られる（`release.yml`）。Issue に `enhancement` ラベルがあると minor、なければ patch になる。
 
 作業の途中で範囲が変わったら、Issue の作業内容・確認内容も更新する。種類が変わったら、ラベルも付け直す。リリースの PR の `bump:*` ラベルは、翌朝の `auto-pr-to-master.yml` で付け直されるまで古いままなので、それより前にリリースの PR をマージするときは、`auto-pr-to-master.yml` を手動で実行してから、ラベルを確かめる。
