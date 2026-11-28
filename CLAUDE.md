@@ -33,7 +33,7 @@
 
 - PR を出す前に、CI と同じ確認を手元で通す: `npx biome ci .`・`npm run typecheck`・`npm test`・`npm run build`。整形の自動修正は `npm run format`。
 - 画面に関わる変更は、ローカルで API と画面を起動してブラウザで動きを確かめる（起動方法は [docs/development.md](docs/development.md#ローカル開発)）。
-- E2E を流す前には毎回（`E2E_BASE_URL` で検証用の環境へ向けて流すときも）、`e2e` で `npx playwright install --with-deps chromium webkit` を実行する。ブラウザは開発コンテナの中にしか無く、作り直すと消えるため（入っていればすぐ終わる）。
+- E2E を流す前には毎回（`E2E_BASE_URL` で検証用の環境へ向けて流すときも）、`e2e` で `npx playwright install --with-deps chromium webkit` を実行する。ブラウザは開発コンテナの中にしか無く、作り直すと消えるため（入っていても数秒かかり、`sudo` とネットワークを使う）。入れられない環境では、[docs/development.md](docs/development.md) の `--project chromium`・`PLAYWRIGHT_CHROMIUM_PATH` を使う。
 
 ## 資料を更新すること
 
