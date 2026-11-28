@@ -1,8 +1,11 @@
-import { useEffect } from "react";
+import { ordinal, type Rules, type StandingResponse } from "@partally/shared";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { api } from "../api";
 import { CaptureButtons } from "../components/CaptureButtons";
 import { useParticipant } from "../components/ParticipantLayout";
-import { useT } from "../i18n";
+import { PrizeImage } from "../components/PrizeChips";
+import { useLang, useT } from "../i18n";
 import { subscribeQueue } from "../photos/queue";
 
 export function Home() {
@@ -30,6 +33,7 @@ export function Home() {
         <p className="epithet">〈{user.epithet}〉</p>
         <p className="name">{user.name}</p>
       </section>
+      <HomeStanding rules={rules} userId={user.userId} />
       <CaptureButtons />
       <section className="card">
         {/* ポイント・クイズ・ゲームの点数を伏せている間は出さない（API からも返らない） */}
@@ -113,5 +117,57 @@ export function Home() {
         <Link to="/privacy">{t("データの扱い", "How we handle your data")}</Link>
       </p>
     </>
+  );
+}
+
+/**
+ * イベントを終了した後、管理者がオンにしたときだけ、自分の順位とその順位の景品を見せる。
+ * 設定が変わったら取り直す（API も、終了していないかオフなら返さない）
+ */
+function HomeStanding({ rules, userId }: { rules: Rules; userId: string }) {
+  const t = useT();
+  const lang = useLang();
+  const [standing, setStanding] = useState<StandingResponse>();
+  const enabled = rules.eventEndedAt !== undefined && (rules.homeRankVisible || rules.homePrizeVisible);
+  // 終了した時刻・設定・参加者が変わったら取り直す（見せないときは空）
+  const requestKey = enabled
+    ? [rules.eventEndedAt, rules.homeRankVisible, rules.homePrizeVisible, userId].join("|")
+    : "";
+
+  useEffect(() => {
+    setStanding(undefined);
+    if (!requestKey) return;
+    let active = true;
+    // 読めなかったとき（設定が変わった直後の 404 など）は出さない
+    api<StandingResponse>("GET", "/me/standing")
+      .then((res) => active && setStanding(res))
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [requestKey]);
+
+  if (!enabled || !standing) return null;
+  const { rank, prizes } = standing;
+  if (rank === undefined && !prizes?.length) return null;
+  return (
+    <section className="card home-standing-card">
+      {rank !== undefined && (
+        <p className="home-rank">
+          <span className="muted small">{t("あなたの順位", "Your rank")}</span>
+          <span className="home-rank-value">{lang === "en" ? ordinal(rank) : `${rank} 位`}</span>
+        </p>
+      )}
+      {prizes && prizes.length > 0 && (
+        <ul className="home-prizes">
+          {prizes.map((p) => (
+            <li key={p.prizeId}>
+              <PrizeImage prize={p} />
+              <span className="home-prize-name">{p.name}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

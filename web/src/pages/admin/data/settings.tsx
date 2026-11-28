@@ -66,8 +66,8 @@ export function SettingsPreview(props: { settings: SettingsArchive }) {
     [
       t("参加者への公開", "What participants can see"),
       t(
-        `ランキング ${show(s.rankingVisible)}・推移 ${show(s.trendVisible)}・景品 ${show(s.prizesVisible)}・スケジュール ${show(s.scheduleVisible)}・ゲームの結果 ${show(s.gameResultsVisible)}`,
-        `Ranking ${show(s.rankingVisible)} · trend ${show(s.trendVisible)} · prizes ${show(s.prizesVisible)} · schedule ${show(s.scheduleVisible)} · game results ${show(s.gameResultsVisible)}`,
+        `ランキング ${show(s.rankingVisible)}・推移 ${show(s.trendVisible)}・景品 ${show(s.prizesVisible)}・スケジュール ${show(s.scheduleVisible)}・ゲームの結果 ${show(s.gameResultsVisible)}・ホームの順位 ${show(s.homeRankVisible)}・ホームの景品 ${show(s.homePrizeVisible)}`,
+        `Ranking ${show(s.rankingVisible)} · trend ${show(s.trendVisible)} · prizes ${show(s.prizesVisible)} · schedule ${show(s.scheduleVisible)} · game results ${show(s.gameResultsVisible)} · home rank ${show(s.homeRankVisible)} · home prize ${show(s.homePrizeVisible)}`,
       ),
     ],
   ];
