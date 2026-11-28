@@ -1,12 +1,14 @@
 name: CI
 
-# develop 宛ての PR と develop への push で、lint・型チェック・テスト・ビルドと E2E テストを行う。
-# develop への push（PR のマージ）と手動実行（develop を選んだとき）は、続けて本番へデプロイする
+# develop 宛ての PR と、develop・master への push で、lint・型チェック・テスト・ビルドと E2E テストを行う。
+# push（PR のマージ）と手動実行は、続けてブランチの環境へデプロイする。環境ごとに AWS のアカウントが別になる
+# - develop → GitHub の Environment `develop`（develop 用のアカウント）
+# - master（リリースの PR のマージ）→ Environment `production`（本番のアカウント）
 on:
   pull_request:
     branches: [develop]
   push:
-    branches: [develop]
+    branches: [develop, master]
   workflow_dispatch:
 
 # PR は PR ごとのグループで、新しい push が来たら古い実行を取り消す。
@@ -76,19 +78,21 @@ jobs:
 
   deploy:
     needs: [check, e2e]
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/develop'
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
-    environment: production
+    # ブランチで Environment を選ぶ。Environment ごとに、デプロイできるブランチを 1 つに絞っている（docs/setup.md）
+    environment: ${{ github.ref_name == 'master' && 'production' || 'develop' }}
     # デプロイは 1 つずつ行う（CloudFormation は同時の更新を待たずに失敗させる）。
     # 待っているデプロイは新しいものに置き換わるが、新しい方は古いコミットも含むので問題ない
     concurrency:
-      group: deploy
+      group: deploy-${{ github.ref_name }}
       cancel-in-progress: false
     permissions:
       id-token: write # OIDC で AWS のロールを引き受けるため（デプロイのジョブだけに与える）
       contents: read
     env:
       AWS_REGION: ap-northeast-1
+      DEPLOY_ENV: ${{ github.ref_name == 'master' && 'production' || 'develop' }}
       PARTALLY_BUDGET_EMAIL: ${{ secrets.PARTALLY_BUDGET_EMAIL }}
       PARTALLY_BUDGET_USD: ${{ vars.PARTALLY_BUDGET_USD }}
     steps:
@@ -99,29 +103,29 @@ jobs:
           HAS_ADMIN_PASSWORD: ${{ secrets.PARTALLY_ADMIN_PASSWORD != '' }}
         run: |
           if [ "$HAS_ROLE_ARN" != "true" ]; then
-            echo "::error::production の Environment secrets に AWS_ROLE_ARN を登録してください（Variables ではログにアカウント ID が出るため使いません）"
+            echo "::error::${DEPLOY_ENV} の Environment secrets に AWS_ROLE_ARN を登録してください（Variables ではログにアカウント ID が出るため使いません）"
             exit 1
           fi
           if [ "$HAS_ADMIN_PASSWORD" != "true" ]; then
-            echo "::error::production の Environment secrets に PARTALLY_ADMIN_PASSWORD を登録してください"
+            echo "::error::${DEPLOY_ENV} の Environment secrets に PARTALLY_ADMIN_PASSWORD を登録してください"
             exit 1
           fi
 
       - uses: actions/checkout@v7
 
       # テストの終わる順でデプロイが前後すると、古いコードが後から反映される。
-      # develop に後から入ったコミットがあれば、その実行に任せてデプロイしない。
+      # 同じブランチに後から入ったコミットがあれば、その実行に任せてデプロイしない。
       # ただし bump-version.yml のコミット（github-actions[bot]）は CI が動かないので数えない
       - name: Check latest commit
         id: latest
         run: |
-          git fetch --quiet origin develop
+          git fetch --quiet origin "$GITHUB_REF_NAME"
           NEWER=$(git log "$GITHUB_SHA..FETCH_HEAD" --format=%an | grep -cvx 'github-actions\[bot\]' || true)
           if [ "$NEWER" = "0" ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           else
             echo "deploy=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::develop に新しいコミットがあるため、このコミットのデプロイは省略しました（新しい実行がデプロイします）"
+            echo "::notice::${GITHUB_REF_NAME} に新しいコミットがあるため、このコミットのデプロイは省略しました（新しい実行がデプロイします）"
           fi
 
       - uses: actions/setup-node@v7
@@ -197,7 +201,7 @@ jobs:
           {
             echo "### デプロイ先"
             echo
-            echo "URL は公開のログに出していません。AWS にログインして、CloudFormation のスタック Partally の Outputs で確かめてください。"
+            echo "環境: ${DEPLOY_ENV}。URL は公開のログに出していません。${DEPLOY_ENV} の AWS アカウントにログインして、CloudFormation のスタック Partally の Outputs で確かめてください。"
             echo
             echo "- [Partally の Outputs](${CONSOLE}#/stacks/outputs?stackId=Partally)"
             echo "- [スタックの一覧（Partally で絞り込み）](${CONSOLE}#/stacks?filteringText=Partally)"

@@ -2,7 +2,7 @@
 
 partally に必要な E2E（ブラウザを通した）テストの一覧と、実環境で試した結果をまとめる。機能のルールは [機能仕様書](spec.md)、開発の手順は [開発ガイド](development.md) を参照。
 
-E2E は `e2e/tests` に Playwright で実装している（#193）。今は P0 の 12 本を `e2e/tests/p0.spec.ts` に、P1 のうち実装したもの（「実装済み」と書いたもの）を `e2e/tests/p1.spec.ts` に、P2 のうち実装したものを `e2e/tests/p2.spec.ts` に、ゲーム（P1・P2。テスト名の頭に `P1`・`P2` を付ける）を `e2e/tests/game.spec.ts` に、3 章「公開・設定・移行・言語・景品・スケジュール」と、それにかかわる P2 を `e2e/tests/settings.spec.ts`（参加者への公開・ポイントの設定・景品・ゲームの結果・Trend）・`e2e/tests/schedule.spec.ts`（スケジュール）・`e2e/tests/data.spec.ts`（データの移行）・`e2e/tests/screens.spec.ts`（言語・スマホの幅・以前の URL・QR の印刷・XSS）に、3 章「参加・認証」と、それにかかわる P2 を `e2e/tests/auth.spec.ts` に、3 章「写真・お気に入り」と、それにかかわる P2 を `e2e/tests/photos.spec.ts` に、CSP を効かせた確認（5 章）を `e2e/tests/csp.spec.ts` に置き、`npm run e2e` で実行する。CI（`.github/workflows/ci.yml`）の `e2e` ジョブでも実行し、通らないと本番へデプロイしない。一覧の P1・P2 は、すべて実装した（#268 まで）。
+E2E は `e2e/tests` に Playwright で実装している（#193）。今は P0 の 12 本を `e2e/tests/p0.spec.ts` に、P1 のうち実装したもの（「実装済み」と書いたもの）を `e2e/tests/p1.spec.ts` に、P2 のうち実装したものを `e2e/tests/p2.spec.ts` に、ゲーム（P1・P2。テスト名の頭に `P1`・`P2` を付ける）を `e2e/tests/game.spec.ts` に、3 章「公開・設定・移行・言語・景品・スケジュール」と、それにかかわる P2 を `e2e/tests/settings.spec.ts`（参加者への公開・ポイントの設定・景品・ゲームの結果・Trend）・`e2e/tests/schedule.spec.ts`（スケジュール）・`e2e/tests/data.spec.ts`（データの移行）・`e2e/tests/screens.spec.ts`（言語・スマホの幅・以前の URL・QR の印刷・XSS）に、3 章「参加・認証」と、それにかかわる P2 を `e2e/tests/auth.spec.ts` に、3 章「写真・お気に入り」と、それにかかわる P2 を `e2e/tests/photos.spec.ts` に、CSP を効かせた確認（5 章）を `e2e/tests/csp.spec.ts` に置き、`npm run e2e` で実行する。CI（`.github/workflows/ci.yml`）の `e2e` ジョブでも実行し、通らないとデプロイしない（develop の環境へも本番へも）。一覧の P1・P2 は、すべて実装した（#268 まで）。
 
 ## 1. 前提：既存テストとの分担
 
@@ -254,7 +254,9 @@ E2E の対象は、API テストでは検証できない次のものに限る。
 
 ### データの入った環境へ向けて流す
 
-検証用の本番相当の環境など、データの入った環境へ向けて流すときは、`E2E_BASE_URL` にその環境の URL（ホストまで。パスは付けない）を、`ADMIN_PASSWORD` にその環境の管理者パスワードを入れる。イベントで使っている環境（当日や、参加者がいる間）には流さない（下の注意のとおり、設定・ゲーム・イベントの終了を動かすため）。
+デプロイした環境へ向けて流すときは、**develop の環境**（develop へのマージでデプロイされる、develop 用のアカウントの環境。[初期設定・デプロイ手順](setup.md#環境は-2-つアカウントも別)）に向ける。`E2E_BASE_URL` にその環境の URL（ホストまで。パスは付けない）を、`ADMIN_PASSWORD` にその環境の管理者パスワードを入れる。本番（master）には流さない（#304）。下の注意のとおり、設定・ゲーム・イベントの終了を動かし、テストのデータが残るため。
+
+URL と管理者パスワードは、リポジトリ・Issue・PR・Actions のログに書かない（公開リポジトリのため）。流すときに環境変数で渡す。
 
 ```sh
 (cd e2e && npx playwright install --with-deps chromium webkit)   # 流す前に毎回（数秒。sudo とネットワークを使う）
