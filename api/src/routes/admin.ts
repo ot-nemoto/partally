@@ -58,6 +58,11 @@ export function registerAdminRoutes(app: Hono<Env>, ctx: AppContext) {
 
   app.post("/admin/event/reopen", async (c) => {
     await repo.deleteEventEnd();
+    // ホームでの順位・景品の発表はオフに戻す（オンのまま残すと、次に終了した瞬間に、発表する前の順位・景品が出てしまう）
+    const settings = await repo.getSettings();
+    if (settings.homeRankVisible || settings.homePrizeVisible) {
+      await repo.putSettings({ ...settings, homeRankVisible: false, homePrizeVisible: false });
+    }
     return c.json({});
   });
 

@@ -530,7 +530,7 @@ sequenceDiagram
 | DELETE | `/api/admin/schedule/{itemId}` | 項目を削除（何もなくなった列は詰める） |
 | GET | `/api/admin/event` | イベントの終了の状態 `{endedAt?}` |
 | POST | `/api/admin/event/end` | イベントを終了する（今の時刻と、全員の写真・お気に入りの数を残す）。既に終了しているか、開催中のゲーム・ラウンドがあれば 409 |
-| POST | `/api/admin/event/reopen` | イベントの終了を取り消す（終了した後の分も数える） |
+| POST | `/api/admin/event/reopen` | イベントの終了を取り消す（終了した後の分も数える）。`homeRankVisible`・`homePrizeVisible` をオフに戻す |
 | GET / PUT | `/api/admin/settings` | 設定（公開方法・ポイント・お気に入り）の取得・更新。PUT は全項目を送る（後から追加した `showPoints`・`showGamePoints`・`favoriteGivenPoints`・参加者への公開の項目（`prizesVisible` を含む）・`tieBreakOrder` は省略可で、省略時は今の値を残す。`tieBreakOrder` は 5 項目を 1 回ずつ並べたものでなければ 400） |
 
 ### 6.3 紐づけ解除の挙動

@@ -308,11 +308,16 @@ test.describe("参加者への公開", () => {
       await expect(a.page.locator(".home-rank-value")).toHaveText(`${rank} 位`);
       await expect(a.page.locator(".home-prizes")).toContainText(prizeName);
 
-      // 終了を取り消すと、オンのままでも出ない
+      // 終了を取り消すと、どちらもオフに戻り、出ない
       await adm.getByRole("button", { name: "終了を取り消す" }).click();
       await acceptConfirm(adm);
       await expect(adm.getByRole("button", { name: "イベントを終了する" })).toBeVisible();
+      await expect(rankSwitch).not.toBeChecked();
       await expect(rankSwitch).toBeDisabled();
+      await expect(prizeSwitch).not.toBeChecked();
+      await expect(prizeSwitch).toBeDisabled();
+      // 画面の値も保存済みの値に合わせているので、保存し直す必要はない
+      await expect(adm.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
       await a.page.goto("/");
       await expect(a.page.locator(".event-ended")).toHaveCount(0);
       await expect(a.page.locator(".home-standing-card")).toHaveCount(0);

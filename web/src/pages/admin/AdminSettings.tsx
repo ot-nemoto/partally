@@ -320,7 +320,15 @@ export function AdminSettings() {
       )}
       <EventEndCard
         endedAt={endedAt}
-        onEndedAtChange={setEndedAt}
+        onEndedAtChange={(next) => {
+          setEndedAt(next);
+          // 終了を取り消すと、サーバでホームでの発表をオフに戻すので、画面の値（保存済みの値も）を合わせる
+          if (next === null) {
+            const off = { homeRankVisible: false, homePrizeVisible: false };
+            setSettings((prev) => prev && { ...prev, ...off });
+            setSaved((prev) => prev && { ...prev, ...off });
+          }
+        }}
         loadError={eventError}
         settings={settings}
         update={update}
@@ -419,14 +427,15 @@ function EventEndCard({
                   "Turn on and press “Save” above to show it on each participant’s home screen. Ranks use the points when the event ended and, like prizes, skip unlinked people.",
                 )
               : t(
-                  "イベントを終了すると切り替えられます（終了を取り消すと、オンでも参加者には出ません）。",
-                  "Available after the event ends (if you undo the end, participants don’t see it even when on).",
+                  "イベントを終了するとオンにできます（終了を取り消すと、どちらもオフに戻ります）。",
+                  "You can turn these on after the event ends (undoing the end turns both off).",
                 )}
           </p>
           <SwitchField
             label={t("参加者のホーム画面に自分の順位を表示する", "Show each participant’s rank on their home screen")}
             checked={settings.homeRankVisible}
-            disabled={!endedAt}
+            // 終了していない間はオンにできない（取り込みなどでオンになっていたら、オフには戻せる）
+            disabled={!endedAt && !settings.homeRankVisible}
             onChange={(v) => update("homeRankVisible", v)}
           />
           <SwitchField
@@ -435,7 +444,7 @@ function EventEndCard({
               "Show the prize for their rank (image and name) on their home screen",
             )}
             checked={settings.homePrizeVisible}
-            disabled={!endedAt}
+            disabled={!endedAt && !settings.homePrizeVisible}
             onChange={(v) => update("homePrizeVisible", v)}
           />
         </div>

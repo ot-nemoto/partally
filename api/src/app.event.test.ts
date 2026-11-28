@@ -192,9 +192,15 @@ describe("API", () => {
       await set({ homeRankVisible: false, homePrizeVisible: false });
       expect(await standing(a.request)).toBe(404);
 
-      // 終了を取り消すと、オンでも返さない
+      // 終了を取り消すと、どちらもオフに戻り、返さない（もう一度終了しても、オンにするまで出ない）
       await set({ homeRankVisible: true, homePrizeVisible: true });
       await admin("POST", "/api/admin/event/reopen");
+      expect((await admin("GET", "/api/admin/settings")).body.settings).toMatchObject({
+        homeRankVisible: false,
+        homePrizeVisible: false,
+      });
+      expect(await standing(a.request)).toBe(404);
+      await admin("POST", "/api/admin/event/end");
       expect(await standing(a.request)).toBe(404);
       // ログインしていなければ 401
       expect((await createClient(t.app)("GET", "/api/me/standing")).status).toBe(401);
