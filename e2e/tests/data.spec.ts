@@ -112,7 +112,8 @@ test("P1 ZIP に書き出したゲーム（ラウンドを含む）・景品（�
     column: 49,
     hidden: true,
   });
-  await updateSettings(admin, { uploadPoints: 7, rankingVisible: true, scheduleDate: date });
+  // ホームでの発表は、終了する前でも取り込みでオンになり得る（順位だけオン・景品はオフで、取り違えないことも確かめる）
+  await updateSettings(admin, { uploadPoints: 7, rankingVisible: true, scheduleDate: date, homeRankVisible: true });
   const { page: adm } = await adminPage(browser);
   await adm.goto("/admin/prizes");
   await adm.getByRole("button", { name: "景品を登録" }).click();
@@ -157,6 +158,7 @@ test("P1 ZIP に書き出したゲーム（ラウンドを含む）・景品（�
   expect(items.map((i) => i.hidden)).toEqual([true]);
   expect(manifest.schedule.date).toBe(date);
   expect(manifest.settings.uploadPoints).toBe(7);
+  expect([manifest.settings.homeRankVisible, manifest.settings.homePrizeVisible]).toEqual([true, false]);
 
   // このテストで作ったものだけの ZIP にする（書き出した ZIP と同じ読み方で、画像も含めて読む）
   const parsedGames = parseGames(games, contents.file);
@@ -187,6 +189,9 @@ test("P1 ZIP に書き出したゲーム（ラウンドを含む）・景品（�
   await expect(dialog.getByText("スケジュール（1 件）", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("cell", { name: /（見せない）/ })).toBeVisible();
   await dialog.getByRole("checkbox", { name: "設定", exact: true }).check();
+  await expect(dialog.getByRole("row", { name: /^参加者への公開/ })).toContainText(
+    "ホームの順位 見せる・ホームの景品 見せない",
+  );
   await dialog.getByRole("checkbox", { name: new RegExp(`^イベントの日付も取り込む（${date}`) }).check();
   await dialog.getByRole("button", { name: "取り込む" }).click();
   await acceptConfirm(adm);
@@ -214,6 +219,7 @@ test("P1 ZIP に書き出したゲーム（ラウンドを含む）・景品（�
   // 設定と日付も戻る
   const { settings } = await admin.get("/admin/settings");
   expect([settings.uploadPoints, settings.rankingVisible, settings.scheduleDate]).toEqual([7, true, date]);
+  expect([settings.homeRankVisible, settings.homePrizeVisible]).toEqual([true, false]);
 });
 
 test("P2 不正な ZIP は何も取り込まずに理由が出て、以前の形式（景品・ゲームの ZIP、スケジュールの JSON）は取り込める", async ({
