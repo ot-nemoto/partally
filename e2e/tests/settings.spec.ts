@@ -7,6 +7,7 @@ import {
   adminPage,
   choosePhoto,
   homePoints,
+  issueToken,
   jpeg,
   participant,
   unique,
@@ -66,6 +67,35 @@ const rankingRow = (page: Page, name: string) => page.locator(".ranking-table tb
 /** 参加者のランキングの、その人の順位 */
 async function rankOf(page: Page, name: string): Promise<number> {
   return Number(await rankingRow(page, name).locator("td").first().textContent());
+}
+
+/** 同じブラウザ（端末）で、もう 1 人を登録する。登録した人が今の参加者になる */
+async function registerOnSameDevice(page: Page, name: string) {
+  const token = await issueToken(admin);
+  const res = await page.request.post("/api/auth/register", { data: { token, name, pin: "1234" } });
+  expect(res.ok()).toBe(true);
+  return (await res.json()).user as { userId: string; name: string };
+}
+
+/** 画面の上の、参加者を切り替える名前のボタン */
+const switchButton = (page: Page, name: string) =>
+  page.getByRole("group", { name: "参加者の切り替え" }).getByRole("button").filter({ hasText: name });
+
+/** 管理画面の Setting の、ホームでの発表のスイッチ */
+const homeSwitches = (adm: Page) => ({
+  rank: adm.getByRole("switch", { name: "参加者のホーム画面に自分の順位を表示する" }),
+  prize: adm.getByRole("switch", { name: "参加者のホーム画面に自分の順位の景品" }),
+});
+
+/** その環境のイベントが既に終了していたら流さない（最後の取り消しで、その環境の終了まで消してしまう） */
+async function skipIfEnded() {
+  const { endedAt } = await admin.get("/admin/event");
+  test.skip(!!endedAt, "イベントが既に終了している環境では、終了の記録を消さないよう流さない");
+}
+
+/** ほかのテストのために、終了したままにしない */
+async function reopenIfEnded() {
+  if ((await admin.get("/admin/event")).endedAt) await admin.post("/admin/event/reopen");
 }
 
 /** 管理画面の Setting で、設定を保存する */
@@ -376,6 +406,227 @@ test.describe("参加者への公開", () => {
       // ほかのテストのために、終了したままにせず、作った景品を消す
       if ((await admin.get("/admin/event")).endedAt) await admin.post("/admin/event/reopen");
       for (const id of prizeIds) await admin.del(`/admin/prizes/${id}`);
+    }
+  });
+  test("P1 ラウンドが開始中だと、English の管理画面でもイベントを終了できない理由が出る。ラウンド（ゲーム）を終了すると終了できる", async ({
+    browser,
+  }) => {
+    await skipIfEnded();
+    const { game } = await admin.post("/admin/games", {
+      format: "quiz",
+      name: unique("E2E のラウンドの問題"),
+      choices: [
+        { text: "A", points: 10 },
+        { text: "B", points: 0 },
+      ],
+    });
+    const { round } = await admin.post("/admin/rounds", {
+      name: unique("E2E の開催中のラウンド"),
+      gameIds: [game.gameId],
+    });
+    await admin.post(`/admin/rounds/${round.roundId}/open`);
+    try {
+      const { page: adm } = await adminPage(browser);
+      await adm.goto("/admin/settings");
+      await adm
+        .getByRole("group", { name: "Language / 言語" })
+        .first()
+        .getByRole("button", { name: "English" })
+        .click();
+      const end = adm.getByRole("button", { name: "End the event" });
+
+      // ラウンドの中のゲームは単独では開始中でないが、ラウンドが開始中なので終了できず、理由が出る
+      await end.click();
+      await acceptConfirm(adm);
+      await expect(adm.locator(".event-end .error")).toContainText("This can’t be done right now.");
+      await expect(adm.locator(".event-end .error")).toContainText("開催中のゲームがあります");
+      expect((await admin.get("/admin/event")).endedAt).toBeUndefined();
+
+      // ラウンドを終了する（中のゲームも終了する）と、終了できる
+      await admin.post(`/admin/rounds/${round.roundId}/confirm`);
+      await end.click();
+      await acceptConfirm(adm);
+      await expect(adm.getByRole("button", { name: "Undo end" })).toBeVisible();
+      await expect(adm.locator(".event-end .error")).toHaveCount(0);
+      expect((await admin.get("/admin/event")).endedAt).toBeTruthy();
+    } finally {
+      const current = ((await admin.get("/admin/rounds")).rounds as { roundId: string; status: string }[]).find(
+        (r) => r.roundId === round.roundId,
+      );
+      if (current?.status === "open") await admin.post(`/admin/rounds/${round.roundId}/stop`);
+      await reopenIfEnded();
+    }
+  });
+
+  test("P1 ホームの順位は、紐づけを解除した人を除いて数え、「イベント情報」のランキング・景品と一致し、終了した時点で止まる。端末で切り替えると、その人の順位になる", async ({
+    browser,
+  }) => {
+    await skipIfEnded();
+    // 解除する人（いちばん多い）・上の人・下の人（0 点）。上と下は同じ端末で、後から登録した下が今の参加者
+    const gone = await participant(browser, admin, unique("発表 解除"));
+    const top = await participant(browser, admin, unique("発表 上"));
+    const { page } = top;
+    const low = await registerOnSameDevice(page, unique("発表 下"));
+    await award(gone.user.userId, 100, "E2E の発表 解除 1");
+    await award(gone.user.userId, 100, "E2E の発表 解除 2");
+    await award(top.user.userId, 100, "E2E の発表 上");
+    await admin.post(`/admin/users/${gone.user.userId}/unbind`);
+    await updateSettings(admin, { rankingVisible: true, prizesVisible: true });
+    await admin.post("/admin/event/end");
+    const prizeIds: string[] = [];
+    try {
+      // 終了した時点の順位（幹事のランキングは解除した人も並ぶ。順位は解除した人を除いて上から数える）
+      const { ranking }: RankingResponse = await admin.get("/admin/ranking");
+      const indexOf = (userId: string) => ranking.findIndex((r) => r.userId === userId);
+      const bound = ranking.filter((r) => r.status !== "unbound");
+      const rankOfUser = (userId: string) => bound.findIndex((r) => r.userId === userId) + 1;
+      const topRank = rankOfUser(top.user.userId);
+      const lowRank = rankOfUser(low.userId);
+      expect(indexOf(gone.user.userId)).toBeLessThan(indexOf(top.user.userId));
+      expect(topRank).toBeGreaterThan(0);
+      expect(topRank).toBeLessThan(indexOf(top.user.userId) + 1);
+      expect(lowRank).toBeGreaterThan(topRank);
+
+      // 上の人の順位に景品を 1 つ足す（その順位には、ほかの景品もあればそれも出る）
+      const prizeName = unique("E2E 発表の景品");
+      prizeIds.push(
+        (await admin.post("/admin/prizes", { name: prizeName, quantity: 1, positions: [topRank] })).prize.prizeId,
+      );
+      const prizesAt = async (rank: number) =>
+        ((await admin.get("/admin/prizes")).prizes as { name: string; positions: number[] }[])
+          .filter((p) => p.positions.includes(rank))
+          .map((p) => p.name)
+          .sort();
+      const topPrizes = await prizesAt(topRank);
+      expect(topPrizes).toContain(prizeName);
+      // 下の人（0 点で最後に登録した人）の順位には景品が無い
+      expect(await prizesAt(lowRank)).toEqual([]);
+      await updateSettings(admin, { homeRankVisible: true, homePrizeVisible: true });
+
+      const card = page.locator(".home-standing-card");
+      const homePrizeNames = async () => (await card.locator(".home-prize-name").allTextContents()).sort();
+
+      // 今の参加者（下の人）は、景品の無い順位なので、順位だけが出る
+      await page.goto("/");
+      await expect(page.locator(".profile .name")).toHaveText(low.name);
+      await expect(card.locator(".home-rank-value")).toHaveText(`${lowRank} 位`);
+      await expect(card.locator(".home-prizes")).toHaveCount(0);
+
+      // 上の人に切り替えると、その人の順位と景品になる
+      await switchButton(page, top.user.name).click();
+      await expect(page.locator(".profile .name")).toHaveText(top.user.name);
+      await expect(card.locator(".home-rank-value")).toHaveText(`${topRank} 位`);
+      await expect.poll(homePrizeNames).toEqual(topPrizes);
+
+      // 「イベント情報」のランキングの順位・景品、景品一覧の順位と一致する。解除した人は並ばない
+      await page.getByRole("link", { name: "イベント情報" }).click();
+      await page.getByRole("tab", { name: "ランキング" }).click();
+      await expect(rankingRow(page, top.user.name).locator("td").first()).toHaveText(String(topRank));
+      await expect(rankingRow(page, low.name).locator("td").first()).toHaveText(String(lowRank));
+      await expect(rankingRow(page, gone.user.name)).toHaveCount(0);
+      expect((await rankingRow(page, top.user.name).locator(".prize-chips li").allTextContents()).sort()).toEqual(
+        topPrizes,
+      );
+      await expect(rankingRow(page, low.name).locator(".prize-chips")).toHaveCount(0);
+      await page.getByRole("tab", { name: "景品" }).click();
+      await expect(page.locator(".prize-list-item", { hasText: prizeName }).locator(".prize-positions")).toHaveText(
+        `${topRank} 位`,
+      );
+
+      // 終了した後に下の人の点が上の人より多くなっても、ホームの順位は変わらない
+      await award(low.userId, 100, "E2E の発表 終了後 1");
+      await award(low.userId, 100, "E2E の発表 終了後 2");
+      await page.goto("/");
+      await expect(card.locator(".home-rank-value")).toHaveText(`${topRank} 位`);
+      await switchButton(page, low.name).click();
+      await expect(page.locator(".profile .name")).toHaveText(low.name);
+      await expect(card.locator(".home-rank-value")).toHaveText(`${lowRank} 位`);
+
+      // ランキング・景品・ポイントを参加者に見せない設定でも、ホームには出る
+      await updateSettings(admin, { rankingVisible: false, prizesVisible: false, showPoints: false });
+      await switchButton(page, top.user.name).click();
+      await expect(page.locator(".profile .name")).toHaveText(top.user.name);
+      await expect(page.getByRole("link", { name: "イベント情報" })).toHaveCount(0);
+      await expect(page.locator(".points-value")).toHaveCount(0);
+      await expect(card.locator(".home-rank-value")).toHaveText(`${topRank} 位`);
+      await expect.poll(homePrizeNames).toEqual(topPrizes);
+
+      // 景品だけを出すと、景品の無い順位の人にはカードそのものが出ない
+      await updateSettings(admin, { homeRankVisible: false });
+      await page.reload();
+      await expect.poll(homePrizeNames).toEqual(topPrizes);
+      await expect(card.locator(".home-rank")).toHaveCount(0);
+      await switchButton(page, low.name).click();
+      await expect(page.locator(".profile .name")).toHaveText(low.name);
+      await expect(page.locator(".event-ended")).toBeVisible();
+      await expect(card).toHaveCount(0);
+    } finally {
+      await reopenIfEnded();
+      for (const id of prizeIds) await admin.del(`/admin/prizes/${id}`);
+    }
+  });
+
+  test("P2 終了の前にオンになっていてもホームには出ず、オフに戻せる。スイッチは保存するまで効かず、取り消してもう一度終了しても、オンにするまで出ない", async ({
+    browser,
+  }) => {
+    await skipIfEnded();
+    const a = await participant(browser, admin, unique("発表 保存"));
+    await award(a.user.userId, 10, "E2E の発表 保存");
+    // データの取り込みなどで、終了する前にオンになっている
+    await updateSettings(admin, { homeRankVisible: true, homePrizeVisible: true });
+    const { page: adm } = await adminPage(browser);
+    const { rank: rankSwitch, prize: prizeSwitch } = homeSwitches(adm);
+    const card = a.page.locator(".home-standing-card");
+    try {
+      // 終了していないのでホームには出ない
+      await a.page.goto("/");
+      await expect(a.page.locator(".profile .name")).toHaveText(a.user.name);
+      await expect(a.page.locator(".event-ended")).toHaveCount(0);
+      await expect(card).toHaveCount(0);
+
+      // オンのスイッチはオフに戻せ、戻すとオンにはできなくなる
+      await adm.goto("/admin/settings");
+      await expect(rankSwitch).toBeChecked();
+      await expect(rankSwitch).toBeEnabled();
+      await expect(prizeSwitch).toBeChecked();
+      await expect(prizeSwitch).toBeEnabled();
+      await rankSwitch.uncheck();
+      await expect(rankSwitch).toBeDisabled();
+      await expect(prizeSwitch).toBeEnabled();
+      await prizeSwitch.uncheck();
+      await expect(prizeSwitch).toBeDisabled();
+      await saveSettings(adm);
+      expect((await admin.get("/admin/settings")).settings).toMatchObject({
+        homeRankVisible: false,
+        homePrizeVisible: false,
+      });
+
+      // 終了してスイッチをオンにしても、保存するまでは参加者のホームに出ない
+      await adm.getByRole("button", { name: "イベントを終了する" }).click();
+      await acceptConfirm(adm);
+      await expect(adm.getByRole("button", { name: "終了を取り消す" })).toBeVisible();
+      await rankSwitch.check();
+      await a.page.reload();
+      await expect(a.page.locator(".event-ended")).toBeVisible();
+      await expect(card).toHaveCount(0);
+      await saveSettings(adm);
+      await a.page.reload();
+      await expect(card.locator(".home-rank-value")).toBeVisible();
+
+      // 取り消してから、もう一度終了しても、オフのまま（オンにするまで出ない）
+      await adm.getByRole("button", { name: "終了を取り消す" }).click();
+      await acceptConfirm(adm);
+      await adm.getByRole("button", { name: "イベントを終了する" }).click();
+      await acceptConfirm(adm);
+      await expect(adm.getByRole("button", { name: "終了を取り消す" })).toBeVisible();
+      await expect(rankSwitch).toBeEnabled();
+      await expect(rankSwitch).not.toBeChecked();
+      await expect(prizeSwitch).not.toBeChecked();
+      await a.page.reload();
+      await expect(a.page.locator(".event-ended")).toBeVisible();
+      await expect(card).toHaveCount(0);
+    } finally {
+      await reopenIfEnded();
     }
   });
 });
