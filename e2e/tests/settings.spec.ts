@@ -539,14 +539,18 @@ test.describe("参加者への公開", () => {
       await expect(rankingRow(page, top.user.name).locator("td").first()).toHaveText(String(topRank));
       await expect(rankingRow(page, low.name).locator("td").first()).toHaveText(String(lowRank));
       await expect(rankingRow(page, gone.user.name)).toHaveCount(0);
-      expect((await rankingRow(page, top.user.name).locator(".prize-chips li").allTextContents()).sort()).toEqual(
-        topPrizes,
-      );
+      expect(
+        (
+          await rankingRow(page, top.user.name).locator(".prize-chips li > span:not(.prize-image)").allTextContents()
+        ).sort(),
+      ).toEqual(topPrizes);
       if (lowPrizes.length === 0) await expect(rankingRow(page, low.name).locator(".prize-chips")).toHaveCount(0);
       else
-        expect((await rankingRow(page, low.name).locator(".prize-chips li").allTextContents()).sort()).toEqual(
-          lowPrizes,
-        );
+        expect(
+          (
+            await rankingRow(page, low.name).locator(".prize-chips li > span:not(.prize-image)").allTextContents()
+          ).sort(),
+        ).toEqual(lowPrizes);
       await page.getByRole("tab", { name: "景品" }).click();
       await expect(page.locator(".prize-list-item", { hasText: prizeName }).locator(".prize-positions")).toHaveText(
         `${topRank} 位`,
